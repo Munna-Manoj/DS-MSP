@@ -58,17 +58,22 @@ python validate.py --config test_config.json
 ```
 
 **What happens:**
-1.  Loads `test_image_96.jpg` and its intrinsics from `test_config.json`.
-2.  Estimates the camera pose using our robust **Double Sphere PnP** solver.
-3.  Reprojects the 3D checkerboard points onto the image.
-4.  Saves the result to `results/visualizations/validate_single.png`.
+1.  Loads test images (`test_image.jpg`, `test_image_96.jpg`) and intrinsics from `test_config.json`.
+2.  Estimates the camera pose for each image using our robust **Double Sphere PnP** solver.
+3.  Reprojects the 3D checkerboard points onto the images.
+4.  Saves the results to `results/visualizations/validate_test_image.png` and `validate_test_image_96.png`.
 
 **Expected Output:**
 ```text
-Validating single image from config: test_config.json
+Validating images from config: test_config.json
+
+Processing: test_image.jpg
+Pose Estimation Success.
+RMS Reprojection Error: 0.4344 px
+
+Processing: test_image_96.jpg
 Pose Estimation Success.
 RMS Reprojection Error: 0.8481 px
-Saved visualization to .../validate_single.png
 ```
 
 ---

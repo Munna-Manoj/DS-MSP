@@ -210,10 +210,10 @@ def main_validate():
 
 def validate_single_config(config_path: str):
     """
-    Validate a single image using a standalone config file (e.g., test_config.json).
+    Validate images using a standalone config file (e.g., test_config.json).
     This does NOT require previous calibration results.
     """
-    print(f"Validating single image from config: {config_path}")
+    print(f"Validating images from config: {config_path}")
     
     with open(config_path, 'r') as f:
         config = json.load(f)
@@ -224,86 +224,91 @@ def validate_single_config(config_path: str):
     cx, cy = intr['cx'], intr['cy']
     xi, alpha = intr['xi'], intr['alpha']
     
-    # 2. Load Image
-    img_rel = config['image_file']
-    # If image path is relative, assume it's relative to the config file location
-    base_dir = os.path.dirname(os.path.abspath(config_path))
-    img_path = os.path.join(base_dir, img_rel)
-    
-    # If not found, check assets (common in this repo structure)
-    if not os.path.exists(img_path):
-        assets_path = os.path.join(base_dir, "assets", img_rel)
-        if os.path.exists(assets_path):
-            img_path = assets_path
-            
-    img = cv2.imread(img_path)
-    if img is None:
-        raise FileNotFoundError(f"Could not load image: {img_path}")
-        
-    # 3. Load 2D Keypoints
-    uv_obs = np.array(config['keypoints_2d'], dtype=np.float32)
-    
-    # 4. Build 3D Points
+    # 2. Load Checkerboard
     cb = config['checkerboard']
     ph, pw = cb['rows'], cb['cols']
     pLength = cb['square_size']
     Xw = build_checkerboard_points(ph, pw, pLength)
     
-    # 5. Estimate Pose (PnP)
-    # We use the robust PnP method from ds_camera_cv (or implement it here)
-    # Since we are in validate.py, let's use the robust method:
-    # Unproject -> Normalize -> SolvePnP(Identity)
-    
-    # Unproject to unit rays
-    rays, valid_unproj = ds_unproject(uv_obs, fx, fy, cx, cy, xi, alpha)
-    
-    # Normalize to z=1 plane
-    # Filter valid rays for PnP
-    rays_valid = rays[valid_unproj]
-    uv_obs_valid = uv_obs[valid_unproj]
-    Xw_valid = Xw[valid_unproj]
-    
-    if len(rays_valid) < 4:
-        print("Not enough valid points for PnP.")
-        return
-
-    # Project to normalized plane (x/z, y/z)
-    xn = rays_valid[:, 0] / rays_valid[:, 2]
-    yn = rays_valid[:, 1] / rays_valid[:, 2]
-    pts_norm = np.stack([xn, yn], axis=-1)
-    
-    # Solve PnP with Identity matrix
-    ret, rvec, tvec = cv2.solvePnP(Xw_valid, pts_norm, np.eye(3), None)
-    
-    if not ret:
-        print("PnP failed.")
-        return
+    # 3. Iterate over images
+    # Support both old format (single image) and new format (list of images)
+    if 'test_images' in config:
+        images = config['test_images']
+    else:
+        # Backward compatibility
+        images = [{
+            "file": config['image_file'],
+            "keypoints_2d": config['keypoints_2d']
+        }]
         
-    # 6. Reproject and Compute Error
-    # World -> Camera
-    R, _ = cv2.Rodrigues(rvec)
-    Xc = (R @ Xw.T).T + tvec.reshape(1, 3)
-    
-    # Project
-    uv_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
-    
-    # RMS
-    # We assume all keypoints in config are "visible" on the board
-    valid_mask = valid_ds
-    rms = compute_rms_error(uv_proj, uv_obs, valid_mask)
-    
-    print(f"Pose Estimation Success.")
-    print(f"Translation: {tvec.flatten()}")
-    print(f"RMS Reprojection Error: {rms:.4f} px")
-    
-    # 7. Visualize
-    vis_img = draw_reprojection(img, uv_obs, uv_proj, valid_mask)
-    
+    base_dir = os.path.dirname(os.path.abspath(config_path))
     out_dir = os.path.join(base_dir, "results", "visualizations")
     os.makedirs(out_dir, exist_ok=True)
-    out_file = os.path.join(out_dir, "validate_single.png")
-    cv2.imwrite(out_file, vis_img)
-    print(f"Saved visualization to {out_file}")
+    
+    for idx, img_entry in enumerate(images):
+        img_rel = img_entry['file']
+        print(f"\nProcessing: {img_rel}")
+        
+        # Load Image
+        img_path = os.path.join(base_dir, img_rel)
+        if not os.path.exists(img_path):
+            assets_path = os.path.join(base_dir, "assets", img_rel)
+            if os.path.exists(assets_path):
+                img_path = assets_path
+                
+        img = cv2.imread(img_path)
+        if img is None:
+            print(f"WARNING: Could not load image: {img_path}")
+            continue
+            
+        # Load Keypoints
+        uv_obs = np.array(img_entry['keypoints_2d'], dtype=np.float32)
+        
+        # Estimate Pose (PnP)
+        # Unproject to unit rays
+        rays, valid_unproj = ds_unproject(uv_obs, fx, fy, cx, cy, xi, alpha)
+        
+        # Filter valid rays
+        rays_valid = rays[valid_unproj]
+        uv_obs_valid = uv_obs[valid_unproj]
+        Xw_valid = Xw[valid_unproj]
+        
+        if len(rays_valid) < 4:
+            print("Not enough valid points for PnP.")
+            continue
+
+        # Project to normalized plane (x/z, y/z)
+        xn = rays_valid[:, 0] / rays_valid[:, 2]
+        yn = rays_valid[:, 1] / rays_valid[:, 2]
+        pts_norm = np.stack([xn, yn], axis=-1)
+        
+        # Solve PnP with Identity matrix
+        ret, rvec, tvec = cv2.solvePnP(Xw_valid, pts_norm, np.eye(3), None)
+        
+        if not ret:
+            print("PnP failed.")
+            continue
+            
+        # Reproject and Compute Error
+        R, _ = cv2.Rodrigues(rvec)
+        Xc = (R @ Xw.T).T + tvec.reshape(1, 3)
+        
+        uv_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
+        valid_mask = valid_ds
+        rms = compute_rms_error(uv_proj, uv_obs, valid_mask)
+        
+        print(f"Pose Estimation Success.")
+        print(f"Translation: {tvec.flatten()}")
+        print(f"RMS Reprojection Error: {rms:.4f} px")
+        
+        # Visualize
+        vis_img = draw_reprojection(img, uv_obs, uv_proj, valid_mask)
+        
+        # Save with index or filename
+        name_no_ext = os.path.splitext(os.path.basename(img_rel))[0]
+        out_file = os.path.join(out_dir, f"validate_{name_no_ext}.png")
+        cv2.imwrite(out_file, vis_img)
+        print(f"Saved visualization to {out_file}")
 
 
 # ============================================================================
