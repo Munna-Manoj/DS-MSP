@@ -12,10 +12,7 @@ The distortion coefficients `D` are assumed to be `[xi, alpha]`.
 import numpy as np
 import cv2
 from typing import Tuple, Optional, Union
-try:
-    from .ds_camera import DoubleSphereCamera
-except ImportError:
-    from ds_camera import DoubleSphereCamera
+from .model import DoubleSphereCamera
 
 def projectPoints(objectPoints: np.ndarray, rvec: np.ndarray, tvec: np.ndarray,
                   K: np.ndarray, D: np.ndarray,
@@ -311,3 +308,32 @@ def estimateNewCameraMatrixForUndistortRectify(K: np.ndarray, D: np.ndarray,
     # We can reuse that logic
     
     return cam.compute_K_new(balance)
+
+def solvePnP(objectPoints: np.ndarray, imagePoints: np.ndarray,
+             K: np.ndarray, D: np.ndarray,
+             rvec: Optional[np.ndarray] = None, tvec: Optional[np.ndarray] = None,
+             useExtrinsicGuess: bool = False, flags: int = cv2.SOLVEPNP_ITERATIVE
+            ) -> Tuple[bool, np.ndarray, np.ndarray]:
+    """
+    Finds an object pose from 3D-2D point correspondences.
+    
+    Mimics cv2.solvePnP.
+    """
+    objectPoints = np.atleast_2d(objectPoints.squeeze())
+    imagePoints = np.atleast_2d(imagePoints.squeeze())
+    K = np.array(K)
+    D = np.array(D).flatten()
+    
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    xi, alpha_ds = D[0], D[1]
+    
+    # Use dummy size, doesn't affect PnP
+    cam = DoubleSphereCamera(fx, fy, cx, cy, xi, alpha_ds, 2000, 2000)
+    
+    success, r, t = cam.solve_pnp(objectPoints, imagePoints, method=flags)
+    
+    if not success:
+        return False, np.zeros((3, 1)), np.zeros((3, 1))
+        
+    return True, r.reshape(3, 1), t.reshape(3, 1)

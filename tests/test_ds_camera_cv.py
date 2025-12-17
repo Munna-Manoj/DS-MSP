@@ -5,10 +5,11 @@ import sys
 import os
 
 # Add current directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ds_camera import DoubleSphereCamera
-import ds_camera_cv
+from ds_msp.model import DoubleSphereCamera
+import ds_msp.cv as ds_camera_cv
 
 def test_project_points():
     print("Testing projectPoints...")

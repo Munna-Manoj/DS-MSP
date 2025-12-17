@@ -6,10 +6,11 @@ import os
 import sys
 
 # Add current directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import ds_camera_cv
-from ds_camera import DoubleSphereCamera
+import ds_msp.cv as ds_camera_cv
+from ds_msp.model import DoubleSphereCamera
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
@@ -84,7 +85,7 @@ def verify_projection(K, D, K_new, w, h, name):
         print("❌ Verification Failed: Significant discrepancy found.")
 
 def main():
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_config.json')
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test_config.json')
     config = load_config(config_path)
     
     intr = config['intrinsics']

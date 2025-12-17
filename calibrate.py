@@ -80,7 +80,8 @@ def calibration_residuals(
         Xc = (R_i @ Xw.T).T + t_i.reshape(1, 3)
 
         # --- Project using Double Sphere model ---
-        uv_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
+        u_proj, v_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
+        uv_proj = np.stack([u_proj, v_proj], axis=-1)
 
         # Combine annotation visibility + DS validity
         valid = vis & valid_ds

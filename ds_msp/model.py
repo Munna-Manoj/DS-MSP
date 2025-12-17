@@ -126,58 +126,7 @@ class DoubleSphereCamera:
         return ds_unproject(np.stack([u, v], axis=-1), self.fx, self.fy, self.cx, self.cy, self.xi, self.alpha)
 
 
-# ============================================================================
-# Standalone Core Functions (Optimized for Calibration)
-# ============================================================================
 
-def ds_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
-               xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Standalone projection function.
-    Returns: u, v, valid
-    """
-    x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
-    
-    valid = z > 0
-    d1 = np.sqrt(x*x + y*y + z*z)
-    z1 = z + xi * d1
-    d2 = np.sqrt(x*x + y*y + z1*z1)
-    den = alpha * d2 + (1.0 - alpha) * z1
-    
-    valid &= den > 1e-8
-    den = np.maximum(den, 1e-8)
-    
-    u = fx * x / den + cx
-    v = fy * y / den + cy
-    
-    return u, v, valid
-
-def ds_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
-                 xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Standalone unprojection function.
-    Returns: rays, valid
-    """
-    u, v = points_2d[..., 0], points_2d[..., 1]
-    
-    mx = (u - cx) / fx
-    my = (v - cy) / fy
-    r2 = mx*mx + my*my
-    
-    # Validity check
-    s = 1.0 - (2.0 * alpha - 1.0) * r2
-    valid = s >= 0
-    s = np.maximum(s, 0.0)
-    
-    # Closed-form unprojection
-    mz = (1.0 - alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
-    k = (mz * xi + np.sqrt(mz*mz + (1.0 - xi*xi) * r2)) / np.maximum(mz*mz + r2, 1e-10)
-    
-    ray = np.stack([k * mx, k * my, k * mz - xi], axis=-1)
-    norm = np.linalg.norm(ray, axis=-1, keepdims=True)
-    ray = ray / np.maximum(norm, 1e-10)
-    
-    return ray, valid
     
     # ========================================================================
     # Image Undistortion
@@ -445,3 +394,56 @@ def solve_pnp_fisheye(points_3d: np.ndarray, points_2d: np.ndarray,
     """Quick function to solve PnP for fisheye camera."""
     cam = DoubleSphereCamera(fx, fy, cx, cy, xi, alpha, 640, 480)
     return cam.solve_pnp(points_3d, points_2d)
+
+# ============================================================================
+# Standalone Core Functions (Optimized for Calibration)
+# ============================================================================
+
+def ds_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
+               xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Standalone projection function.
+    Returns: u, v, valid
+    """
+    x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
+    
+    valid = z > 0
+    d1 = np.sqrt(x*x + y*y + z*z)
+    z1 = z + xi * d1
+    d2 = np.sqrt(x*x + y*y + z1*z1)
+    den = alpha * d2 + (1.0 - alpha) * z1
+    
+    valid &= den > 1e-8
+    den = np.maximum(den, 1e-8)
+    
+    u = fx * x / den + cx
+    v = fy * y / den + cy
+    
+    return u, v, valid
+
+def ds_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
+                 xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Standalone unprojection function.
+    Returns: rays, valid
+    """
+    u, v = points_2d[..., 0], points_2d[..., 1]
+    
+    mx = (u - cx) / fx
+    my = (v - cy) / fy
+    r2 = mx*mx + my*my
+    
+    # Validity check
+    s = 1.0 - (2.0 * alpha - 1.0) * r2
+    valid = s >= 0
+    s = np.maximum(s, 0.0)
+    
+    # Closed-form unprojection
+    mz = (1.0 - alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
+    k = (mz * xi + np.sqrt(mz*mz + (1.0 - xi*xi) * r2)) / np.maximum(mz*mz + r2, 1e-10)
+    
+    ray = np.stack([k * mx, k * my, k * mz - xi], axis=-1)
+    norm = np.linalg.norm(ray, axis=-1, keepdims=True)
+    ray = ray / np.maximum(norm, 1e-10)
+    
+    return ray, valid

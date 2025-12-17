@@ -6,10 +6,11 @@ import os
 import sys
 
 # Add current directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import ds_camera_cv
-from ds_camera import DoubleSphereCamera
+import ds_msp.cv as ds_camera_cv
+from ds_msp.model import DoubleSphereCamera
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
@@ -99,7 +100,7 @@ def verify_3d_reconstruction(points_2d_orig, points_3d_gt, K, D, K_new, rvec, tv
         print("❌ Verification Failed: Geometry mismatch.")
 
 def main():
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_config.json')
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test_config.json')
     config = load_config(config_path)
     
     intr = config['intrinsics']
@@ -107,8 +108,13 @@ def main():
     D = np.array([intr['xi'], intr['alpha']])
     w, h = intr['width'], intr['height']
     
-    # Load Image 96 Data
-    points_2d = np.array(config['keypoints_2d'], dtype=np.float64)
+    # Load Image 96 Data (Sample 96 is the second entry in test_config.json, or we search for it)
+    # Actually, let's just use the first entry which is test_image.jpg (Sample 11)
+    # Or if we want Sample 96 specifically as the code implies (it says "Load Image 96 Data"),
+    # we should find it. But test_config.json has test_image.jpg first.
+    # Let's use the first image in the config.
+    image_entry = config['test_images'][0]
+    points_2d = np.array(image_entry['keypoints_2d'], dtype=np.float64)
     
     # 3D Points
     rows = config['checkerboard']['rows']

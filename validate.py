@@ -291,7 +291,8 @@ def validate_single_config(config_path: str):
         R, _ = cv2.Rodrigues(rvec)
         Xc = (R @ Xw.T).T + tvec.reshape(1, 3)
         
-        uv_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
+        u_proj, v_proj, valid_ds = ds_project(Xc, fx, fy, cx, cy, xi, alpha)
+        uv_proj = np.stack([u_proj, v_proj], axis=-1)
         valid_mask = valid_ds
         rms = compute_rms_error(uv_proj, uv_obs, valid_mask)
         
