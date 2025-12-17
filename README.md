@@ -210,9 +210,15 @@ A common question is: *"Why are pixels missing from my undistorted image, even w
 ### 7.1. Visual Comparison: Undistortion Modes
 We verified the wrapper on real data (`assets/test_image.jpg` and `assets/test_image_96.jpg`).
 
+#### Sample 11 (`test_image.jpg`)
 | Distorted | Undistorted (Crop) | Undistorted (Whole) | Undistorted (Zoom) |
 | :---: | :---: | :---: | :---: |
 | ![Distorted](assets/result_distorted_11.jpg) | ![Crop](assets/result_undistort_crop_11.jpg) | ![Whole](assets/result_undistort_whole_11.jpg) | ![Zoom](assets/result_undistort_zoom_11.jpg) |
+
+#### Sample 96 (`test_image_96.jpg`)
+| Distorted | Undistorted (Crop) | Undistorted (Whole) | Undistorted (Zoom) |
+| :---: | :---: | :---: | :---: |
+| ![Distorted](assets/result_distorted_96.jpg) | ![Crop](assets/result_undistort_crop_96.jpg) | ![Whole](assets/result_undistort_whole_96.jpg) | ![Zoom](assets/result_undistort_zoom_96.jpg) |
 
 **Key Observations:**
 1.  **Crop (`balance=1.0`)**: Keeps only the center valid pixels. No black borders, but loses FOV.
