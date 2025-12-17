@@ -37,7 +37,7 @@ The **Double Sphere** model is a mathematical way to accurately describe how the
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-org/DS-MSP.git
+    git clone https://github.com/Munna-Manoj/DS-MSP.git
     cd DS-MSP
     ```
 
