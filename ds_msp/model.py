@@ -97,35 +97,15 @@ class DoubleSphereCamera:
     # Core Projection/Unprojection
     # ========================================================================
     
+    # ========================================================================
+    # Core Projection/Unprojection
+    # ========================================================================
+    
     def project(self, points_3d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Project 3D points to 2D pixel coordinates.
-        
-        Parameters
-        ----------
-        points_3d : (N, 3) array
-            3D points in camera coordinates
-            
-        Returns
-        -------
-        points_2d : (N, 2) array
-            Pixel coordinates (flipped if is_flip=True)
-        valid : (N,) bool array
-            Validity mask
         """
-        x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
-        
-        valid = z > 0
-        d1 = np.sqrt(x*x + y*y + z*z)
-        z1 = z + self.xi * d1
-        d2 = np.sqrt(x*x + y*y + z1*z1)
-        den = self.alpha * d2 + (1.0 - self.alpha) * z1
-        
-        valid &= den > 1e-8
-        den = np.maximum(den, 1e-8)
-        
-        u = self.fx * x / den + self.cx
-        v = self.fy * y / den + self.cy
+        u, v, valid = ds_project(points_3d, self.fx, self.fy, self.cx, self.cy, self.xi, self.alpha)
         
         # Flip x-coordinates if driver provides flipped images
         if self.is_flip:
@@ -136,43 +116,68 @@ class DoubleSphereCamera:
     def unproject(self, points_2d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Unproject 2D pixels to 3D unit rays (closed-form).
-        
-        Parameters
-        ----------
-        points_2d : (N, 2) array
-            Pixel coordinates (flipped if is_flip=True)
-            
-        Returns
-        -------
-        rays : (N, 3) array
-            Unit 3D direction vectors
-        valid : (N,) bool array
-            Validity mask
         """
         u, v = points_2d[..., 0], points_2d[..., 1]
         
         # Flip x-coordinates if driver provides flipped images
         if self.is_flip:
             u = (self.width - 1) - u
-        
-        mx = (u - self.cx) / self.fx
-        my = (v - self.cy) / self.fy
-        r2 = mx*mx + my*my
-        
-        # Validity check
-        s = 1.0 - (2.0 * self.alpha - 1.0) * r2
-        valid = s >= 0
-        s = np.maximum(s, 0.0)
-        
-        # Closed-form unprojection
-        mz = (1.0 - self.alpha*self.alpha * r2) / (self.alpha * np.sqrt(s) + (1.0 - self.alpha))
-        k = (mz * self.xi + np.sqrt(mz*mz + (1.0 - self.xi*self.xi) * r2)) / np.maximum(mz*mz + r2, 1e-10)
-        
-        ray = np.stack([k * mx, k * my, k * mz - self.xi], axis=-1)
-        norm = np.linalg.norm(ray, axis=-1, keepdims=True)
-        ray = ray / np.maximum(norm, 1e-10)
-        
-        return ray, valid
+            
+        return ds_unproject(np.stack([u, v], axis=-1), self.fx, self.fy, self.cx, self.cy, self.xi, self.alpha)
+
+
+# ============================================================================
+# Standalone Core Functions (Optimized for Calibration)
+# ============================================================================
+
+def ds_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
+               xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Standalone projection function.
+    Returns: u, v, valid
+    """
+    x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
+    
+    valid = z > 0
+    d1 = np.sqrt(x*x + y*y + z*z)
+    z1 = z + xi * d1
+    d2 = np.sqrt(x*x + y*y + z1*z1)
+    den = alpha * d2 + (1.0 - alpha) * z1
+    
+    valid &= den > 1e-8
+    den = np.maximum(den, 1e-8)
+    
+    u = fx * x / den + cx
+    v = fy * y / den + cy
+    
+    return u, v, valid
+
+def ds_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
+                 xi: float, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Standalone unprojection function.
+    Returns: rays, valid
+    """
+    u, v = points_2d[..., 0], points_2d[..., 1]
+    
+    mx = (u - cx) / fx
+    my = (v - cy) / fy
+    r2 = mx*mx + my*my
+    
+    # Validity check
+    s = 1.0 - (2.0 * alpha - 1.0) * r2
+    valid = s >= 0
+    s = np.maximum(s, 0.0)
+    
+    # Closed-form unprojection
+    mz = (1.0 - alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
+    k = (mz * xi + np.sqrt(mz*mz + (1.0 - xi*xi) * r2)) / np.maximum(mz*mz + r2, 1e-10)
+    
+    ray = np.stack([k * mx, k * my, k * mz - xi], axis=-1)
+    norm = np.linalg.norm(ray, axis=-1, keepdims=True)
+    ray = ray / np.maximum(norm, 1e-10)
+    
+    return ray, valid
     
     # ========================================================================
     # Image Undistortion

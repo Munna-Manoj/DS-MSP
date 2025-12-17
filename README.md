@@ -25,10 +25,10 @@ This repository provides a robust, OpenCV-compatible wrapper for the **Double Sp
 Fisheye lenses capture a very wide field of view (often > 180°), much like a human eye or a security camera. Standard "pinhole" camera models assume straight lines stay straight, which fails for these curved lenses.
 
 The **Double Sphere** model is a mathematical way to accurately describe how these lenses bend light. This codebase provides:
--   **Core Model**: `ds_camera.py` (Pure Python/NumPy implementation)
--   **OpenCV Wrapper**: `ds_camera_cv.py` (Drop-in replacement for `cv2.fisheye`)
--   **Calibration Suite**: `calibrate.py` and `validate.py`
--   **Analysis Tools**: Scripts to visualize FOV limits and verify accuracy.
+-   **Core Package**: `ds_msp/` (Clean, modular Python package)
+-   **Calibration**: `calibrate.py` (Robust estimation from checkerboards)
+-   **Validation**: `validate.py` (Visual verification and metrics)
+-   **Analysis**: `visualize.py` (FOV zones, coverage, and undistortion demos)
 
 ---
 
@@ -43,6 +43,11 @@ The **Double Sphere** model is a mathematical way to accurately describe how the
 2.  **Install dependencies:**
     ```bash
     pip install numpy opencv-python scipy matplotlib
+    ```
+
+3.  **Verify installation:**
+    ```bash
+    python -c "import ds_msp; print('DS-MSP package loaded successfully')"
     ```
 
 ---
@@ -139,7 +144,7 @@ This section explains how to use `ds_camera.py` and `ds_camera_cv.py` in your ow
 
 ### 6.1. Loading the Camera
 ```python
-from ds_camera import DoubleSphereCamera
+from ds_msp.model import DoubleSphereCamera
 import numpy as np
 
 # Load from the calibration result
@@ -165,10 +170,10 @@ rays, valid = cam.unproject(points_2d)
 ```
 
 ### 6.3. Undistorting Images (OpenCV Style)
-Use `ds_camera_cv` to undistort images, just like `cv2.fisheye`.
+Use `ds_msp.cv` to undistort images, just like `cv2.fisheye`.
 
 ```python
-import ds_camera_cv
+import ds_msp.cv as ds_cv
 import cv2
 
 img = cv2.imread('assets/test_image.jpg')
@@ -177,12 +182,12 @@ D = np.array([cam.xi, cam.alpha])
 
 # 1. Estimate new camera matrix (controls zoom/crop)
 # balance=0.0 (Keep all pixels), balance=1.0 (Optimal crop)
-K_new = ds_camera_cv.estimateNewCameraMatrixForUndistortRectify(
+K_new = ds_cv.estimateNewCameraMatrixForUndistortRectify(
     K, D, (1920, 1080), np.eye(3), balance=1.0
 )
 
 # 2. Undistort
-img_undist = ds_camera_cv.undistortImage(img, K, D, K_new)
+img_undist = ds_cv.undistortImage(img, K, D, K_new)
 cv2.imwrite('undistorted.jpg', img_undist)
 ```
 
@@ -192,7 +197,7 @@ Standard PnP solvers often fail with fisheye lenses. Our wrapper handles this au
 ```python
 # points_3d: (N, 3) object points
 # points_2d: (N, 2) image points
-success, rvec, tvec = ds_camera_cv.solvePnP(points_3d, points_2d, K, D)
+success, rvec, tvec = ds_cv.solvePnP(points_3d, points_2d, K, D)
 
 if success:
     print("Rotation Vector:\n", rvec)

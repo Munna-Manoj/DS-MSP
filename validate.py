@@ -19,13 +19,11 @@ import cv2
 import numpy as np
 from typing import Dict, List, Tuple
 
-from calibrate import (
-    ds_project,
-    ds_unproject,
+from ds_msp.model import ds_project, ds_unproject
+from ds_msp.utils import (
     load_coco_calibration,
     unpack_params,
     build_checkerboard_points,
-    main_real,
 )
 
 
