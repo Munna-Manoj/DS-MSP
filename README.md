@@ -6,99 +6,206 @@ This repository provides a robust, OpenCV-compatible wrapper for the **Double Sp
 
 ---
 
-## 1. Quick Start
+## 📚 Table of Contents
 
+1.  [Introduction](#1-introduction)
+2.  [Installation](#2-installation)
+3.  [Tutorial 1: Calibration](#3-tutorial-1-calibration)
+4.  [Tutorial 2: Validation](#4-tutorial-2-validation)
+5.  [Tutorial 3: Core API Usage](#5-tutorial-3-core-api-usage)
+6.  [Tutorial 4: Analysis & Visualization Tools](#6-tutorial-4-analysis--visualization-tools)
+7.  [Technical Deep Dive: FOV & Undistortion](#7-technical-deep-dive-fov--undistortion)
+8.  [Geometric Accuracy Verification](#8-geometric-accuracy-verification)
+9.  [FAQ](#9-faq)
+
+---
+
+## 1. Introduction
+
+Fisheye lenses capture a very wide field of view (often > 180°), much like a human eye or a security camera. Standard "pinhole" camera models assume straight lines stay straight, which fails for these curved lenses.
+
+The **Double Sphere** model is a mathematical way to accurately describe how these lenses bend light. This codebase provides:
+-   **Core Model**: `ds_camera.py` (Pure Python/NumPy implementation)
+-   **OpenCV Wrapper**: `ds_camera_cv.py` (Drop-in replacement for `cv2.fisheye`)
+-   **Calibration Suite**: `calibrate.py` and `validate.py`
+-   **Analysis Tools**: Scripts to visualize FOV limits and verify accuracy.
+
+---
+
+## 2. Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/your-org/DS-MSP.git
+    cd DS-MSP
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    pip install numpy opencv-python scipy matplotlib
+    ```
+
+---
+
+## 3. Tutorial 1: Calibration
+
+This tutorial shows how to calibrate the camera using 2D keypoint annotations.
+
+**Input:** `anns.json` (COCO-style annotations of checkerboard corners)
+**Output:** `results/calibration_params.json` (Intrinsics & Distortion)
+
+### Step 1: Prepare Data
+Ensure `anns.json` is in the root directory. It should contain:
+-   `"images"`: List of image metadata (width, height, file_name).
+-   `"annotations"`: Keypoints for the checkerboard corners.
+
+### Step 2: Run Calibration
+Run the calibration script:
+```bash
+python calibrate.py
+```
+
+**What happens inside:**
+1.  Loads 2D keypoints and generates corresponding 3D world points for the checkerboard.
+2.  Initializes camera parameters (focal length, principal point, $\xi$, $\alpha$).
+3.  Runs **Levenberg-Marquardt optimization** to minimize reprojection error.
+4.  Saves the optimized parameters to `results/`.
+
+### Step 3: Check Results
+Look at the output in your terminal:
+```text
+[REAL] Optimization success: True
+[REAL] Final cost: 12.34
+[REAL] RMS reprojection error: 0.4512 px
+```
+An RMS error < 1.0 pixel is generally considered good.
+
+---
+
+## 4. Tutorial 2: Validation
+
+After calibration, you should validate the results visually.
+
+**Input:** `results/calibration_params.json`, `results/poses.json`
+**Output:** `results/visualizations/*.png`
+
+### Step 1: Run Validation
+```bash
+python validate.py
+```
+
+### Step 2: Inspect Visualizations
+Go to `results/visualizations/` and open the generated images (e.g., `reproj_000.png`).
+-   **Blue Dots**: Original observed keypoints.
+-   **Red Dots**: Reprojected points using the calibrated model.
+-   **Green Lines**: Error vectors (should be very short).
+
+If the red dots align perfectly with the blue dots (and the checkerboard corners), your calibration is successful!
+
+---
+
+## 5. Tutorial 3: Core API Usage
+
+This section explains how to use `ds_camera.py` and `ds_camera_cv.py` in your own code.
+
+### 5.1. Loading the Camera
 ```python
 from ds_camera import DoubleSphereCamera
-import ds_camera_cv
-import cv2
 import numpy as np
 
-# 1. Load camera from calibration
-cam = DoubleSphereCamera.from_json('test_config.json')
+# Load from the calibration result
+cam = DoubleSphereCamera.from_json('results/calibration_params.json')
 
-# 2. Undistort image (OpenCV style)
+print(f"Intrinsics: fx={cam.fx}, fy={cam.fy}")
+print(f"Distortion: xi={cam.xi}, alpha={cam.alpha}")
+```
+
+### 5.2. Project and Unproject
+-   **Project (3D -> 2D)**: Where does a 3D point appear on the image?
+-   **Unproject (2D -> 3D)**: What ray direction corresponds to a pixel?
+
+```python
+# 3D points in camera frame (N, 3)
+points_3d = np.array([[0, 0, 1], [1, 1, 2]], dtype=np.float32)
+
+# Project to pixels
+points_2d, valid = cam.project(points_3d)
+
+# Unproject back to unit rays
+rays, valid = cam.unproject(points_2d)
+```
+
+### 5.3. Undistorting Images (OpenCV Style)
+Use `ds_camera_cv` to undistort images, just like `cv2.fisheye`.
+
+```python
+import ds_camera_cv
+import cv2
+
 img = cv2.imread('assets/test_image.jpg')
 K = np.array([[cam.fx, 0, cam.cx], [0, cam.fy, cam.cy], [0, 0, 1]])
 D = np.array([cam.xi, cam.alpha])
 
-# Estimate new camera matrix for optimal crop
-K_new = ds_camera_cv.estimateNewCameraMatrixForUndistortRectify(K, D, (1920, 1080), balance=1.0)
+# 1. Estimate new camera matrix (controls zoom/crop)
+# balance=0.0 (Keep all pixels), balance=1.0 (Optimal crop)
+K_new = ds_camera_cv.estimateNewCameraMatrixForUndistortRectify(
+    K, D, (1920, 1080), np.eye(3), balance=1.0
+)
+
+# 2. Undistort
 img_undist = ds_camera_cv.undistortImage(img, K, D, K_new)
+cv2.imwrite('undistorted.jpg', img_undist)
+```
 
-# 3. Solve PnP (Robust for Fisheye)
-# points_3d: (N, 3), points_2d: (N, 2)
+### 5.4. Robust PnP (Pose Estimation)
+Standard PnP solvers often fail with fisheye lenses. Our wrapper handles this automatically.
+
+```python
+# points_3d: (N, 3) object points
+# points_2d: (N, 2) image points
 success, rvec, tvec = ds_camera_cv.solvePnP(points_3d, points_2d, K, D)
-```
 
-**See [`examples.py`](examples.py) for more complete examples.**
-
----
-
-## 2. Why Double Sphere?
-
-| Feature | Double Sphere | Kannala-Brandt | OpenCV Fisheye |
-|---------|---------------|----------------|----------------|
-| **Unprojection** | ✅ Closed-form | ❌ Iterative | ❌ Iterative |
-| **Speed** | ✅ Fast (O(1)) | ⚠️ Slower | ⚠️ Slower |
-| **PnP Ready** | ✅ Direct | ❌ Needs iteration | ❌ Needs undistortion |
-| **Accuracy** | ✅ ~0.1 pixel | ✅ ~0.1 pixel | ✅ ~0.1 pixel |
-| **Stability** | ✅ No failures | ⚠️ Can diverge | ⚠️ Can fail |
-
-**Bottom line:** For real-time applications and PnP, Double Sphere is the best choice.
-
----
-
-## 3. Installation
-
-Simply copy the core files to your project:
-- `ds_camera.py`: The core class implementation.
-- `ds_camera_cv.py`: The OpenCV-compatible wrapper.
-
-Dependencies:
-```bash
-pip install numpy opencv-python
+if success:
+    print("Rotation Vector:\n", rvec)
+    print("Translation Vector:\n", tvec)
 ```
 
 ---
 
-## 4. The Double Sphere Model (Theory)
+## 6. Tutorial 4: Analysis & Visualization Tools
 
-### For Beginners
-Fisheye lenses capture a very wide field of view (often > 180°), much like a human eye or a security camera. Standard "pinhole" camera models assume straight lines stay straight, which fails for these curved lenses. The **Double Sphere** model is a mathematical way to accurately describe how these lenses bend light, allowing us to "straighten" (undistort) the images or calculate precise 3D positions.
+We provide a suite of scripts to verify and analyze the camera model.
 
-### For Experts
-The Double Sphere model projects 3D points onto the unit sphere, then onto a second sphere shifted by $\xi$, and finally onto the image plane. It is defined by two parameters:
-- $\xi$: Shift parameter (controls distortion).
-- $\alpha$: Sphere parameter (controls FOV).
+### 6.1. `verify_real_data.py`
+**Purpose**: Demonstrates pose estimation on a real image.
+**Usage**: `python verify_real_data.py`
+**Output**: Displays the image with reprojected 3D axes.
+**What to look for**: The RGB axes should look firmly attached to the checkerboard corner.
 
-**Forward (3D → 2D):**
-```
-d1 = ||p||
-z1 = z + ξ·d1
-d2 = ||(x, y, z1)||
-u = fx · x / (α·d2 + (1-α)·z1) + cx
-v = fy · y / (α·d2 + (1-α)·z1) + cy
-```
+### 6.2. `test_pose_undistort.py`
+**Purpose**: Generates the "Distorted vs. Undistorted" comparison grid.
+**Usage**: `python test_pose_undistort.py`
+**Output**: `result_distorted_*.jpg`, `result_undistort_*.jpg`
+**What to look for**: Compare how straight lines appear in the undistorted images vs. the curved lines in the original.
 
-**Inverse (2D → 3D ray, closed-form!):**
-```
-mx = (u - cx) / fx, my = (v - cy) / fy
-r² = mx² + my²
-mz = (1 - α²·r²) / (α·√(1-(2α-1)·r²) + 1-α)
-k = (mz·ξ + √(mz² + (1-ξ²)·r²)) / (mz² + r²)
-ray = normalize([k·mx, k·my, k·mz - ξ])
-```
+### 6.3. `visualize_fov_zones.py`
+**Purpose**: Visualizes the camera's Field of View limits overlaid on the image.
+**Usage**: `python visualize_fov_zones.py`
+**Output**: `fov_zones_augmented.jpg`
+**What to look for**:
+-   **Green Zone**: Safe frontal view.
+-   **Yellow Zone**: Side/Back view (valid in model, but tricky for pinhole).
+-   **Red Zone**: Invalid region.
 
 ---
 
-## 5. Technical Deep Dive: FOV & Undistortion
+## 7. Technical Deep Dive: FOV & Undistortion
 
 **Generated by:** `analyze_fov_limit.py`, `visualize_fov_zones.py`
 
 A common question is: *"Why are pixels missing from my undistorted image, even when I try to keep the whole image?"*
 
-### 5.1. The "Cone of Invalidity" (Mathematical Explanation)
+### 7.1. The "Cone of Invalidity" (Mathematical Explanation)
 The Double Sphere model defines a projection function $\pi(\mathbf{x})$. However, this function is not valid for all 3D points. There exists a specific region where the projection fails, known as the "Cone of Invalidity".
 
 **The Condition:**
@@ -107,7 +214,7 @@ $$den = \alpha \sqrt{x^2 + y^2 + (z + \xi \sqrt{x^2 + y^2 + z^2})^2} + (1-\alpha
 
 Geometrically, this inequality defines a **cone-shaped volume** behind the camera center. Points inside this cone cannot be projected onto the image plane.
 
-### 5.2. Visualization (Augmented FOV Zones)
+### 7.2. Visualization (Augmented FOV Zones)
 We generated an augmented visualization that overlays the **FOV Zones** directly onto the real image (Sample 96).
 - **Green Zone (Frontal FOV)**: $\theta < 90^\circ$. Safe for standard pinhole projection.
 - **Yellow Zone (Side/Back FOV)**: $90^\circ \le \theta < \theta_{limit}$. Valid in DS model, but mathematically impossible to project to a single pinhole image ($Z \le 0$).
@@ -118,7 +225,7 @@ We generated an augmented visualization that overlays the **FOV Zones** directly
 
 **Reference**: [Double sphere model projection-failed region](https://jseobyun.tistory.com/457?category=1170976)
 
-### 5.3. The Practical Limit (Infinite Size)
+### 7.3. The Practical Limit (Infinite Size)
 Even pixels in the **Yellow Zone** ($Z \le 0$) cannot be undistorted to a pinhole image.
 - A pinhole camera can only see things **in front of it** ($Z > 0$).
 - Rays at 90° project to infinity ($x/z \to \infty$).
@@ -129,36 +236,18 @@ Even pixels in the **Yellow Zone** ($Z \le 0$) cannot be undistorted to a pinhol
 
 ---
 
-## 6. Real Data Verification
-
-**Generated by:** `test_pose_undistort.py`
-
-We verified the wrapper on real data (`assets/test_image.jpg` and `assets/test_image_96.jpg`). We estimated the camera pose and visualized the reprojected 3D points (red) and axes (RGB).
-
-### Sample 11
-| Distorted | Undistorted (Crop) | Undistorted (Whole) | Undistorted (Zoom) |
-| :---: | :---: | :---: | :---: |
-| ![Distorted](assets/result_distorted_11.jpg) | ![Crop](assets/result_undistort_crop_11.jpg) | ![Whole](assets/result_undistort_whole_11.jpg) | ![Zoom](assets/result_undistort_zoom_11.jpg) |
-
-### Sample 96
-| Distorted | Undistorted (Crop) | Undistorted (Whole) | Undistorted (Zoom) |
-| :---: | :---: | :---: | :---: |
-| ![Distorted](assets/result_distorted_96.jpg) | ![Crop](assets/result_undistort_crop_96.jpg) | ![Whole](assets/result_undistort_whole_96.jpg) | ![Zoom](assets/result_undistort_zoom_96.jpg) |
-
----
-
-## 7. Geometric Accuracy Verification
+## 8. Geometric Accuracy Verification
 
 **Generated by:** `verify_k_inverse.py` and `verify_3d_reconstruction.py`
 
 We performed rigorous checks to ensure the undistorted images are geometrically accurate for 3D measurement.
 
-### 7.1. Inverse Projection ($K^{-1}$) Analysis
+### 8.1. Inverse Projection ($K^{-1}$) Analysis
 We verified that any pixel $(u, v)$ in the undistorted image can be unprojected to a 3D ray using $\mathbf{d} = K_{new}^{-1} [u, v, 1]^T$.
 - **Mean Error**: < 0.00003 pixels (across all modes).
 - **Status**: ✅ Verified.
 
-### 7.2. 3D Reconstruction Verification
+### 8.2. 3D Reconstruction Verification
 We reconstructed the absolute 3D positions of the checkerboard corners from the undistorted images.
 - **Mean Position Error**: `1.168 mm`
 - **Reconstructed Square Size**: `20.01 cm` (Target: 20.00 cm)
@@ -168,23 +257,16 @@ We reconstructed the absolute 3D positions of the checkerboard corners from the 
 
 ---
 
-## 8. Robust PnP Strategy
+## 9. FAQ
 
-Our wrapper implements a robust PnP strategy for fisheye lenses that avoids the need for iterative undistortion approximations.
+### Q: My undistorted image has black borders?
+**A:** This is normal for fisheye undistortion. The "pinhole" view cannot capture the full >180° FOV. You can adjust the `balance` parameter in `estimateNewCameraMatrixForUndistortRectify` to zoom in (crop borders) or zoom out (keep more content but more borders).
 
-- **Reference**: [Fisheye camera model solvePnP](https://jseobyun.tistory.com/455)
-- **Method**:
-    1.  **Unproject** 2D fisheye points to 3D unit rays $\mathbf{d} = (x, y, z)$.
-    2.  **Normalize** these rays to the $Z=1$ plane: $\mathbf{u}_{norm} = (x/z, y/z)$.
-    3.  **Solve PnP** using `cv2.solvePnP` with an **Identity Camera Matrix** ($K=I$) and **Zero Distortion**.
-    
-    This effectively treats the unprojected rays as observations from a perfect pinhole camera with $f=1$, allowing standard PnP solvers to work with high accuracy on wide-angle data. Our `ds_camera_cv.solvePnP` implements this exact logic.
+### Q: PnP fails or gives bad results?
+**A:** Ensure you are using `ds_camera_cv.solvePnP`. Standard `cv2.solvePnP` assumes a pinhole model and will fail on raw fisheye images. Also, check that your 3D points are defined correctly (z=0 for planar targets).
 
----
-
-## 9. License
-
-MIT License - Feel free to use in your projects!
+### Q: How do I use this with ROS?
+**A:** You can easily wrap `ds_camera_cv.undistortImage` in a ROS node. Subscribe to `image_raw`, undistort, and publish to `image_rect`.
 
 ---
 
