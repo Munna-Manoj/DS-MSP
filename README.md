@@ -303,7 +303,7 @@ We reconstructed the absolute 3D positions of the checkerboard corners from the 
 
 This project builds upon excellent open-source work and research. Special thanks to:
 
-*   **[dscamera](https://github.com/matsuren/dscamera)**: Original C++ implementation reference.
+*   **[dscamera](https://github.com/matsuren/dscamera)**: Python tools to use DS camera for basic utilities.
 *   **[Double Sphere Model Explanation](https://jseobyun.tistory.com/455)**: Clear theoretical explanation of the model.
 *   **[Projection Failed Region Analysis](https://jseobyun.tistory.com/457?category=1170976)**: In-depth analysis of the "Cone of Invalidity".
 *   **Muhammadjon Boboev**: For the Python implementation of intrinsics calibration.
