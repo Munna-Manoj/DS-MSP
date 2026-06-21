@@ -70,7 +70,7 @@ Find your goal, grab **only** the sub-part it needs.
 | **Tier 2** monocular VO + ATE/RPE | EuRoC V1_01 (**cam0** + GT) *or* TUM-VI room1 (cam0 + mocap0) | `euroc/V1_01_easy/mav0/` | manual† | *(roadmap — Tier 2)* |
 | **Tier 3** camera–IMU calibration | TUM-VI calib-imu1 (cam + **imu0**) → vs `T_cam_imu` | `tumvi/dataset-calib-imu1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 3)* |
 | **Tier 3** VIO (metric) + ATE/RPE | TUM-VI room1 (cam0 + **imu0** + mocap0) *or* EuRoC V1_01 (cam0 + imu0 + GT) | `tumvi/dataset-room1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 3)* |
-| **Tier 4** fisheye → Gaussian Splatting | any posed sequence (room1/EuRoC) + DS-MSP VIO poses + SfM init | `tumvi/dataset-room1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 4)* |
+| **Tier 4** external 3D-reconstruction export | any posed sequence (room1/EuRoC) + poses + SfM init | `tumvi/dataset-room1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 4)* |
 | **Later** metric fisheye depth | TUM RGB-D fr1 (**rgb + depth + GT**) | `tumrgbd/rgbd_dataset_freiburg1_xyz/` | `… tumrgbd` | *(roadmap — Later)* |
 | **Later** SuperPoint VO | EuRoC V1_01 (cam0) | `euroc/V1_01_easy/mav0/cam0/` | manual† | *(roadmap — Later)* |
 

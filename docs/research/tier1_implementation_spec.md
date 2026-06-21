@@ -225,9 +225,8 @@ model-conversion layers). Shipped:
   intrinsics + per-frame `transform_matrix` in the OpenGL camera-to-world convention (the
   `inv(T_cam_world)·diag(1,−1,−1,1)` flip is applied/inverted internally).
 
-This is the bridge that feeds **OpenSplat / LichtFeld / nerfstudio** for Gaussian Splatting (Tier 4):
-DS-MSP's SfM sparse points + VO/VIO poses + calibrated intrinsics export straight into a
-trainer-ready project. *Verified:* export→read round-trip recovers intrinsics, poses (R,t), and 3D
+This is the bridge to external **SfM / MVS / Gaussian-Splatting** tools (Tier 4): DS-MSP's SfM
+sparse points + VO/VIO poses + calibrated intrinsics export straight into a trainer-ready project. *Verified:* export→read round-trip recovers intrinsics, poses (R,t), and 3D
 points/colours to `<1e-9` (`tests/io/test_colmap.py`, `tests/io/test_nerfstudio.py`, 17 tests).
 **Deferred:** `OPENCV`/`FOV`-only variants, **openMVG** spherical SfM and **OpenMVS** export — add
 when a concrete downstream need lands.

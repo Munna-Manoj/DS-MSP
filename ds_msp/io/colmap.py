@@ -2,9 +2,9 @@
 COLMAP sparse-model I/O (C9 ecosystem interop).
 
 Reads/writes the COLMAP text sparse model (``cameras.txt`` / ``images.txt`` /
-``points3D.txt``) so a DS-MSP calibration + poses + sparse points can feed every
-tool that speaks COLMAP — OpenSplat / nerfstudio / LichtFeld Studio for Gaussian
-Splatting, plus openMVG/OpenMVS.
+``points3D.txt``) so a DS-MSP calibration + poses + sparse points can feed external
+Structure-from-Motion, MVS, and Gaussian-Splatting tools that consume COLMAP models
+(and the nerfstudio / openMVG / OpenMVS formats).
 
 Camera-model mapping (DS-MSP ↔ COLMAP), verified against COLMAP's
 ``src/colmap/sensor/models.h`` parameter orderings:
@@ -218,8 +218,8 @@ def export_colmap(
     image_names : sequence of str
         File names, one per pose.
     points3d : (M, 3) array, optional
-        Sparse point cloud (world frame). Many Gaussian-Splatting trainers require it
-        (OpenSplat does not support random init).
+        Sparse point cloud (world frame). Many Gaussian-Splatting trainers require a
+        sparse point cloud (they do not support random initialization).
     point_colors : (M, 3) uint8 array, optional
         Per-point RGB; defaults to mid-grey.
     camera_id : int

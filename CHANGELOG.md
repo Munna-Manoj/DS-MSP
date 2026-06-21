@@ -15,8 +15,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Documentation
 
-* book-grounded SLAM/VIO implementation plan ([#23](https://github.com/Munna-Manoj/DS-MSP/issues/23)) ([ba1d95d](https://github.com/Munna-Manoj/DS-MSP/commit/ba1d95dbd7e90c721fb8ba70bb93ec7a1d568500))
-* roadmap Tiers 2–4 (VO · inertial/VIO · on-device 3DGS) + finish Tier 1 with C9 ([#19](https://github.com/Munna-Manoj/DS-MSP/issues/19)) ([e638082](https://github.com/Munna-Manoj/DS-MSP/commit/e638082211b3cefc45fef6551b0ce696bdf9b29b))
+* SLAM/VIO roadmap planning notes ([#23](https://github.com/Munna-Manoj/DS-MSP/issues/23)) ([ba1d95d](https://github.com/Munna-Manoj/DS-MSP/commit/ba1d95dbd7e90c721fb8ba70bb93ec7a1d568500))
+* roadmap Tiers 2–4 (VO · VIO · external 3D-reconstruction) + finish Tier 1 with C9 ([#19](https://github.com/Munna-Manoj/DS-MSP/issues/19)) ([e638082](https://github.com/Munna-Manoj/DS-MSP/commit/e638082211b3cefc45fef6551b0ce696bdf9b29b))
 
 ## [0.4.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.3.0...v0.4.0) (2026-06-21)
 

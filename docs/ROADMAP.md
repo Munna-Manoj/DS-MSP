@@ -90,9 +90,8 @@ Builds on the verified pixel↔ray reprojection already shipped
 **Finishing Tier 1 — active** 🟩:
 - **`C9` — ecosystem interop** (`ds_msp/io/`): export calibrated intrinsics + camera poses + sparse
   points to **COLMAP** (`OPENCV_FISHEYE`≈KB, `FOV`), **nerfstudio**, and **openMVG/OpenMVS**. Leans
-  on the existing model-conversion + Kalibr I/O layers — no new heavy deps. **This is the bridge to
-  Gaussian Splatting (Tier 4) and to every external SfM/MVS tool**, and the exact export the
-  DS-MSP→LichtFeld plugin needs. *In progress — the first remaining unit.*
+  on the existing model-conversion + Kalibr I/O layers — no new heavy deps. The bridge to external
+  SfM / MVS / Gaussian-Splatting tools (Tier 4). *Shipped & tested* ✅.
 
 **Deferred to a research extra (`[recon]`) — not started** 🟦:
 - **`C7`** multi-chart MVS depth fusion · **`C8`** optical-flow ERP dense reconstruction. Both need a
@@ -112,148 +111,38 @@ Geometry & 3D**, Ch.8–12).
 chart-agnostic, keyed off `project` / `unproject`.
 
 ## Tier 2 — Monocular visual odometry (VO)
-**Goal.** Track the camera's trajectory from a single fisheye stream and report it with the
-*standard* metrics — **ATE / RPE against ground truth** — on data we already host (TUM-VI room1
-`mocap0`, EuRoC `V1_01` GT). This is the first "system": it consumes Tier-1 geometry end to end
-and produces a trajectory a roboticist recognizes.
+Track the camera trajectory from a single fisheye stream directly on bearing vectors
+(`unproject` / `project`, no pinhole detour), reusing the Tier-1 two-view geometry, ray
+triangulation, angular BA residual, and the manifold LM. Reported with standard **ATE / RPE**
+against ground truth on the public datasets already wired up (TUM-VI, EuRoC).
 
-**The through-line.** A fisheye measures rays, so VO is built on `unproject`/`project`, not a
-pinhole detour — exactly the Tier-1 stack. **No new math is invented here; VO is the integration
-test for C1–C5 + the manifold LM.**
+**Shipped & tested** ✅ — `ds_msp/vo/`:
+- `estimate_trajectory` — two-view relative pose chained with landmark scale-propagation; a
+  monocular trajectory recovered up to one global similarity.
+- `metrics` — `align_sim3` (Umeyama), `ate_rmse`, `rpe_rmse`: the up-to-scale evaluation toolkit.
+- Verified on synthetic trajectories to ATE `< 1e-6`; a runnable example evaluates against TUM-VI
+  room1 ground truth (`examples/09_monocular_vo_tumvi.py`).
 
-**Module:** `ds_msp/vo/` (a *composition* layer above `ds_msp.mvg` + `ds_msp.core` — not one of
-the mutually-independent service layers, since it deliberately reuses them).
+**Next:** keyframing + local sliding-window BA + loop closure for full-sequence robustness, and a
+`docs/learn/` chapter.
 
-**Core + evaluation — shipped & tested** ✅:
-- **`ds_msp/vo/odometry.py`** — `estimate_trajectory`: two-view relative pose (C1/C2) chained with
-  **landmark scale-propagation** (a shared overlapping triple ties each pair's unit translation to
-  the established metric), so the monocular trajectory is self-consistent up to one global
-  similarity. Runs on given per-frame correspondences.
-- **`ds_msp/vo/metrics.py`** — `align_sim3` (Umeyama), `ate_rmse`, `rpe_rmse`: the standard
-  up-to-scale evaluation toolkit.
-- *Verified:* on a synthetic trajectory projected through a real DS-MSP model, recovered path
-  matches GT to **ATE `< 1e-6`** (noise-free) / **`< 0.1 m`** at 0.3 px noise on a ~1.75 m path,
-  rotation RPE `< 1e-3°` (`tests/vo/`, 6 tests).
+## Tier 3 — Visual-inertial odometry (VIO)
+Fuse the IMU the datasets already carry to recover a **metric, drift-resistant** trajectory. Three
+dependent units, each validated against ground truth:
+- **Camera–IMU calibration** (`ds_msp/calib/cam_imu.py`) — estimate `T_cam_imu` + time offset;
+  validated against the published Kalibr camchain.
+- **IMU preintegration** (`ds_msp/inertial/preintegration.py`) — on-manifold preintegrated factors
+  (Forster et al.) with bias Jacobians and covariance; verified against numerical integration.
+- **Tightly-coupled VIO** (`ds_msp/vio/`) — sliding-window optimization fusing the angular
+  reprojection residual with IMU factors on the SE(3)+velocity+bias manifold; evaluated by
+  full-sequence SE(3) metric ATE on the public benchmarks, aiming for parity with established
+  open-source VIO.
 
-**Real-data validation — prototyped** (`examples/09_monocular_vo_tumvi.py`): KLT-tracked cam0 →
-`estimate_trajectory` → Sim(3) ATE vs mocap0 GT on TUM-VI room1. Two 200-frame segments both land
-at **~0.08 m ATE = 0.9 % of path** (consistent) — good for open-loop monocular VO. *Remaining
-before merge:* keyframe/gap handling so the chainer survives low-overlap pairs over a **full
-sequence**, then a `docs/learn/` chapter + the committed example. **This is a front-end building
-block, not a benchmark entry** — the leaderboard bar lives in Tier 3 (VIO).
-
-**Pipeline.**
-1. **Track** features frame-to-frame (KLT / FAST+descriptor) → pixel correspondences.
-2. **Lift** to bearing vectors via `cam.unproject` → ray correspondences (chart-agnostic).
-3. **Relative pose** with `C1`/`C2` (`essential_from_rays` + on-sphere RANSAC, `recover_pose`).
-4. **Local map** by `C1.5` ray triangulation; grow with new keyframes.
-5. **Windowed refinement**: sliding-window / local **BA on the angular residual** (`C5`,
-   `ds_msp/mvg/bundle.py`) over the manifold LM (`ds_msp/core/optimize.py`, SE(3) Lie).
-
-**Verification (prove a number).** Monocular VO is up-to-scale → align the estimated trajectory
-to GT with a **Sim(3) Umeyama** fit, then assert:
-- **ATE RMSE** on a TUM-VI room1 / EuRoC V1_01 segment **below a published-baseline threshold**
-  (record the exact number once measured; target single-digit-cm on the easy segment).
-- **RPE** drift per metre within tolerance; loop-free segment monotonic.
-- Synthetic noise-free sequence → ATE `< 1e-6` (the estimator is exact when the data is).
-
-**References (study, don't vendor):** Dong-Won Shin (ex-StradVision, GitHub
-[JustWon](https://github.com/JustWon)) — `dvo_slam`, `visual_slam_lecture`, and `my_evo` /
-`SLAM_eval` for ATE/RPE tooling; classic feature-based VO. Ships with a `docs/learn/` chapter +
-runnable `examples/`.
-
-## Tier 3 — Inertial: cam–IMU calibration → preintegration → VIO
-**Goal.** The flagship arc. Fuse the **200 Hz IMU** our datasets already carry into the estimator
-to get a **metric, drift-resistant** trajectory — full **visual-inertial odometry**. This is the
-capability the TUM-VI / EuRoC datasets exist for, and the headline portfolio artifact. Built as
-three dependent units; each ships with its own verification number and chapter.
-
-**Success bar (agreed, eyes open).** The benchmark is judged on **full-sequence, SE(3),
-metric-scale ATE on the TUM-VI room sequences** — the *only* fair comparison to the published table:
-ORB-SLAM3 ≈ **0.009 m** (stereo-inertial + loop closure + global BA; the top entry), OKVIS ≈ 0.063,
-BASALT ≈ 0.082, VINS-Mono room1 ≈ 0.089. **Target: the OKVIS/BASALT band (~3–13 cm).** *Non-goal:*
-beating ORB-SLAM3 / being literal top-5% — a from-scratch system ranking #1 on a mature SLAM
-benchmark is not a realistic bar; mid-table parity with established open-source VIO is. (Tier-2
-monocular VO is a *front-end building block*, not a benchmark contender on its own — it is
-category-mismatched to a visual-*inertial* leaderboard, so it is **not** gated on this bar.)
-
-**`3a` · Camera–IMU calibration** 🟩 — `ds_msp/calib/cam_imu.py`
-Estimate **`T_cam_imu`** (the rigid camera↔IMU transform) **and the camera–IMU time offset**
-`t_d` from synchronized motion (TUM-VI `calib-imu1`). Reuses the Schur-complement BA and the
-SE(3) Lie layer; the IMU enters as a rotation/gravity-alignment constraint.
-- *Verify:* recovered `T_cam_imu` vs the published Kalibr `camchain` value (`dso/camchain.yaml`)
-  to **< ~0.5° rotation / < few-mm translation**; estimated `t_d` within a frame period.
-- *Reference:* Kalibr cam-IMU (canonical); Dong-Won Shin `LIO-SAM` (IMU handling in practice).
-
-**`3b` · IMU preintegration** 🟩 — `ds_msp/inertial/preintegration.py`
-On-manifold **preintegrated IMU factors** (Forster et al.): integrate gyro+accel between keyframes
-into a relative motion constraint with **analytic bias Jacobians** and noise propagation, so the
-back-end never re-integrates raw IMU.
-- *Verify:* preintegrated `ΔR, Δv, Δp` vs brute-force numerical integration of a synthetic IMU
-  stream to **< 1e-6**; **gradient-check** the first-order bias-update Jacobians; covariance PSD.
-- *Reference:* Forster RSS'15 / GTSAM (canonical preintegration); Dong-Won Shin `LIO-SAM`
-  (preintegration in practice); 93won/`lightweight_vio` (Ceres + preintegration + sliding window).
-
-**`3c` · Visual-inertial odometry (VIO)** 🟩 — `ds_msp/vio/`
-**Tightly-coupled sliding-window / fixed-lag smoother** fusing visual factors (angular
-reprojection, `C5`) with IMU preintegration factors (`3b`), solved on the SE(3)+velocity+bias
-manifold by the in-house LM (`ds_msp/core/optimize.py`). Bootstraps from Tier-2 VO; calibrated by
-`3a`.
-- *Verify (the money number):* **ATE / RPE on TUM-VI room1 / EuRoC V1_01 vs GT, in metric scale**
-  (IMU resolves scale — no Sim(3) alignment needed, only SE(3)). Assert **VIO beats Tier-2 VO** on
-  the same sequence and **recovers absolute scale to within a few %**.
-- *Reference:* VINS-Mono, OKVIS, Kimera-VIO, HybVIO (canonical tightly-coupled VIO);
-  93won/`lightweight_vio` (Ceres sliding-window VIO, readable).
-
-## Tier 4 — On-device fisheye → 3D Gaussian Splatting (vision / capstone)
-**Vision.** DS-MSP becomes the **geometric front-end** for radiance-field reconstruction:
-*calibration → VO/VIO poses → SfM sparse init → 3D Gaussian Splatting*, the **whole pipeline
-running on this Apple-Silicon laptop with no NVIDIA/CUDA**. This is the through-line that ties every
-tier together and closes the loop on the LichtFeld analysis — but via a path that actually runs
-locally.
-
-**Why it's possible *now* (the answer to "can't I already train GS with my data?").** Gaussian
-Splatting needs three inputs, and after Tiers 1–3 DS-MSP produces all three:
-1. **Intrinsics** — calibrated (the capstone), in any of our models.
-2. **Posed images** — from ground truth *or, better, from our own VO/VIO* (Tiers 2–3), giving
-   **metric** poses.
-3. **A sparse point cloud to initialize** — from `C1`–`C5` SfM (two-view → triangulation → BA).
-   This matters: **[OpenSplat](https://github.com/pierotofy/OpenSplat) requires sparse points —
-   random init is not supported** — so DS-MSP's SfM output is not optional polish, it's the entry
-   ticket.
-
-**Backend (external, not reimplemented):** **OpenSplat** — production C++ 3DGS that runs on
-**Apple Metal (MPS)** on the M-series GPU (CPU fallback ~100× slower). It ingests **COLMAP /
-nerfstudio / openMVG** projects — exactly what **`C9`** exports. (Second target: the **LichtFeld
-Studio** CUDA plugin on a rented GPU; `C9` feeds both. See the local-only assessment note.)
-
-**Concrete pipeline.**
-```
-fisheye imgs (TUM-VI/EuRoC)
-  → DS-MSP calibrate            (intrinsics; Tier-1 capstone)
-  → DS-MSP VIO                  (metric poses; Tier 3)
-  → DS-MSP SfM triangulation    (sparse points; C1–C5)
-  → C9 export                   (COLMAP / nerfstudio project)
-  → C3 reproject fisheye→pinhole/tangent + valid masks   (OpenSplat is pinhole-only)
-  → OpenSplat (Metal)           (train) → .ply / .splat
-```
-
-**Guidelines / guardrails.**
-- **DS-MSP owns geometry only.** Never vendor a GS trainer into the library — the splatting backend
-  stays an external tool, exercised from `examples/` and documented, with **no heavy dep in core**.
-- **The fisheye bridge is `C3`.** OpenSplat is pinhole-only → feed it `C3` pinhole/tangent
-  reprojections (or undistorted crops) **with valid masks** so rim garbage never enters the loss.
-- **Prove a number, as always:** sparse-init **reprojection consistency** after `C9` export
-  (round-trips into OpenSplat without coordinate-frame drift), and **PSNR on a held-out view** of a
-  short reconstructed segment.
-- **Metric scale is the differentiator.** Because Tier-3 VIO poses are metric, the resulting splat
-  is metric — a property pure-SfM / COLMAP GS pipelines don't get for free.
-
-**References:** [OpenSplat](https://github.com/pierotofy/OpenSplat) (CPU/Metal 3DGS backend);
-dense-reconstruction lineage from Dong-Won Shin ([JustWon](https://github.com/JustWon)) —
-`BundleFusion`, `Kintinuous`, `MyElasticFusion` (posed-frames → dense model, the classical analogue
-of this front-end→reconstruction pipeline). *(If a CPU/Ceres-based 3DGS repo by Dong-Won Shin
-surfaces, prefer it as the reference backend — link TBD.)*
+## Tier 4 — Integration with external 3D reconstruction
+Use the `C9` exporters (COLMAP / nerfstudio) so a DS-MSP calibration + poses + sparse points feed
+external Structure-from-Motion, MVS, and Gaussian-Splatting tools. DS-MSP provides the wide-FOV
+geometry front-end; the reconstruction / splatting backend stays an external tool, exercised from
+`examples/` with no heavy dependency in the core library.
 
 ## Design rules (so the two goals stay aligned)
 - Every new capability ships with a test that **proves a number**, not a screenshot.
