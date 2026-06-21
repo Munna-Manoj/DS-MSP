@@ -66,11 +66,13 @@ Find your goal, grab **only** the sub-part it needs.
 | **Deep-dive** robust loss | same calib-cam1 corners | `tumvi/dataset-calib-cam1_512_16/` | `… tumvi` | `examples/04_robust_vs_rejection.py` |
 | **Deep-dive** same camera? | same calib-cam1 corners | `tumvi/dataset-calib-cam1_512_16/` | `… tumvi` | `examples/05_model_equivalence.py` |
 | **Tier 1** multi-camera extrinsics | TUM-VI calib-cam1 (**cam0 + cam1**) → vs `T_cn_cnm1` | `tumvi/dataset-calib-cam1_512_16/mav0/{cam0,cam1}/` | `… tumvi` | *(roadmap — Tier 1)* |
-| **Tier 1** camera–IMU calibration | TUM-VI calib-imu1 (cam + **imu0**) → vs `T_cam_imu` | `tumvi/dataset-calib-imu1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 1)* |
 | **Tier 1** fisheye stereo → depth | TUM-VI room1 (**cam0 + cam1** pairs) | `tumvi/dataset-room1_512_16/mav0/{cam0,cam1}/` | `… tumvi` | *(roadmap — Tier 1)* |
 | **Tier 2** monocular VO + ATE/RPE | EuRoC V1_01 (**cam0** + GT) *or* TUM-VI room1 (cam0 + mocap0) | `euroc/V1_01_easy/mav0/` | manual† | *(roadmap — Tier 2)* |
-| **Tier 4** metric fisheye depth | TUM RGB-D fr1 (**rgb + depth + GT**) | `tumrgbd/rgbd_dataset_freiburg1_xyz/` | `… tumrgbd` | *(roadmap — Tier 4)* |
-| **Tier 4** SuperPoint VO | EuRoC V1_01 (cam0) | `euroc/V1_01_easy/mav0/cam0/` | manual† | *(roadmap — Tier 4)* |
+| **Tier 3** camera–IMU calibration | TUM-VI calib-imu1 (cam + **imu0**) → vs `T_cam_imu` | `tumvi/dataset-calib-imu1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 3)* |
+| **Tier 3** VIO (metric) + ATE/RPE | TUM-VI room1 (cam0 + **imu0** + mocap0) *or* EuRoC V1_01 (cam0 + imu0 + GT) | `tumvi/dataset-room1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 3)* |
+| **Tier 4** fisheye → Gaussian Splatting | any posed sequence (room1/EuRoC) + DS-MSP VIO poses + SfM init | `tumvi/dataset-room1_512_16/mav0/` | `… tumvi` | *(roadmap — Tier 4)* |
+| **Later** metric fisheye depth | TUM RGB-D fr1 (**rgb + depth + GT**) | `tumrgbd/rgbd_dataset_freiburg1_xyz/` | `… tumrgbd` | *(roadmap — Later)* |
+| **Later** SuperPoint VO | EuRoC V1_01 (cam0) | `euroc/V1_01_easy/mav0/cam0/` | manual† | *(roadmap — Later)* |
 
 `… X` is shorthand for `bash scripts/download_datasets.sh X`. **†EuRoC cannot be scripted** —
 it's a manual browser download (the script only *extracts* it). See §4.2.
