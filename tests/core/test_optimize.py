@@ -17,7 +17,8 @@ from ds_msp.core.optimize import lm_solve, schur_lm
 def _make_problem(angle_deg, n=120, outlier_frac=0.0, noise=0.0, seed=0):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 3)) * 2.0
-    axis = np.array([0.3, -0.7, 0.6]); axis /= np.linalg.norm(axis)
+    axis = np.array([0.3, -0.7, 0.6])
+    axis /= np.linalg.norm(axis)
     R_true = so3_exp(np.deg2rad(angle_deg) * axis)
     t_true = np.array([0.5, -1.2, 2.0])
     Y = (R_true @ X.T).T + t_true
@@ -105,7 +106,8 @@ def test_degenerate_hessian_does_not_crash():
     """All points collinear → rank-deficient Hessian. The damped-Cholesky jitter
     fallback must keep the solve finite (no LinAlgError, no NaN)."""
     n = 30
-    X = np.zeros((n, 3)); X[:, 0] = np.linspace(-1, 1, n)    # collinear on x-axis
+    X = np.zeros((n, 3))
+    X[:, 0] = np.linspace(-1, 1, n)    # collinear on x-axis
     R_true = so3_exp(np.array([0.0, 0.0, 0.5]))
     Y = (R_true @ X.T).T + np.array([0.1, 0.2, 0.3])
     res, jac, ret = _registration_fns(X, Y)
@@ -143,7 +145,8 @@ def test_schur_matches_closed_form_on_linear_problem():
     s, L = out.state
     # Closed form: stack the full design matrix and solve.
     cols = sdim + n_groups * ldim
-    M = np.zeros((n_groups * m, cols)); rhs = np.zeros(n_groups * m)
+    M = np.zeros((n_groups * m, cols))
+    rhs = np.zeros(n_groups * m)
     for i in range(n_groups):
         M[i * m:(i + 1) * m, :sdim] = A[i]
         M[i * m:(i + 1) * m, sdim + i * ldim:sdim + (i + 1) * ldim] = B[i]
