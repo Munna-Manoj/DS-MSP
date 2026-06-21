@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.4.0...v0.5.0) (2026-06-21)
+
+
+### Features
+
+* **io:** C9 ecosystem interop — COLMAP + nerfstudio export/read ([#20](https://github.com/Munna-Manoj/DS-MSP/issues/20)) ([f46f080](https://github.com/Munna-Manoj/DS-MSP/commit/f46f08020f2f10d0c839e46283fbe57a7629c2f3))
+* **vo:** Tier 2 — monocular VO core + ATE/RPE evaluation toolkit ([#22](https://github.com/Munna-Manoj/DS-MSP/issues/22)) ([eb6448c](https://github.com/Munna-Manoj/DS-MSP/commit/eb6448c5260751d764bbe009974b514468ac189b))
+
+
+### Documentation
+
+* book-grounded SLAM/VIO implementation plan ([#23](https://github.com/Munna-Manoj/DS-MSP/issues/23)) ([ba1d95d](https://github.com/Munna-Manoj/DS-MSP/commit/ba1d95dbd7e90c721fb8ba70bb93ec7a1d568500))
+* roadmap Tiers 2–4 (VO · inertial/VIO · on-device 3DGS) + finish Tier 1 with C9 ([#19](https://github.com/Munna-Manoj/DS-MSP/issues/19)) ([e638082](https://github.com/Munna-Manoj/DS-MSP/commit/e638082211b3cefc45fef6551b0ce696bdf9b29b))
+
 ## [0.4.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.3.0...v0.4.0) (2026-06-21)
 
 **Tier-1 — from one calibrated camera to 3D structure.** This release adds the full multi-view
