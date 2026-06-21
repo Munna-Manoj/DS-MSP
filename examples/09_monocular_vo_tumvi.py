@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 
 from ds_msp.io import load_kalibr
-from ds_msp.vo import ate_rmse, estimate_trajectory, rpe_rmse
+from ds_msp.vo import ate_rmse, estimate_trajectory
 
 ROOM = "datasets/tumvi/dataset-room1_512_16"
 
@@ -61,13 +61,15 @@ def track_features(image_rows, max_corners=600, topup_below=350):
 
         if prev_gray is None:
             pts = cv2.goodFeaturesToTrack(img, **gf)
-            ids = np.arange(len(pts)); next_id = len(pts)
+            ids = np.arange(len(pts))
+            next_id = len(pts)
         else:
             nxt, st, _ = cv2.calcOpticalFlowPyrLK(prev_gray, img, prev_pts, None, **lk)
             back, _, _ = cv2.calcOpticalFlowPyrLK(img, prev_gray, nxt, None, **lk)
             fb = np.linalg.norm((prev_pts - back).reshape(-1, 2), axis=1)
             ok = (st.reshape(-1) == 1) & (fb < 1.0)
-            pts = nxt[ok]; ids = prev_ids[ok]
+            pts = nxt[ok]
+            ids = prev_ids[ok]
             # top up with fresh corners when the track count gets low
             if len(pts) < topup_below:
                 mask = np.full(img.shape, 255, np.uint8)
@@ -75,8 +77,10 @@ def track_features(image_rows, max_corners=600, topup_below=350):
                     cv2.circle(mask, (int(p[0]), int(p[1])), 10, 0, -1)
                 fresh = cv2.goodFeaturesToTrack(img, mask=mask, **gf)
                 if fresh is not None:
-                    new_ids = np.arange(next_id, next_id + len(fresh)); next_id += len(fresh)
-                    pts = np.vstack([pts, fresh]); ids = np.concatenate([ids, new_ids])
+                    new_ids = np.arange(next_id, next_id + len(fresh))
+                    next_id += len(fresh)
+                    pts = np.vstack([pts, fresh])
+                    ids = np.concatenate([ids, new_ids])
 
         frames.append({int(i): (float(p[0]), float(p[1]))
                        for i, p in zip(ids, pts.reshape(-1, 2))})
