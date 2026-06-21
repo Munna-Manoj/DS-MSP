@@ -60,7 +60,8 @@ class OptResult:
 
 
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
-                   pred: float, actual: float, lam_min: float, lam_max: float):
+                   pred: float, actual: float, lam_min: float,
+                   lam_max: float) -> tuple[float, float]:
     """One Levenberg–Marquardt damping update, shared by the dense and Schur loops.
 
     ``classic``: ÷3 on accept, ×3 on reject. ``nielsen``: gain ratio
