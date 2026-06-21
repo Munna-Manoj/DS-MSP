@@ -213,11 +213,24 @@ flow estimator.
 
 ---
 
-## C9 · Ecosystem interop  🟦  `[F2]`
-**Module:** `ds_msp/io/` (extends existing Kalibr I/O + model conversion).
-Export/convert intrinsics to **COLMAP** camera models (e.g. `OPENCV_FISHEYE`≈KB, `FOV`),
-**openMVG** spherical SfM, **OpenMVS**. Leans on the existing conversion layer; first target TBD
-(open question 4).
+## C9 · Ecosystem interop  🟩  `[F2]` — ✅ **implemented (COLMAP + nerfstudio; openMVG/OpenMVS deferred)**
+**Module:** `ds_msp/io/colmap.py` + `ds_msp/io/nerfstudio.py` (extend the existing Kalibr I/O +
+model-conversion layers). Shipped:
+- **COLMAP text sparse model** read/write (`export_colmap` / `read_colmap`) — `cameras.txt` /
+  `images.txt` / `points3D.txt`, with the DS-MSP↔COLMAP camera-model map (KB→`OPENCV_FISHEYE`,
+  RadTan→`OPENCV`, pinhole→`PINHOLE`) and the **world-to-camera, (w,x,y,z)-quaternion** pose
+  convention handled internally (public API uses 4×4 `T_cam_world`). DS/EUCM/UCM are *refused* with
+  a convert-to-KB pointer rather than silently approximated.
+- **nerfstudio `transforms.json`** export/read (`export_nerfstudio` / `read_nerfstudio`) — global
+  intrinsics + per-frame `transform_matrix` in the OpenGL camera-to-world convention (the
+  `inv(T_cam_world)·diag(1,−1,−1,1)` flip is applied/inverted internally).
+
+This is the bridge that feeds **OpenSplat / LichtFeld / nerfstudio** for Gaussian Splatting (Tier 4):
+DS-MSP's SfM sparse points + VO/VIO poses + calibrated intrinsics export straight into a
+trainer-ready project. *Verified:* export→read round-trip recovers intrinsics, poses (R,t), and 3D
+points/colours to `<1e-9` (`tests/io/test_colmap.py`, `tests/io/test_nerfstudio.py`, 17 tests).
+**Deferred:** `OPENCV`/`FOV`-only variants, **openMVG** spherical SfM and **OpenMVS** export — add
+when a concrete downstream need lands.
 
 ---
 
