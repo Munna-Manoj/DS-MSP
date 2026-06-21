@@ -121,7 +121,22 @@ and produces a trajectory a roboticist recognizes.
 pinhole detour — exactly the Tier-1 stack. **No new math is invented here; VO is the integration
 test for C1–C5 + the manifold LM.**
 
-**Module:** `ds_msp/vo/` (new pure-numpy service layer; independent in the import-linter contract).
+**Module:** `ds_msp/vo/` (a *composition* layer above `ds_msp.mvg` + `ds_msp.core` — not one of
+the mutually-independent service layers, since it deliberately reuses them).
+
+**Core + evaluation — shipped & tested** ✅:
+- **`ds_msp/vo/odometry.py`** — `estimate_trajectory`: two-view relative pose (C1/C2) chained with
+  **landmark scale-propagation** (a shared overlapping triple ties each pair's unit translation to
+  the established metric), so the monocular trajectory is self-consistent up to one global
+  similarity. Runs on given per-frame correspondences.
+- **`ds_msp/vo/metrics.py`** — `align_sim3` (Umeyama), `ate_rmse`, `rpe_rmse`: the standard
+  up-to-scale evaluation toolkit.
+- *Verified:* on a synthetic trajectory projected through a real DS-MSP model, recovered path
+  matches GT to **ATE `< 1e-6`** (noise-free) / **`< 0.1 m`** at 0.3 px noise on a ~1.75 m path,
+  rotation RPE `< 1e-3°` (`tests/vo/`, 6 tests).
+
+**Next increment:** a real feature tracker (KLT/FAST) front-end + **ATE/RPE on TUM-VI room1 /
+EuRoC V1_01** against ground truth, plus a `docs/learn/` chapter + runnable `examples/`.
 
 **Pipeline.**
 1. **Track** features frame-to-frame (KLT / FAST+descriptor) → pixel correspondences.
