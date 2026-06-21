@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [0.4.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.3.0...v0.4.0) (2026-06-21)
 
+**Tier-1 — from one calibrated camera to 3D structure.** This release adds the full multi-view
+geometry stack: two-view pose on bearing vectors with robust RANSAC, end-to-end relative-pose
+estimation, angular bundle adjustment, sphere-sweep stereo depth, and spherical rectification —
+all on a new in-house manifold (SO(3)/SE(3)) Levenberg–Marquardt solver with Schur-complement
+sparse BA. It also lands stereo-extrinsic calibration validated against TUM-VI's published rig
+to ~0.06°, and a verified, figure-rich learning chapter for it.
 
 ### Features
 
