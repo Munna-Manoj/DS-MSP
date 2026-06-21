@@ -1,7 +1,10 @@
 # Development / CI tooling for the multi-model work.
-# Runtime deps (numpy, opencv-python, scipy) are in pyproject.toml.
-pytest>=7
-pytest-cov>=4
-mypy>=1.4
-ruff>=0.1
-import-linter>=1.12
+# Pinned so a new tool release can't turn CI red without an intentional bump
+# (e.g. mypy 2.x's stricter checks, or a new ruff rule set). Bump deliberately.
+# Runtime deps (numpy, opencv-python, scipy) stay UNpinned in pyproject.toml —
+# a library should not over-constrain its consumers.
+pytest~=9.1
+pytest-cov~=7.1
+mypy==2.1.0
+ruff==0.15.18
+import-linter==2.11
