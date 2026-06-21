@@ -1,10 +1,9 @@
 # DS-MSP ↔ diffpnp — survey, gap analysis, and a symbiosis path
 
-> Both repos are authored by the same person and are meant to grow each other. This is the
-> survey + gap analysis confirming **how**, and in what order. Companion to the
+> Survey + gap analysis of how DS-MSP and the companion **diffpnp** repository complement each
+> other, and in what order to integrate them. Companion to the
 > [Tier-1 spec](tier1_implementation_spec.md) and the
-> [two-view geometry proofs](mvg_two_view_geometry.md). diffpnp lives at
-> `/Users/munna/AI/3D/diffpnp` (outside this repo).
+> [two-view geometry proofs](../explain/two_view_geometry.md). diffpnp is a separate repository.
 
 ## Thesis — is the plan proper? **Yes, and it's the natural architecture.**
 
@@ -26,9 +25,10 @@ intrinsics vector; pose optimization is manifold least-squares on a residual.** 
 ray-based Tier-1 (bearing-vector two-view, the **angular residual** C5, ray-based PnP) is
 *already* the camera-agnostic shape diffpnp needs to leave pinhole behind.
 
-So the user's plan — *validate wide-angle correctness on DS-MSP, borrow Lie + optimization
-robustness from diffpnp, and once DS-MSP is ready port the camera models into diffpnp* — is not
-just feasible; it is the architecture the two codebases are already converging toward.
+So the integration plan — *validate wide-angle correctness in DS-MSP, reuse the Lie +
+optimization-robustness layer from diffpnp, and once DS-MSP is ready port the camera models into
+diffpnp* — is not just feasible; it is the architecture the two codebases are already converging
+toward.
 
 ## Survey — what each side exposes at the seam
 
@@ -122,8 +122,8 @@ diffpnp."*
   compare to DS-MSP's classical calibration on TUM-VI (harness check #2). Optionally backport
   **GNC** into DS-MSP's calibration.
 - **Phase 4 — learned wide-FOV front-end (Tier-4 "modern-3D").** Train a fisheye
-  keypoint/confidence head end-to-end through diffpnp pose error with the DS backend — the
-  portfolio's differentiable-3D signal.
+  keypoint/confidence head end-to-end through diffpnp pose error with the DS backend — a learned
+  wide-FOV differentiable-3D capability.
 
 ## Risks & guardrails
 

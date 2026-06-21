@@ -1,9 +1,9 @@
 # Two-view geometry on bearing vectors — derivations, proofs, and numerical notes
 
-Formal companion to [`ds_msp/mvg/two_view.py`](../../ds_msp/mvg/two_view.py) (Tier-1 C1). Every
-claim here is checked by a named test in [`tests/mvg/test_two_view.py`](../../tests/mvg/test_two_view.py),
+Formal companion to [`ds_msp/mvg/two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/mvg/two_view.py) (Tier-1 C1). Every
+claim here is checked by a named test in [`tests/mvg/test_two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/tests/mvg/test_two_view.py),
 so the math and the code can't drift. Implements unit **C1** of the
-[Tier-1 spec](tier1_implementation_spec.md).
+[Tier-1 spec](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/research/tier1_implementation_spec.md).
 
 ## Setup and conventions
 
@@ -156,16 +156,16 @@ rays to $\sim0°$.
   or ensure non-degenerate 3D coverage — the same "the data must exercise the geometry" lesson as
   the [calibration FOV-coverage](../learn/are_two_models_the_same_camera.md) point.
 
-## Manifold-correct refinement (C5 / Phase 1)
+## Manifold-correct refinement
 
 The nonlinear refinement (`mvg.refine_two_view`) and the calibration bundle do **not** optimize an
 absolute axis-angle vector (biased >30°, singular at `‖r‖=π`). They optimize a **local
 perturbation** retracted through the exponential map, `R ← R₀·Exp([δω]_×)` with `δω` starting at
-`0`, using the SO(3) `exp`/`log` and **right Jacobian** in [`ds_msp/core/lie.py`]
+`0`, using the SO(3) `exp`/`log` and **right Jacobian** in
+[`ds_msp/core/lie.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/lie.py)
 (`∂(Exp(w)v)/∂w = -Exp(w)[v]_× J_r(w)`, verified by finite difference). The calibrator's analytic
-extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)`. This is the manifold half of the
-[DS-MSP ↔ diffpnp symbiosis](diffpnp_dsmsp_symbiosis.md) (Phase 1) — same numbers in benign
-regimes, stable at large rotation.
+extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)`. The result matches the flat
+parameterization in benign regimes and stays stable at large rotation.
 
 ## What this unlocks
 
@@ -173,4 +173,4 @@ Relative pose + triangulation on rays is the front end of **Structure-from-Motio
 two-view poses, triangulate a point cloud, and refine by manifold bundle adjustment with the
 **angular reprojection residual** (spec unit C5) — all without ever flattening the fisheye to a
 pinhole. The robust wrapper (RANSAC + spherical normalization) is **C2**; see the
-[Tier-1 spec](tier1_implementation_spec.md).
+[Tier-1 spec](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/research/tier1_implementation_spec.md).

@@ -38,6 +38,11 @@ Issues = "https://github.com/Munna-Manoj/DS-MSP/issues"
 # board images (e.g. TUM-VI). Kept optional so the core library installs lean.
 [project.optional-dependencies]
 calib = ["aprilgrid"]
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "pymdown-extensions",
+]
 
 # Package only the importable library; the top-level scripts (calibrate.py,
 # validate.py, visualize.py, …) are CLI entry points, not part of the package.

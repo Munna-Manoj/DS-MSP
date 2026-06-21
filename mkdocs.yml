@@ -1,0 +1,116 @@
+site_name: DS-MSP
+site_description: Double Sphere & multi-model fisheye camera library — and a guided course in the geometry behind SLAM/SfM.
+site_url: https://munna-manoj.github.io/DS-MSP/
+repo_url: https://github.com/Munna-Manoj/DS-MSP
+repo_name: Munna-Manoj/DS-MSP
+docs_dir: docs
+edit_uri: edit/main/docs/
+
+# Design/planning docs live in the repo but are NOT part of the published book.
+# Keep them out of the built site.
+exclude_docs: |
+  research/
+  MULTI_MODEL.md
+  MULTI_MODEL_ADAPTER_PLAN.md
+  MULTI_MODEL_DEV_PROCESS.md
+  WRITING_GUIDE.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections      # render the four Diátaxis groups as sidebar sections
+    - navigation.tabs          # top-level tabs: Learn / How-to / Reference / Explanation
+    - navigation.indexes       # a section's index page becomes its landing
+    - navigation.top
+    - content.code.copy        # copy button on every runnable snippet
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:              # auto API reference from NumPy-style docstrings (Reference section)
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+            separate_signature: true
+            show_root_heading: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - pymdownx.arithmatex:       # MathJax math (the derivations in Explanation)
+      generic: true
+  - pymdownx.superfences:      # fenced code + mermaid
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details          # collapsible "forward/inverse equations" blocks
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_javascript:             # MathJax loader for arithmatex
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+# Diátaxis: the four top-level tabs ARE the four teaching modes. "Project" holds
+# design records and is deliberately not one of them. The nav grows as the docs
+# rollout ships pages.
+nav:
+  - Home: index.md
+  - Learn:                                   # TUTORIALS
+      - learn/README.md
+      - Part I — Calibration:
+          - 1 · Fisheye & camera models: learn/01_fisheye_and_camera_models.md
+          - 2 · The Double Sphere model: learn/02_double_sphere_model.md
+          - 3 · Projection validity & the >180° cone: learn/03_projection_validity.md
+          - 🏆 Capstone — calibrate a real camera: learn/capstone_calibrating_a_real_camera.md
+          - "Deep-dive: AprilGrid detection": learn/robust_aprilgrid_detection.md
+          - "Deep-dive: robust losses & evaluation": learn/robust_losses_and_evaluation.md
+          - "Deep-dive: same camera?": learn/are_two_models_the_same_camera.md
+          - "Deep-dive: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
+          - "Deep-dive: stereo extrinsics": learn/stereo_extrinsics_calibration.md
+      - Part II — Geometry & 3D:
+          - 8 · Two-view geometry on rays: learn/08_two_view_geometry_on_rays.md
+  - How-to:                                  # HOW-TO GUIDES (cookbook)
+      - how-to/README.md
+      - Calibrate any model: how-to/calibrate_any_model.md
+      - Convert between models: how-to/convert_between_models.md
+      - Undistort images: how-to/undistort_images.md
+      - Solve PnP on fisheye: how-to/solve_pnp_on_fisheye.md
+      - Export a TI LDC mesh: how-to/export_ldc_mesh.md
+      - Read/write Kalibr YAML: how-to/read_write_kalibr.md
+  - Reference:                               # REFERENCE (mkdocstrings; reference-writer owns)
+      - reference/index.md
+  - Explanation:                             # EXPLANATION (the math/why)
+      - explain/README.md
+      - Projection validity, FOV & undistortion: explain/projection_validity_and_fov.md
+      - Two-view geometry (derivations): explain/two_view_geometry.md
+  - Project:                                 # design records — separated from the book
+      - Roadmap: ROADMAP.md
