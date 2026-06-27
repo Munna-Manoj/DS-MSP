@@ -7,6 +7,15 @@
 
 import type { CameraModel, Params, Vec3 } from "./cameras";
 
+/** The camera models use the computer-vision image frame (x-right, y-DOWN,
+ *  z-forward), but the 3D scene and the equirectangular panorama are y-UP. Flip y
+ *  to move a bearing/point between the two frames so the synthesized image, the
+ *  wrapped surfaces, and the y-up world all read upright and agree. Self-inverse,
+ *  so this one helper converts both directions (camera↔world). */
+export function flipY(d: Vec3): Vec3 {
+  return [d[0], -d[1], d[2]];
+}
+
 /** Equirectangular lookup matching three.js' equirectUv (so our surfaces line up
  *  with scene.background). u = atan2(z,x)/2π+0.5, v = asin(y)/π+0.5. */
 export function equirectUv(d: Vec3): [number, number] {
@@ -31,10 +40,13 @@ export function computeRayGrid(model: CameraModel, p: Params, n: number): RayGri
     for (let i = 0; i < n; i++) {
       const u = (i / (n - 1)) * W;
       const { ray, valid } = model.unproject(u, v, p);
+      // camera frame (y-down) -> world (y-up) so the image/surfaces sit upright
+      // in the y-up scene and sample the panorama the right way up.
+      const w = flipY(ray);
       const k = (j * n + i) * 4;
-      data[k] = ray[0];
-      data[k + 1] = ray[1];
-      data[k + 2] = ray[2];
+      data[k] = w[0];
+      data[k + 1] = w[1];
+      data[k + 2] = w[2];
       data[k + 3] = valid ? 1 : 0;
     }
   }

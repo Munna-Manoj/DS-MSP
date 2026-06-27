@@ -35,7 +35,7 @@ export default function App() {
 
   useEffect(() => {
     if (!playing) return;
-    const id = setInterval(() => setStage((s) => (s >= stages.length - 1 ? 0 : s + 1)), 1500);
+    const id = setInterval(() => setStage((s) => (s >= stages.length - 1 ? 0 : s + 1)), 1800);
     return () => clearInterval(id);
   }, [playing, stages.length]);
 
@@ -87,13 +87,19 @@ export default function App() {
         {/* step-through strip */}
         <section className="mt-6">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[11px] uppercase tracking-[0.14em] text-faint">
+            <h3 className="text-[11px] uppercase tracking-[0.14em] text-faint flex items-center gap-2">
               Projection pipeline — step through it
+              {stage >= 0 && (
+                <span className="font-mono text-primary normal-case tracking-normal">
+                  · step 0{stage + 1}/0{stages.length}: {stages[stage].title}
+                </span>
+              )}
             </h3>
             <div className="flex items-center gap-2">
               <button onClick={() => setPlaying((p) => !p)}
-                className="font-mono text-[11px] rounded-md border border-line px-3 py-1.5 text-text hover:border-primary transition">
-                {playing ? "❚❚ pause" : "▶ play"}
+                title="Auto-advance the projection one stage at a time (world ray → bearing → model projection → image pixel)"
+                className={`font-mono text-[11px] rounded-md border px-3 py-1.5 transition ${playing ? "border-primary text-primary" : "border-line text-text hover:border-primary"}`}>
+                {playing ? "❚❚ pause" : "▶ animate steps"}
               </button>
               <button onClick={() => { setPlaying(false); setStage(-1); }}
                 className={`font-mono text-[11px] rounded-md border px-3 py-1.5 transition ${stage < 0 ? "border-primary text-primary" : "border-line text-muted hover:border-primary"}`}>

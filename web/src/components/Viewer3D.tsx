@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, TransformControls, Line, Html, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { zoneColor, type CameraModel, type Params, type Vec3 } from "../lib/cameras";
 import {
   buildSurfaceMesh,
   computeRayGrid,
+  flipY,
   surfaceIndices,
   type Surface,
 } from "../lib/raymap";
@@ -124,6 +125,25 @@ function landOn(d: Vec3, s: Surface): Vec3 | null {
   return Math.hypot(px, py) < 2.4 ? [px, py, 1] : null;
 }
 
+// An expanding/fading halo marking the step the play head is currently on, so
+// each auto-step visibly "lights up" the element it introduces.
+function Pulse({ p, color }: { p: Vec3; color: string }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    const t = (state.clock.elapsedTime % 1.1) / 1.1; // 0..1 loop
+    const m = ref.current;
+    if (!m) return;
+    m.scale.setScalar(0.08 + t * 0.55);
+    (m.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - t);
+  });
+  return (
+    <mesh ref={ref} position={p}>
+      <sphereGeometry args={[1, 20, 20]} />
+      <meshBasicMaterial color={color} transparent opacity={0.5} wireframe depthWrite={false} />
+    </mesh>
+  );
+}
+
 function PipelineViz({
   model,
   params,
@@ -137,25 +157,32 @@ function PipelineViz({
   surfaces: Surface[];
   stage: number;
 }) {
-  const proj = model.project(active, params);
+  // active is a y-up world point; the model projects in the camera (y-down) frame.
+  const proj = model.project(flipY(active), params);
   const color = zoneColor[proj.zone];
   const n = Math.hypot(...active) || 1;
   const bearing: Vec3 = [active[0] / n, active[1] / n, active[2] / n];
 
   const show = (s: number) => stage < 0 || stage >= s;
+  const cur = (s: number) => stage === s; // the step the play head just revealed
+  const firstLand = surfaces.map((s) => landOn(bearing, s)).find((l) => l) ?? null;
 
   return (
     <>
       {/* ① world ray */}
-      {show(0) && <Line points={[[0, 0, 0], active]} color={color} lineWidth={2.5} />}
+      {show(0) && (
+        <Line points={[[0, 0, 0], active]} color={color} lineWidth={cur(0) ? 4 : 2.5} />
+      )}
+      {cur(0) && <Pulse p={active} color={color} />}
 
       {/* ② bearing on the unit sphere */}
-      {show(1) && <Dot p={bearing} color={color} />}
+      {show(1) && <Dot p={bearing} color={color} r={cur(1) ? 0.075 : 0.05} />}
       {show(1) && (
         <Tag p={[bearing[0] * 1.16, bearing[1] * 1.16 + 0.12, bearing[2] * 1.16]}>
           ② bearing b
         </Tag>
       )}
+      {cur(1) && <Pulse p={bearing} color={color} />}
 
       {/* ③ landing on each shown surface + the pixel */}
       {show(2) &&
@@ -164,8 +191,8 @@ function PipelineViz({
           if (!land) return null;
           return (
             <group key={s}>
-              <Line points={[bearing, land]} color={SURFACE_TINT[s]} lineWidth={1.4} dashed dashSize={0.07} gapSize={0.05} />
-              <Dot p={land} color={SURFACE_TINT[s]} r={0.045} />
+              <Line points={[bearing, land]} color={SURFACE_TINT[s]} lineWidth={cur(2) ? 2.6 : 1.4} dashed dashSize={0.07} gapSize={0.05} />
+              <Dot p={land} color={SURFACE_TINT[s]} r={cur(2) ? 0.07 : 0.045} />
               {show(3) && proj.valid && (
                 <Tag p={[land[0], land[1] - 0.16, land[2]]}>
                   {s} · ({proj.u.toFixed(0)}, {proj.v.toFixed(0)})
@@ -174,6 +201,7 @@ function PipelineViz({
             </group>
           );
         })}
+      {(cur(2) || cur(3)) && firstLand && <Pulse p={firstLand} color={color} />}
     </>
   );
 }
@@ -214,7 +242,7 @@ function Rig({ model, params, active, onActiveChange, surfaces, stage }: Props) 
   useEffect(() => {
     pano.colorSpace = THREE.SRGBColorSpace;
   }, [pano]);
-  const color = zoneColor[model.project(active, params).zone];
+  const color = zoneColor[model.project(flipY(active), params).zone];
 
   return (
     <>

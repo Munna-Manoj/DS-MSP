@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { thetaMaxOf, type CameraModel, type Params, type Vec3 } from "../lib/cameras";
+import { flipY } from "../lib/raymap";
 
 // Transparent overlay on the rendered fisheye image: FOV-zone rings (90° + θmax),
 // a crosshair on the picked ray, and a resolution badge. Drawn in sensor pixels
@@ -52,7 +53,8 @@ export function FisheyeOverlay({ model, params, active }: Props) {
       ring(ctx, cx, cy, rMax);
     }
 
-    const ap = model.project(active, params);
+    // active is a y-up world point; the model expects the camera (y-down) frame.
+    const ap = model.project(flipY(active), params);
     if (ap.valid && Number.isFinite(ap.u)) {
       const x = ap.u;
       const y = ap.v;
