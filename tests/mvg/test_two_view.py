@@ -110,7 +110,7 @@ def _skew(v):
 
 
 # ---------------------------------------------------------------------------
-# Geometry-aware properties of the essential matrix (see docs/research/mvg_two_view_geometry.md)
+# Geometry-aware properties of the essential matrix (see docs/learn/two_view_geometry.md)
 # ---------------------------------------------------------------------------
 
 def test_essential_singular_values_are_one_one_zero():

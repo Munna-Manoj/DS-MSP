@@ -11,10 +11,9 @@ on the left)::
   H : projective tilt / Scheimpflug layer (cf. OpenCV CALIB_TILTED_MODEL), (tau_x,tau_y)
   K : pinhole (fx,fy,cx,cy)
 
-This is the UCM-core, two-axis-tilt specialization of the DS+ derivation in
-``.ai/experiments/2026-06-27-dsplus-derivation/`` (Double-Sphere's xi is dropped;
-it is the proven near-null direction for the target lens). Parameter order is
-``(fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y)``.
+This is the UCM-core, two-axis-tilt specialization of the DS+ model (Double-Sphere's
+xi is dropped; it is the proven near-null direction for the target lens). Parameter
+order is ``(fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y)``.
 
 Self-contained: numpy only, no internal imports (enforced by the independence
 gate), so it stands alone and is independently testable.

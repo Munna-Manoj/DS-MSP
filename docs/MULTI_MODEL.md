@@ -277,9 +277,6 @@ Enforced by CI (pure-pytest gates):
   round-trip, unit-norm rays, analytic-Jacobian gradient-check, serialization).
 - **No autodiff** — all Jacobians are hand-derived and gradient-checked.
 
-See `docs/MULTI_MODEL_ADAPTER_PLAN.md` and `docs/MULTI_MODEL_DEV_PROCESS.md` for the
-full design and the TDD/decoupling methodology.
-
 ---
 
 ## Credits

@@ -14,9 +14,8 @@ A *block* is the group of residual components that share one robustness decision
 2 for an image point ``(u, v)``, but the caller declares it (two-view stacks 4 per
 3-D point: two views × two tangent components).
 
-Ported from the diffpnp ``robust`` module (PyTorch); the differentiability-only
-pieces (the Triggs ``ω'`` curvature term, learnable Barron α) are intentionally
-omitted — this is a forward-only solver. See the symbiosis note Phase 2.
+The differentiability-only pieces (the Triggs ``ω'`` curvature term, learnable
+Barron α) are intentionally omitted — this is a forward-only solver.
 """
 
 from __future__ import annotations

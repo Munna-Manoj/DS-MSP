@@ -1,4 +1,4 @@
-"""Multi-view geometry on **bearing vectors** (Tier-1 C1).
+"""Multi-view geometry on **bearing vectors**.
 
 A fisheye measures *rays*, not pixels on a plane, so two-view geometry for a wide-FOV
 camera is done on unit bearing vectors — `cam.unproject(pixels)` — and never touches a
@@ -7,7 +7,6 @@ model, so the eight-point algorithm, pose recovery, and triangulation below work
 for Double Sphere, UCM, EUCM, Kannala-Brandt, … — that is the whole point.
 
 This layer is pure NumPy and model-agnostic: feed it rays, get relative pose and 3D points.
-See ``docs/research/tier1_implementation_spec.md`` (unit C1).
 """
 
 from .bundle import (

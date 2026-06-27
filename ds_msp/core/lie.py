@@ -8,7 +8,6 @@ the exponential map, ``R ← R · exp([δω]_×)`` with ``δω`` small. This mod
 derivative) exact. Used by `mvg.bundle.refine_two_view` and `calib.bundle` (manifold mode).
 
 Numerically safe near ``θ = 0`` (Taylor series) and ``θ = π`` (`log` via the largest diagonal).
-See the diffpnp↔DS-MSP symbiosis note (`docs/research/diffpnp_dsmsp_symbiosis.md`), Phase 1.
 """
 
 from __future__ import annotations

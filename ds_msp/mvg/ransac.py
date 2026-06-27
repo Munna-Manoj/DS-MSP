@@ -3,7 +3,7 @@
 The eight-point estimator (``two_view.essential_from_rays``) is least-squares: a few mismatched
 rays wreck it. This wraps it in RANSAC, scoring with a **Sampson distance on the sphere** that is
 an angle in radians (so the inlier threshold is FOV-independent — the right currency for a fisheye,
-unlike a pixel threshold). Implements unit **C2** of the Tier-1 spec.
+unlike a pixel threshold).
 """
 
 from __future__ import annotations

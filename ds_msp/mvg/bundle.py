@@ -1,11 +1,11 @@
-"""Angular reprojection error and two-view bundle refinement (Tier-1 C5).
+"""Angular reprojection error and two-view bundle refinement (Tier-1).
 
-The eight-point + cheirality estimate (C1/C2) is *algebraic*; a nonlinear refinement that
+The eight-point + cheirality estimate is *algebraic*; a nonlinear refinement that
 minimizes the **geometric** reprojection error tightens it. For a wide-FOV camera that error must
 be measured as an **angle on the sphere**, not a pixel distance: pixel error is anisotropic and
 ill-defined past 90°, whereas the angle between the observed ray and the predicted ray is the
 honest, model-free residual everywhere. This refines relative pose **and** structure together by
-least-squares on the tangent-plane residual. Implements unit **C5** of the Tier-1 spec.
+least-squares on the tangent-plane residual.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def estimate_relative_pose(f1: np.ndarray, f2: np.ndarray, *,
                            robust_scale: float | str = "auto"):
     """End-to-end **robust** two-view relative pose from ray correspondences.
 
-    Ties the C2 + C5 pieces into one call: RANSAC consensus over the eight-point gives an
+    Ties the RANSAC consensus and angular-BA pieces into one call: RANSAC consensus over the eight-point gives an
     outlier-free inlier set and a well-conditioned initial ``(R₀, t₀)`` (a far better seed than a
     single least-squares eight-point on contaminated data, especially at large rotation where one
     bad ray skews the essential matrix); the inliers are triangulated and handed to the

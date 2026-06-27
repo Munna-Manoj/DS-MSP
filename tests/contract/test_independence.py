@@ -1,7 +1,7 @@
 """
 Decoupling gate (pure-pytest stand-in for import-linter).
 
-Enforces the layered import rules from docs/MULTI_MODEL_DEV_PROCESS.md so that
+Enforces the project's layered import rules so that
 module independence is CI-checked, not merely intended:
 
   - ds_msp/core/*        : numpy/typing/stdlib only; never imports models/ops/adapt/io

@@ -1,4 +1,4 @@
-"""Reproject a calibrated camera into image-domain charts (Tier-1 C3).
+"""Reproject a calibrated camera into image-domain charts (Tier-1).
 
 A central camera measures rays, so any image is just a *chart* of those rays. This module turns
 the verified sphere/cylinder/pinhole maps (the ``examples/08`` deep-dive) into a library API and

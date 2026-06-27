@@ -1,4 +1,4 @@
-"""Sphere-sweep stereo — dense depth straight on calibrated fisheye views (Tier-1 C4).
+"""Sphere-sweep stereo — dense depth straight on calibrated fisheye views (Tier-1).
 
 The modern wide-FOV alternative to plane-sweep, which is invalid past 90° (Meuleman et al.,
 CVPR 2021). Instead of rectifying — which on a fisheye warps the image and makes a single
@@ -12,7 +12,7 @@ disparity mean different distances in different places — we sweep **depth** di
 
 No rectification, no homography, no pinhole — only ``unproject`` (reference rays) and
 ``project`` (into each source). Sampling **inverse depth** uniformly keeps the candidates evenly
-spaced in disparity. Implements unit **C4** of the Tier-1 spec.
+spaced in disparity.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Image-domain charts (C3): round-trip precision, ray validity, and real-camera resampling."""
+"""Image-domain charts: round-trip precision, ray validity, and real-camera resampling."""
 
 import numpy as np
 import pytest

@@ -1,4 +1,4 @@
-"""Angular two-view bundle refinement (C5): tightens the algebraic estimate on noisy rays."""
+"""Angular two-view bundle refinement: tightens the algebraic estimate on noisy rays."""
 
 import numpy as np
 

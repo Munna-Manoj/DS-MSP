@@ -1,4 +1,4 @@
-"""Robust relative pose (C2): spherical normalization + RANSAC with an angular residual."""
+"""Robust relative pose: spherical normalization + RANSAC with an angular residual."""
 
 import numpy as np
 import pytest

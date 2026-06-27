@@ -116,6 +116,6 @@ without zooming in:
 3. Project a single ray at exactly `θ = 113°` and at `θ = 114°` and check the `valid` mask —
    you've found the edge of the cone by hand.
 
-**Next:** [Chapter 4](04_jacobians.md) — analytic Jacobians vs autodiff: derive the
+**Next:** Chapter 4 — analytic Jacobians vs autodiff: derive the
 projection's exact derivative and gradient-check it. *(coming soon — see
 [`../ROADMAP.md`](../ROADMAP.md))*

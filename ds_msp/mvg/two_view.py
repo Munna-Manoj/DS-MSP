@@ -13,7 +13,7 @@ Conventions
 The calibrated epipolar constraint is ``f2ᵀ E f1 = 0`` with ``E = [t]_× R`` (rank 2). It
 holds for bearing vectors of any central camera, which is why nothing here is pinhole-specific.
 
-Derivations, proofs, and numerical-stability notes: ``docs/research/mvg_two_view_geometry.md``.
+Derivations, proofs, and numerical-stability notes: ``docs/learn/two_view_geometry.md``.
 """
 
 from __future__ import annotations

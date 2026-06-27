@@ -27,21 +27,22 @@ verification_output/
 datasets/*
 !datasets/README.md
 
-# Personal job-hunt strategy notes (kept local, not for the public repo).
+# Local-only working notes (kept out of the public repo).
 CAREER_ROADMAP.md
 
-# Claude Code / AI authoring setup (LOCAL-ONLY, never committed).
-# The agent pipeline and orchestration we use to *help build* DS-MSP are background
-# tooling — not part of the library or its public docs. Keep them out entirely.
+# Local-only authoring/tooling config — never committed.
 .claude/
-# The doc-quality rubric the agents enforce names that pipeline, so it stays local too.
-# (The public-facing writing standard is docs/WRITING_GUIDE.md.)
-docs/research/doc_excellence_spec.md
+.ai/
+CLAUDE.md
+CLAUDE.local.md
 
-# Simulation / rendering studio (LOCAL-ONLY, never committed to this repo).
-# It has its own local git repo and heavy viz dependencies (matplotlib, manim, …).
-# RULE: the studio generates visual assets; only its OUTPUT (copied into assets/)
-# lands here. The generator code and its deps stay out of GitHub entirely.
+# Internal R&D and planning docs (kept local, never published).
+docs/research/
+docs/MULTI_MODEL_ADAPTER_PLAN.md
+docs/MULTI_MODEL_DEV_PROCESS.md
+
+# Local-only rendering scripts and their heavy viz dependencies; only their committed
+# output (under assets/) belongs in this repo.
 /simulations/
 
 # Local detection/repro experiments (use datasets, not shipped).

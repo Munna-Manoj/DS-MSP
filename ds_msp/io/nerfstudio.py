@@ -1,5 +1,5 @@
 """
-nerfstudio ``transforms.json`` I/O (C9 ecosystem interop).
+nerfstudio ``transforms.json`` I/O (ecosystem interop).
 
 Exports a DS-MSP calibration + poses to the nerfstudio / instant-ngp
 ``transforms.json`` format consumed by many Gaussian-Splatting and NeRF trainers.

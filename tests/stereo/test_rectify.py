@@ -1,4 +1,4 @@
-"""Spherical rectification (C6): a vertical baseline makes epipolar lines vertical meridians."""
+"""Spherical rectification: a vertical baseline makes epipolar lines vertical meridians."""
 
 import numpy as np
 

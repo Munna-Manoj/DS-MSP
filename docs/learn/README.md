@@ -82,8 +82,7 @@ incrementally. Part II = library shipped & tested, chapters/examples in progress
 
 A fisheye measures **rays**, so this whole arc is built on `project` / `unproject` — epipolar
 lines become curves, disparity becomes angular, and the essential matrix still holds on unit
-bearing vectors. Scoped from a verified deep-research study (see the
-[Tier-1 spec](../research/tier1_implementation_spec.md)).
+bearing vectors.
 
 | # | Chapter | You'll be able to… | Code anchor (shipped) |
 |---|---------|--------------------|-----------------------|

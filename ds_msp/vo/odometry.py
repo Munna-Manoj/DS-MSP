@@ -4,7 +4,7 @@ Monocular visual odometry (Tier 2).
 A fisheye measures *rays*, so this VO never undistorts to a pinhole — it composes the
 Tier-1 bearing-vector stack directly:
 
-  unproject → two-view relative pose (C1/C2) → ray triangulation → scale-propagated chaining
+  unproject → two-view relative pose → ray triangulation → scale-propagated chaining
 
 Each consecutive frame pair gives a relative pose with a **unit-norm** translation
 (monocular scale is unobservable from two views). We fix the global scale once on the first

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Download the free, small (<10 GB total) public datasets used by the
-# CAREER_ROADMAP. All are resumable (curl -C -); safe to re-run.
+# Download the free, small (<10 GB total) public datasets used by this project's
+# examples and roadmap. All are resumable (curl -C -); safe to re-run.
 #
 #   bash scripts/download_datasets.sh            # download everything below
 #   bash scripts/download_datasets.sh tumvi      # only the TUM-VI group

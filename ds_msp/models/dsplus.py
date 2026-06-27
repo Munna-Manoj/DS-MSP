@@ -4,8 +4,7 @@ CameraModel contract.
 DS+ is the Double Sphere model with ``xi`` dropped (the proven near-null direction
 for the target lens) and two extra closed-form-invertible stages added: a Fitzgibbon
 division-model radial layer (``lambda1, lambda2``) and a 2-axis Scheimpflug tilt
-homography (``tau_x, tau_y``). See ``dsplus_math`` and the derivation in
-``.ai/experiments/2026-06-27-dsplus-derivation/``.
+homography (``tau_x, tau_y``). See ``dsplus_math`` for the full derivation.
 """
 
 from __future__ import annotations

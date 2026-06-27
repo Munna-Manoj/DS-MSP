@@ -54,11 +54,9 @@ the public datasets already wired up:
   loop; monocular metric depth metrically corrected by the fisheye calibration.
 
 ## Tier 1 — representation-aware 3D: stereo · SfM · reconstruction
-**Research-driven.** This tier is scoped from a verified deep-research study of how image-domain
-charts (pinhole / equirectangular / cubemap / tangent) are used across 3D tasks — see the
-[findings record](research/representations_for_3d_tasks_findings.md) (24/25 claims passed 3-vote
-adversarial verification) and the [implementation spec](research/tier1_implementation_spec.md)
-(`C1`–`C9`: each with math, algorithm, verification number, and target module). The thread tying
+This tier covers how image-domain charts (pinhole / equirectangular / cubemap / tangent) are
+used across 3D tasks, building each capability with its math, algorithm, verification number,
+and target module. The thread tying
 it together: **a fisheye measures rays, so the wide-FOV 3D stack is built on `project` /
 `unproject`, not on a pinhole detour** — epipolar lines become curves, disparity becomes angular,
 and the essential matrix still holds on **unit bearing vectors**.
@@ -67,18 +65,18 @@ Builds on the verified pixel↔ray reprojection already shipped
 ([deep-dive](learn/spherical_and_cylindrical_reprojection.md), `examples/08`).
 
 **Core library capability — shipped & tested** ✅ (the wide-FOV 3D stack now exists in code):
-- **`C1`+`C2` — two-view geometry on rays** (`ds_msp/mvg/two_view.py`, `ransac.py`): essential
+- **Two-view geometry on rays** (`ds_msp/mvg/two_view.py`, `ransac.py`): essential
   matrix via 8-point on bearing vectors (+ spherical 360-8PA normalization), pose recovery with
   **ray cheirality**, ray triangulation, on-sphere (angular) RANSAC, and an end-to-end
   `estimate_relative_pose`. *(5-point minimal solver deferred.)*
-- **`C3` — chart library** (`ds_msp/ops/reproject.py`): sphere / cylinder / pinhole / **cubemap** /
+- **Chart library** (`ds_msp/ops/reproject.py`): sphere / cylinder / pinhole / **cubemap** /
   **tangent-image (gnomonic)** charts with valid masks and FOV-aware auto-intrinsics.
-- **`C4` — sphere-sweep stereo** (`ds_msp/stereo/sphere_sweep.py`): depth directly on calibrated
+- **Sphere-sweep stereo** (`ds_msp/stereo/sphere_sweep.py`): depth directly on calibrated
   fisheye, **no rectification**.
-- **`C5` — angular BA residual** (`ds_msp/mvg/bundle.py`) + **Schur-complement sparse BA** for
+- **Angular BA residual** (`ds_msp/mvg/bundle.py`) + **Schur-complement sparse BA** for
   calibration (`ds_msp/calib/bundle.py`).
-- **`C6` — spherical epipolar rectification** (`ds_msp/stereo/rectify.py`): the clean teaching
-  complement to `C4`; depth agrees to `<1%`.
+- **Spherical epipolar rectification** (`ds_msp/stereo/rectify.py`): the clean teaching
+  complement to sphere-sweep; depth agrees to `<1%`.
 
 **Manifold-optimization foundation — shipped & tested** ✅ (underpins all of the above):
 - **SO(3)/SE(3) Lie primitives** (`ds_msp/core/lie.py`) — manifold-correct pose updates; flat
@@ -88,24 +86,22 @@ Builds on the verified pixel↔ray reprojection already shipped
   graduated non-convexity (`ds_msp/core/robust.py`).
 
 **Finishing Tier 1 — active** 🟩:
-- **`C9` — ecosystem interop** (`ds_msp/io/`): export calibrated intrinsics + camera poses + sparse
+- **Ecosystem interop** (`ds_msp/io/`): export calibrated intrinsics + camera poses + sparse
   points to **COLMAP** (`OPENCV_FISHEYE`≈KB, `FOV`), **nerfstudio**, and **openMVG/OpenMVS**. Leans
   on the existing model-conversion + Kalibr I/O layers — no new heavy deps. The bridge to external
   SfM / MVS / Gaussian-Splatting tools (Tier 4). *Shipped & tested* ✅.
 
 **Deferred to a research extra (`[recon]`) — not started** 🟦:
-- **`C7`** multi-chart MVS depth fusion · **`C8`** optical-flow ERP dense reconstruction. Both need a
+- **Multi-chart MVS depth fusion** · **optical-flow ERP dense reconstruction**. Both need a
   heavy external ML estimator (monocular depth / dense optical flow), which cuts against the "free,
   small, laptop-runnable, no special hardware" design rule — so they live behind an optional
-  `[recon]` extra and land *after* the inertial arc. See the
-  [spec](research/tier1_implementation_spec.md#c7--multi-chart-mvs-depth-fusion-).
+  `[recon]` extra and land *after* the inertial arc.
 
 **⚠️ Active focus — the teaching layer lags the code.** The Tier-1 library shipped *ahead* of
-its curriculum: C1–C6 and the manifold foundation have passing tests but **no `docs/learn/`
+its curriculum: the geometry stack and manifold foundation have passing tests but **no `docs/learn/`
 chapters and no runnable `examples/`** yet. This violates the design rule below ("each unit lands
-with a chapter"). Closing that gap is the next priority — see the
-[learning-docs audit](research/learning_docs_audit.md) for the chapter plan (new **Part II —
-Geometry & 3D**, Ch.8–12).
+with a chapter"). Closing that gap is the next priority — a new **Part II — Geometry & 3D**
+(Ch.8–12).
 
 **Killed assumption to honor:** there is *no* canonical spherical chart — keep everything
 chart-agnostic, keyed off `project` / `unproject`.
@@ -139,7 +135,7 @@ dependent units, each validated against ground truth:
   open-source VIO.
 
 ## Tier 4 — Integration with external 3D reconstruction
-Use the `C9` exporters (COLMAP / nerfstudio) so a DS-MSP calibration + poses + sparse points feed
+Use the ecosystem-interop exporters (COLMAP / nerfstudio) so a DS-MSP calibration + poses + sparse points feed
 external Structure-from-Motion, MVS, and Gaussian-Splatting tools. DS-MSP provides the wide-FOV
 geometry front-end; the reconstruction / splatting backend stays an external tool, exercised from
 `examples/` with no heavy dependency in the core library.

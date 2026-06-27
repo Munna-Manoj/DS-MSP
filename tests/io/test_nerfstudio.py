@@ -1,4 +1,4 @@
-"""Tests for nerfstudio transforms.json I/O (C9)."""
+"""Tests for nerfstudio transforms.json I/O."""
 
 import json
 

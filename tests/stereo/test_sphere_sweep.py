@@ -1,4 +1,4 @@
-"""Sphere-sweep stereo (C4) — recovers known depth on a synthetic textured-plane fisheye pair.
+"""Sphere-sweep stereo — recovers known depth on a synthetic textured-plane fisheye pair.
 
 We render two Double Sphere views of a textured plane at depth ``D`` (reference frame), with a
 known baseline. At a pixel's *true* depth the reference and source sample the **same** plane

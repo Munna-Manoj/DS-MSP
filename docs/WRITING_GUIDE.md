@@ -125,10 +125,9 @@ build a mental model, cut it.
 checked-in script (e.g. `scripts/make_learn_gifs.py`), not a one-off screenshot — so they
 can be regenerated, and so they show the *actual* output of the code the doc describes.
 
-**Rich 3D / simulation renders** (WebGL/three.js, raylib, manim, …) come from the **local
-simulation studio** — a separate, local-only git repo under `simulations/` (gitignored, see
-`.gitignore`). Its heavy rendering dependencies never enter this repo; only the final asset
-is committed. Every sim still imports `ds_msp` and cross-checks its math against the library,
+**Rich 3D / simulation renders** (WebGL/three.js, raylib, manim, …) are produced by
+reproducible scripts whose heavy rendering dependencies stay out of this repo; only the final
+asset is committed. Every render imports `ds_msp` and cross-checks its math against the library,
 so a pretty picture can't drift from the real geometry.
 
 ---

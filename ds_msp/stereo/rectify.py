@@ -1,11 +1,11 @@
-"""Spherical epipolar rectification for a top-bottom rig (Tier-1 C6).
+"""Spherical epipolar rectification for a top-bottom rig (Tier-1).
 
 On a fisheye the epipolar lines are *curves*, so no single homography rectifies them. But if the
 two cameras are arranged with a **vertical baseline** (top-bottom) and we resample into an
 equirectangular image whose **pole is the baseline**, every epipolar great circle passes through
 the poles and projects to a **constant-longitude vertical meridian**. Correspondences then lie on
 the same column, and disparity is a pure vertical (angular) offset — 1-D search, exactly like
-rectified pinhole stereo (360SD-Net). Implements unit **C6** of the Tier-1 spec.
+rectified pinhole stereo (360SD-Net).
 
 This module needs only ``cam.project`` and a chart object exposing ``pixel_to_ray`` /
 ``ray_to_pixel`` (e.g. ``ds_msp.ops.Equirectangular``), passed in by the caller — so the stereo
@@ -66,7 +66,7 @@ def rectify_image(cam, img: np.ndarray, R_rect: np.ndarray, chart) -> np.ndarray
 
 def rectified_longitude(R_rect: np.ndarray, chart, ray: np.ndarray) -> np.ndarray:
     """The rectified column (longitude pixel) a camera-frame ``ray`` lands on. After top-bottom
-    rectification, a 3D point's two camera rays share this value — the property C6 guarantees."""
+    rectification, a 3D point's two camera rays share this value — the property this rectification guarantees."""
     rr = np.atleast_2d(np.asarray(ray, float)) @ R_rect.T        # camera → rect frame
     uv, _ = chart.ray_to_pixel(rr)
     return uv[..., 0]

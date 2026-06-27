@@ -1,4 +1,4 @@
-"""Tests for COLMAP sparse-model I/O (C9)."""
+"""Tests for COLMAP sparse-model I/O."""
 
 import numpy as np
 import pytest

@@ -1,4 +1,4 @@
-"""Camera I/O: Kalibr camchain YAML, COLMAP & nerfstudio interop (C9)."""
+"""Camera I/O: Kalibr camchain YAML, COLMAP & nerfstudio interop."""
 
 from .colmap import (
     colmap_to_model,
@@ -24,12 +24,12 @@ __all__ = [
     "load_kalibr_extrinsics",
     "to_kalibr_cam",
     "from_kalibr_cam",
-    # COLMAP (C9)
+    # COLMAP
     "export_colmap",
     "read_colmap",
     "model_to_colmap",
     "colmap_to_model",
-    # nerfstudio (C9)
+    # nerfstudio
     "export_nerfstudio",
     "read_nerfstudio",
 ]

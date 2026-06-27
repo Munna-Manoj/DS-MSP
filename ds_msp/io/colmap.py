@@ -1,5 +1,5 @@
 """
-COLMAP sparse-model I/O (C9 ecosystem interop).
+COLMAP sparse-model I/O (ecosystem interop).
 
 Reads/writes the COLMAP text sparse model (``cameras.txt`` / ``images.txt`` /
 ``points3D.txt``) so a DS-MSP calibration + poses + sparse points can feed external
