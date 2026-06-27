@@ -77,11 +77,20 @@ rays approach 90°. DS-MSP implements the models that *can*, and does it careful
 > the repo but **never ships with `pip install ds-msp`**.
 
 A camera model is a recipe for turning 3D rays into pixels. Here the **Double Sphere** model
-runs on a synthetic scene — each world point traced through its two spheres onto the image
-plane to *form* the fisheye image, point by point. The render's geometry is cross-checked
-against the library itself (`std = 2e-16`), so the animation can't drift from the math:
+runs on a synthetic scene — each world point is traced through its **two spheres** and projected
+from the α-centre, painting the fisheye image point by point. One projection ray meets *both*
+image-plane conventions at once: the model's **normalized z = 1 plane** (the virtual, upright
+image the equations use) and the **physical sensor** behind both spheres (the real, inverted
+image). The render's geometry is cross-checked against the library itself (`std = 2e-16`), so the
+animation can't drift from the math:
 
-![Double Sphere image formation — 3D points projected through two spheres onto a fisheye image](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_pipeline.gif)
+![Double Sphere image formation — 3D points projected through two spheres onto the z=1 plane and the physical sensor](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_pipeline.gif)
+
+The Double Sphere is radially symmetric, so a single **2-D cross-section** tells the whole story —
+here the same construction with both image planes labelled (the two spheres lie between the 3-D
+world and the sensor, exactly as in the paper):
+
+![Double Sphere 2D cross-section — ray to sphere 1, shift to sphere 2, projection onto the z=1 plane and the inverted physical sensor](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_2d.gif)
 
 And the image doesn't have to live on a flat plane. Because a fisheye is fundamentally a map
 from **rays** to pixels, those rays can be stored equally on a **sphere**, a **cylinder**, or a

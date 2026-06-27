@@ -12,9 +12,20 @@ short, geometric, and exactly invertible. By the end you'll read
 ![A 3D point projected through both spheres to a fisheye pixel](../../assets/learn/double_sphere_pipeline.gif)
 
 *The whole idea in one picture: follow the bright point as it travels **3D point → sphere 1 →
-sphere 2 → image plane**, while a colourful world of directions fills in the circular fisheye
-image. Every coloured pixel is the exact `ds_project` of its 3D direction — even the ones past
-90°, which a normal camera cannot capture. The sections below dissect each step.*
+sphere 2 → α-centre**, while a colourful world of directions fills in the image. The same
+projection ray meets **two equivalent image planes** — the model's normalized **z = 1 plane**
+(virtual, upright) and the **physical sensor** behind both spheres (real, inverted). Every
+coloured pixel is the exact `ds_project` of its 3D direction — even the ones past 90°, which a
+normal camera cannot capture.*
+
+The model is radially symmetric, so a 2-D cross-section is the complete picture — the same
+construction with both image planes labelled:
+
+![Double Sphere 2D cross-section — ray to sphere 1, shift to sphere 2, projection onto the z=1 plane and the inverted physical sensor](../../assets/learn/double_sphere_2d.gif)
+
+*The two spheres sit between the 3-D world (right) and the sensor (left, behind the α-centre),
+matching the paper's figure; the z = 1 plane in front carries the equivalent upright image. The
+sections below dissect each step.*
 
 ## 1. Why another model after Kannala-Brandt?
 
