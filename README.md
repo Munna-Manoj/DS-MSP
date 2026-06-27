@@ -399,10 +399,56 @@ mesh_lut, K_new = res["mesh_lut"], res["K_new"]  # int16 Q3 displacements + rect
 
 ## Calibration
 
-Two paths, depending on your data:
+Calibrate the **intrinsics of any model** from your own images: detect corners with OpenCV, hand the
+3D↔2D correspondences to the generic backend, done. `ds_msp.calib.calibrate` is **model-agnostic** —
+the *same call* fits DS, UCM, EUCM, KB, RadTan, OCam, DS⁺ or EUCM⁺; only the seed class changes. It
+runs a manifold Levenberg–Marquardt solve with **analytic Jacobians** and an optional **robust loss**,
+so a few mis-detected corners down-weight instead of dragging the fit.
 
-**1 — The modern, generic calibrator** (`ds_msp.calib`) works for *any* model and is what the
-[capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md) uses on real TUM-VI AprilGrid footage:
+### From a checkerboard with OpenCV (the common case)
+
+```python
+import cv2, glob, numpy as np
+from ds_msp.calib import calibrate
+from ds_msp.models import KannalaBrandtModel       # swap for DoubleSphereModel, EUCMModel, DSPlusModel, …
+
+# board geometry: the inner-corner grid of your printed checkerboard, in metres
+COLS, ROWS, SQUARE = 9, 6, 0.025
+objp = np.zeros((ROWS * COLS, 3), np.float64)
+objp[:, :2] = np.mgrid[0:COLS, 0:ROWS].T.reshape(-1, 2) * SQUARE
+
+# 1. detect corners with OpenCV in every calibration frame
+X_world, keypoints, visibility, shape = [], [], [], None
+for path in sorted(glob.glob("calib_images/*.png")):
+    gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    shape = gray.shape
+    found, corners = cv2.findChessboardCornersSB(gray, (COLS, ROWS), cv2.CALIB_CB_EXHAUSTIVE)
+    if not found:
+        continue                                    # SB detector is sub-pixel by design
+    X_world.append(objp.copy())
+    keypoints.append(corners.reshape(-1, 2).astype(np.float64))
+    visibility.append(np.ones(len(objp), bool))     # all corners seen (partial boards are fine too)
+
+# 2. calibrate ANY model from a generic seed (cx,cy = image centre; a rough focal is fine —
+#    per-view poses are re-seeded internally). loss="huber" down-weights stray corners.
+h, w = shape
+seed = KannalaBrandtModel(fx=0.5 * w, fy=0.5 * w, cx=0.5 * w, cy=0.5 * h)
+result = calibrate(seed, X_world, keypoints, visibility, loss="huber", f_scale=1.0)
+
+print(result["model"])                              # calibrated intrinsics
+print("reprojection RMS:", result["rms_px"], "px")  # quality check
+result["model"].to_dict()                           # JSON-ready (or convert(...) to another model)
+```
+
+That's the whole loop — OpenCV finds the corners, the backend fits the model. To try a different
+model, change only the `seed` class (see [Choosing a model by FOV](#choosing-a-model-by-fov-from-experience)
+for which fits your lens); to switch the calibrated result to another model afterwards, use
+[`convert`](#multi-model-support--conversion) — no re-detection needed.
+
+### From an AprilGrid (robust across the fisheye periphery)
+
+For wide fisheye lenses an AprilGrid keeps corners detectable out to the rim. This is what the
+[capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md) uses on real TUM-VI footage:
 
 ```python
 import glob
@@ -425,7 +471,9 @@ print(result["rms_px"])      # sub-pixel; the capstone reports 0.08 px median, m
 
 See the full walk-through in the **[calibration capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md)**.
 
-**2 — The bundled Double Sphere script** calibrates from COCO-style checkerboard annotations:
+### The bundled Double Sphere script
+
+A ready-to-run script calibrates Double Sphere from COCO-style checkerboard annotations:
 
 ```bash
 python calibrate.py        # reads anns.json -> writes results/calibration_params.json
