@@ -1,16 +1,18 @@
-# DS-MSP — Double Sphere & Multi-Model Fisheye Camera Library
+# DS-MSP — Double Sphere & Multi-model Spherical-camera Platform
 
 [![PyPI](https://img.shields.io/pypi/v/ds-msp)](https://pypi.org/project/ds-msp/)
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSE)
-![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-291%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/)
 
-A clean, tested, **OpenCV-compatible** camera library for wide-FOV (fisheye) lenses — built around the
-**Double Sphere** model (Usenko et al. 2018) and a uniform multi-model layer, with analytic Jacobians,
-calibration, model conversion, and hardware export. It doubles as a **guided, runnable course** in
-wide-FOV camera geometry.
+A clean, tested, **OpenCV-compatible** platform for wide-FOV (fisheye / omnidirectional) cameras: a
+uniform **multi-model layer** — UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib, **Double Sphere**, and
+the closed-form-invertible **DS⁺ / EUCM⁺** — all behind one contract, with analytic Jacobians,
+**intrinsics calibration**, model conversion, **two-view & stereo 3D**, and hardware export. Built
+around the **Double Sphere** model (Usenko et al. 2018). It doubles as a **guided, runnable course**
+in wide-FOV camera geometry.
 
 ![Fisheye rectification demo](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/undistort_demo.gif)
 

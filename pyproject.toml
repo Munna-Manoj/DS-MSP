@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ds_msp"
 version = "0.5.0"
-description = "Double Sphere (and multi-model) fisheye camera library with model conversion"
+description = "Double Sphere & multi-model spherical-camera platform: models, calibration, conversion & 3D for wide-FOV lenses"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
