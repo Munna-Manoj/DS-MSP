@@ -64,7 +64,7 @@ export default function App() {
       <main className="mx-auto w-full max-w-7xl px-6 py-12 flex-1">
         <section className="max-w-3xl">
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary mb-4">
-            Six camera models, one live pipeline
+            Eight camera models, one live pipeline
           </p>
           <h1 className="font-display font-extrabold text-4xl sm:text-5xl leading-[1.05] tracking-tight">
             Watch a 3D world<br />

@@ -59,19 +59,19 @@ rays approach 90°. DS-MSP implements the models that *can*, and does it careful
 | | What you get |
 | :-- | :-- |
 | **Correct wide-FOV geometry** | Double Sphere with the exact `z > -w₂·d₁` half-space validity test — handles the full **> 180° FOV**, not the naive `z > 0` check that silently clips it. |
-| **One interface, many models** | UCM, EUCM, Kannala-Brandt (= OpenCV fisheye), RadTan (= OpenCV pinhole), OCamCalib, Double Sphere — all behind a single `CameraModel` contract. |
+| **One interface, many models** | UCM, EUCM, Kannala-Brandt (= OpenCV fisheye), RadTan (= OpenCV pinhole), OCamCalib, Double Sphere — plus closed-form **DS⁺ / EUCM⁺** for lenses DS can't fit — all behind a single `CameraModel` contract. |
 | **Analytic Jacobians** | Exact closed-form derivatives (no autodiff, no finite differences) → faster, more robust calibration. KB & RadTan match OpenCV to ~1e-13. |
 | **Model conversion** | Translate a calibration between models **without images or recalibration** (sample → unproject → LM refit). |
 | **Calibration** | Generic Levenberg–Marquardt bundle adjustment for *any* model, with a robust (Cauchy) loss option. |
 | **Ecosystem fluency** | Read/write **Kalibr** camchain YAML; OpenCV-style drop-in API; **TI Jacinto** LDC hardware mesh export. |
-| **Verified, CI-tested** | 237 tests + import-linter layer checks + mypy, green on Python 3.10–3.12. |
+| **Verified, CI-tested** | 291 tests + import-linter layer checks + mypy, green on Python 3.10–3.12. |
 
 ---
 
 ## See the geometry
 
 > 🎥 **Prefer to drive it yourself?** Open the **[live interactive studio →](https://munna-manoj.github.io/DS-MSP/)**
-> — pick any of the **six camera models** the library ships, drag a 3D point, and step its projection
+> — pick any of the **eight camera models** the library ships, drag a 3D point, and step its projection
 > onto a **sphere, cylinder, or plane** in real time. Every pixel is computed by a TypeScript port of
 > `ds_msp`, cross-checked against the library to ~10⁻¹² px. Source lives in [`web/`](web/); it stays in
 > the repo but **never ships with `pip install ds-msp`**.
@@ -176,7 +176,7 @@ python examples/03_calibrate_tumvi_aprilgrid.py
 | [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) | The guided curriculum (start here to learn) — Part I (calibration) + Part II (geometry & 3D). |
 | [`docs/`](docs) | [`MULTI_MODEL.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/MULTI_MODEL.md) (multi-model + conversion guide), [`ROADMAP.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md), [`WRITING_GUIDE.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/WRITING_GUIDE.md) (docs style guide), [`research/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/research) (Tier-1 spec + audits). |
 | [`datasets/`](datasets/README.md) | Data guide: what to download, where it goes, how to start. |
-| [`tests/`](tests) | 237 tests (contract suite, analytic-Jacobian gradient checks, calibration, two-view geometry, stereo, manifold optimization). |
+| [`tests/`](tests) | 291 tests (contract suite, analytic-Jacobian gradient checks, calibration, two-view geometry, stereo, manifold optimization). |
 
 The library is **strictly layered** (enforced in CI by import-linter): `core` depends on nothing, the
 service layers depend only on the contract — not on concrete models or each other — and the pure-math
@@ -185,7 +185,7 @@ modules are NumPy-only.
 ```mermaid
 graph TD
     services["services: ops · adapt · calib · io<br/>(work on any model via the contract)"]
-    models["models: DoubleSphere · UCM · EUCM · KB · RadTan · OCam<br/>(value object + pure-NumPy *_math)"]
+    models["models: DoubleSphere · UCM · EUCM · KB · RadTan · OCam · DS⁺ · EUCM⁺<br/>(value object + pure-NumPy *_math)"]
     core["core: CameraModel contract · pinhole<br/>(dependency-free foundation)"]
     services --> core
     models -. implements .-> core
@@ -314,10 +314,61 @@ solve_pnp(kb, object_points, image_points)
 img_rect, K_new = Undistorter(kb, 1920, 1080).undistort_image(img)
 ```
 
-Supported: **UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib, Double Sphere** — all with analytic
+Supported: **UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib, Double Sphere**, plus the two
+closed-form-invertible extensions **DS⁺** and **EUCM⁺** (below) — all with analytic
 Jacobians. You can also calibrate any model (`ds_msp.calib.calibrate`) and read/write **Kalibr YAML**
 (`ds_msp.io`). Conversion design follows
 [Fisheye-Calib-Adapter](https://github.com/eowjd0512/fisheye-calib-adapter) (see [Credits](#credits)).
+
+### DS⁺ / EUCM⁺ — closed-form models for lenses that defeat Double Sphere
+
+Two spherical models with **extra invertible distortion stages** for lenses whose radial curve
+falls *outside* the rigid 2-DOF Double-Sphere manifold (see the FOV note below):
+
+- **DS⁺** = UCM core + 2-term Fitzgibbon division (θ³, θ⁵) + 2-axis Scheimpflug tilt. 9 params.
+  Closed-form inverse (one cube root). Most accurate and the most robust to seed; our default when
+  accuracy matters most.
+- **EUCM⁺** = EUCM core (`α, β`) + 1-term division + 2-axis tilt. 9 params. **Truly closed-form,
+  square-root-only** inverse — no cube root, no Newton iteration — so it round-trips to ~1e-9° and
+  unprojects in DS-class cycles.
+
+```python
+from ds_msp.models import DSPlusModel, EUCMPlusModel          # or model_class("dsplus")/("eucm+")
+cam = EUCMPlusModel.from_dict(json.load(open("eucm_plus_parameters.json")))
+```
+
+Both register by name (`dsplus`, `eucmplus`, aliases `ds+`/`eucm+`), satisfy the full `CameraModel`
+contract (project / unproject / analytic Jacobian / convert / Kalibr+MC-Calib I/O), and reduce
+exactly to their parent (`DS⁺→UCM`, `EUCM⁺→EUCM`) when the extra DOF are zero.
+
+### Choosing a model by FOV (from experience)
+
+A practical finding from calibrating real lenses across the range: **the spherical family
+(UCM / EUCM / Double Sphere) can quietly *collapse* on smaller wide-angle lenses (~120–140°) yet
+fit cleanly on very wide ones (170–195°).** On a ~140° checkerboard lens here, Double Sphere drove
+`ξ→0` (one sphere goes dead) and floored at ~2–3 px; on 170° and 195° lenses the same model dropped
+to the detection limit (~0.08–0.6 px) with no trouble. The reason is geometric, not a bug: a
+moderate-FOV lens whose radial curve needs a θ⁵ term plus a little decentering sits *outside* DS's
+2-DOF curve, while a true ultra-wide lens bends enough that the two-sphere shape matches it. So
+"more distortion" is actually *easier* for the sphere models — counterintuitive but consistent.
+
+What we reach for, by FOV band (✅ recommended · ⚠️ works with care · ❌ avoid):
+
+| Model | ~120–140° (small wide) | 170–195° (ultra wide) | Notes from use |
+| :-- | :--: | :--: | :-- |
+| **RadTan** (OpenCV pinhole) | ⚠️ | ❌ | Fine for mild distortion; the `X/Z` projection blows up approaching 180° — not a fisheye model. |
+| **KB** (OpenCV fisheye) | ✅ | ✅ | The dependable conventional baseline at every band (~0.35 px @140°, detection-limited beyond). Iterative (Newton) unproject. |
+| **UCM / EUCM / Double Sphere** | ❌ (collapse risk) | ✅ | Closed-form & cheap, but can degenerate at ~140° (`ξ`/`α` collapse). Excellent once the lens is genuinely ultra-wide. |
+| **DS⁺** | ✅ (best accuracy) | ✅ | Restores the missing DOF; most accurate (~0.21 px @140°) and converges from a plain seed at any FOV. Inverse uses one cube root. |
+| **EUCM⁺** | ✅ | ✅ | Truly sqrt-only closed form; ~0.29 px @140°. At ~140° seed it multi-start; at 170–195° a single seed suffices. |
+
+> **Rule of thumb:** ultra-wide (≥170°) → start with **Double Sphere** (cheapest closed form that
+> fits). Smaller wide-angle (~120–150°) → if DS/EUCM collapse, move to **KB** (conventional) or, for
+> a closed-form inverse, **DS⁺ / EUCM⁺**. Always confirm with the median reprojection error rather
+> than trusting the model class.
+>
+> *Numbers above are from this repo's datasets (a ~140° checkerboard lens, a 170° `anns` lens, and a
+> 195° TUM-VI lens); treat them as directional guidance, not guarantees for your optics.*
 
 ### Hardware LDC export (TI Jacinto)
 

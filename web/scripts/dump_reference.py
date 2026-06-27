@@ -9,16 +9,21 @@ import numpy as np
 from ds_msp.models import (
     DoubleSphereModel, UCMModel, EUCMModel,
     KannalaBrandtModel, RadTanModel, OCamModel,
+    DSPlusModel, EUCMPlusModel,
 )
 
 # Same defaults as web/src/lib/cameras.ts
 MODELS = {
-    "ds":     DoubleSphereModel(fx=180, fy=180, cx=320, cy=320, xi=0.3, alpha=0.6),
-    "ucm":    UCMModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6),
-    "eucm":   EUCMModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6, beta=1.0),
-    "kb":     KannalaBrandtModel(fx=180, fy=180, cx=320, cy=320, k1=0, k2=0, k3=0, k4=0),
-    "radtan": RadTanModel(fx=320, fy=320, cx=320, cy=320, k1=0, k2=0, p1=0, p2=0, k3=0),
-    "ocam":   OCamModel(cx=320, cy=320, c=1, d=0, e=0, a0=-230, a1=0, a2=0.0016, a3=0, a4=0),
+    "ds":       DoubleSphereModel(fx=180, fy=180, cx=320, cy=320, xi=0.3, alpha=0.6),
+    "ucm":      UCMModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6),
+    "eucm":     EUCMModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6, beta=1.0),
+    "kb":       KannalaBrandtModel(fx=180, fy=180, cx=320, cy=320, k1=0, k2=0, k3=0, k4=0),
+    "radtan":   RadTanModel(fx=320, fy=320, cx=320, cy=320, k1=0, k2=0, p1=0, p2=0, k3=0),
+    "ocam":     OCamModel(cx=320, cy=320, c=1, d=0, e=0, a0=-230, a1=0, a2=0.0016, a3=0, a4=0),
+    "dsplus":   DSPlusModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6,
+                            lambda1=0.0, lambda2=0.0, tau_x=0.0, tau_y=0.0),
+    "eucmplus": EUCMPlusModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6, beta=1.0,
+                              lambda1=0.0, tau_x=0.0, tau_y=0.0),
 }
 
 # directions spanning front hemisphere and wide angles

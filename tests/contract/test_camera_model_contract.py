@@ -25,6 +25,8 @@ from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ocam import OCamModel
+from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.eucmplus import EUCMPlusModel
 
 MODEL_FACTORIES = list(REFERENCE_MODELS)
 MODEL_FACTORIES.append(("ds", DoubleSphereModel.sample))
@@ -33,6 +35,8 @@ MODEL_FACTORIES.append(("eucm", EUCMModel.sample))
 MODEL_FACTORIES.append(("kb", KannalaBrandtModel.sample))
 MODEL_FACTORIES.append(("radtan", RadTanModel.sample))
 MODEL_FACTORIES.append(("ocam", OCamModel.sample))
+MODEL_FACTORIES.append(("dsplus", DSPlusModel.sample))
+MODEL_FACTORIES.append(("eucmplus", EUCMPlusModel.sample))
 
 
 @pytest.fixture(params=[f for _, f in MODEL_FACTORIES],

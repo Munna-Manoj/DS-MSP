@@ -1,4 +1,4 @@
-// Multi-model camera registry — faithful TypeScript ports of the six models
+// Multi-model camera registry — faithful TypeScript ports of the eight models
 // ds_msp ships (ds_msp/models/*_math.py). Every project/unproject below is a
 // line-for-line port of the Python so the demo is provably correct, not a
 // look-alike. Validity rules differ per model on purpose — that is real physics,
@@ -327,7 +327,188 @@ const OCAM: CameraModel = {
   },
 };
 
-export const CAMERAS: CameraModel[] = [DS, UCM, EUCM, KB, RADTAN, OCAM];
+// ─────────────────────────────────────────────────────────────────── DS⁺ ──
+// ds_msp/models/dsplus_math.py  (UCM core + Fitzgibbon division θ³,θ⁵ + 2-axis tilt)
+// Forward is a line-for-line port. The 2-term division inverse is the Ferrari
+// quartic in the library; here we solve the same equation per-pixel with Newton
+// (seeded at the distorted radius — the small-distortion branch the library picks),
+// matching it to ~1e-10 within the slider ranges. At λ₁=λ₂=τ=0, DS⁺ collapses to
+// UCM and the inverse is exact in one step.
+const DSPLUS: CameraModel = {
+  id: "dsplus",
+  name: "DS⁺ (Double Sphere +)",
+  blurb: "UCM core + division (θ³,θ⁵) + Scheimpflug tilt. Fits ~140° lenses that defeat plain DS; closed-form inverse.",
+  glyph: "M5 12a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M12 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0 M19 2l0 5 M16.5 4.5l5 0",
+  wideFov: true,
+  defaults: { fx: 180, fy: 180, cx: 320, cy: 320, alpha: 0.6, lambda1: 0.0, lambda2: 0.0, tau_x: 0.0, tau_y: 0.0 },
+  params: [
+    { key: "fx", symbol: "f", label: "focal length (px)", min: 120, max: 520, step: 1, link: ["fx", "fy"] },
+    { key: "alpha", symbol: "α", label: "sphere mix", min: 0.0, max: 0.99, step: 0.01 },
+    { key: "lambda1", symbol: "λ₁", label: "division θ³", min: -0.5, max: 0.5, step: 0.005 },
+    { key: "lambda2", symbol: "λ₂", label: "division θ⁵", min: -0.2, max: 0.2, step: 0.002 },
+    { key: "tau_x", symbol: "τx", label: "tilt (x)", min: -0.3, max: 0.3, step: 0.005 },
+    { key: "tau_y", symbol: "τy", label: "tilt (y)", min: -0.3, max: 0.3, step: 0.005 },
+  ],
+  project(P, p) {
+    const [x, y, z] = P;
+    const { fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y } = p;
+    // Stage S: UCM sphere.
+    const d = Math.hypot(x, y, z);
+    const den = alpha * d + (1 - alpha) * z;
+    const w = alpha > 0.5 ? (1 - alpha) / alpha : alpha / (1 - alpha);
+    const validS = z > -w * d && den > 1e-9;
+    const dens = Math.max(den, 1e-9);
+    const mx = x / dens;
+    const my = y / dens;
+    // Stage D: division radial.
+    const rho2 = mx * mx + my * my;
+    const g = 1 + lambda1 * rho2 + lambda2 * rho2 * rho2;
+    const validD = g > 1e-9 && 1 - lambda1 * rho2 - 3 * lambda2 * rho2 * rho2 > 0;
+    const gs = Math.abs(g) < 1e-12 ? 1e-12 : g;
+    const dx = mx / gs;
+    const dy = my / gs;
+    // Stage H: tilt homography.
+    const wt = tau_x * dx + tau_y * dy + 1;
+    const validH = Math.abs(wt) > 1e-9;
+    const ws = Math.abs(wt) < 1e-12 ? 1e-12 : wt;
+    const theta = incidence(x, y, z);
+    const valid = validS && validD && validH;
+    return { u: (fx * dx) / ws + cx, v: (fy * dy) / ws + cy, valid, theta, zone: zoneOf(theta, valid) };
+  },
+  unproject(u, v, p) {
+    const { fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y } = p;
+    const xp = (u - cx) / fx;
+    const yp = (v - cy) / fy;
+    // H⁻¹: tilt inverse (same projective form, sign flipped).
+    const wpr = 1 - tau_x * xp - tau_y * yp;
+    const validH = Math.abs(wpr) > 1e-9;
+    const wprs = Math.abs(wpr) < 1e-12 ? 1e-12 : wpr;
+    const xg = xp / wprs;
+    const yg = yp / wprs;
+    // D⁻¹: undistorted radius ρ solves rd = ρ/(1 + λ₁ρ² + λ₂ρ⁴). The library uses
+    // the Ferrari quartic and selects the SMALLEST positive root — the principal
+    // branch connected to ρ=0. We find that same root by bracketing the first sign
+    // change of F(ρ)=ρ/g(ρ)−rd up from 0, then bisecting. (A plain Newton from ρ=rd
+    // can jump to the spurious larger root once two positives exist, rd≳1.8.)
+    const rd = Math.hypot(xg, yg);
+    let rho = rd;
+    if ((Math.abs(lambda1) >= 1e-15 || Math.abs(lambda2) >= 1e-15) && rd > 1e-12) {
+      const Fr = (r: number) => {
+        const r2 = r * r;
+        const gg = 1 + lambda1 * r2 + lambda2 * r2 * r2;
+        return gg > 1e-9 ? r / gg - rd : NaN;
+      };
+      let lo = 0;
+      let hi = -1;
+      let prev = -rd; // F(0)
+      const STEP = 0.1;
+      for (let r = STEP; r <= 8; r += STEP) {
+        const fr = Fr(r);
+        if (Number.isNaN(fr)) break; // hit a pole: principal branch ends
+        if (prev < 0 && fr >= 0) {
+          lo = r - STEP;
+          hi = r;
+          break;
+        }
+        prev = fr;
+      }
+      if (hi > 0) {
+        for (let i = 0; i < 40; i++) {
+          const mid = 0.5 * (lo + hi);
+          const fm = Fr(mid);
+          if (Number.isNaN(fm) || fm >= 0) hi = mid;
+          else lo = mid;
+        }
+        rho = 0.5 * (lo + hi);
+      }
+    }
+    const scale = rd > 1e-12 ? rho / rd : 1;
+    const mx = xg * scale;
+    const my = yg * scale;
+    // S⁻¹: UCM (DS with ξ=0) closed form.
+    const r2 = mx * mx + my * my;
+    const s = 1 - (2 * alpha - 1) * r2;
+    const validS = s >= 0;
+    const mz = (1 - alpha * alpha * r2) / (alpha * Math.sqrt(Math.max(s, 0)) + 1 - alpha);
+    return { ray: norm3(mx, my, mz), valid: validS && validH };
+  },
+};
+
+// ────────────────────────────────────────────────────────────────── EUCM⁺ ──
+// ds_msp/models/eucmplus_math.py  (EUCM core + 1-term division + 2-axis tilt)
+// Truly square-root-only: the whole inverse below is closed form — no Newton, no
+// cube root — so it matches the library to machine precision at any parameters.
+const EUCMPLUS: CameraModel = {
+  id: "eucmplus",
+  name: "EUCM⁺ (Enhanced UCM +)",
+  blurb: "EUCM core + 1-term division + tilt — a truly √-only closed-form inverse. DS-class speed, fits lenses DS can't.",
+  glyph: "M4 12a8 5 0 1 0 16 0a8 5 0 1 0 -16 0 M11 7l0 10 M19 2l0 5 M16.5 4.5l5 0",
+  wideFov: true,
+  defaults: { fx: 180, fy: 180, cx: 320, cy: 320, alpha: 0.6, beta: 1.0, lambda1: 0.0, tau_x: 0.0, tau_y: 0.0 },
+  params: [
+    { key: "fx", symbol: "f", label: "focal length (px)", min: 120, max: 520, step: 1, link: ["fx", "fy"] },
+    { key: "alpha", symbol: "α", label: "sphere mix", min: 0.0, max: 0.99, step: 0.01 },
+    { key: "beta", symbol: "β", label: "ellipsoid stretch", min: 0.2, max: 3.0, step: 0.01 },
+    { key: "lambda1", symbol: "λ₁", label: "division θ³", min: -0.5, max: 0.5, step: 0.005 },
+    { key: "tau_x", symbol: "τx", label: "tilt (x)", min: -0.3, max: 0.3, step: 0.005 },
+    { key: "tau_y", symbol: "τy", label: "tilt (y)", min: -0.3, max: 0.3, step: 0.005 },
+  ],
+  project(P, p) {
+    const [x, y, z] = P;
+    const { fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y } = p;
+    // Stage S: EUCM sphere.
+    const d = Math.sqrt(beta * (x * x + y * y) + z * z);
+    const den = alpha * d + (1 - alpha) * z;
+    const validS = den > 1e-9;
+    const dens = Math.max(den, 1e-9);
+    const mx = x / dens;
+    const my = y / dens;
+    // Stage D: division radial (1 term).
+    const s2 = mx * mx + my * my;
+    const g = 1 + lambda1 * s2;
+    const validD = Math.abs(g) > 1e-9;
+    const gs = Math.abs(g) < 1e-12 ? 1e-12 : g;
+    const dx = mx / gs;
+    const dy = my / gs;
+    // Stage H: tilt homography.
+    const wt = tau_x * dx + tau_y * dy + 1;
+    const validH = Math.abs(wt) > 1e-9;
+    const ws = Math.abs(wt) < 1e-12 ? 1e-12 : wt;
+    const theta = incidence(x, y, z);
+    const valid = validS && validD && validH;
+    return { u: (fx * dx) / ws + cx, v: (fy * dy) / ws + cy, valid, theta, zone: zoneOf(theta, valid) };
+  },
+  unproject(u, v, p) {
+    const { fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y } = p;
+    const xt = (u - cx) / fx;
+    const yt = (v - cy) / fy;
+    // H⁻¹: tilt inverse (linear).
+    const denom = 1 - tau_x * xt - tau_y * yt;
+    const validH = Math.abs(denom) > 1e-9;
+    const denoms = Math.abs(denom) < 1e-12 ? 1e-12 : denom;
+    const xg = xt / denoms;
+    const yg = yt / denoms;
+    // D⁻¹: 1-term division is a quadratic — one sqrt, no iteration.
+    const rd = Math.hypot(xg, yg);
+    const disc = 1 - 4 * lambda1 * rd * rd;
+    const validD = disc >= 0;
+    let r = rd;
+    if (Math.abs(lambda1) >= 1e-15 && rd > 1e-12) {
+      r = (1 - Math.sqrt(Math.max(disc, 0))) / (2 * lambda1 * rd);
+    }
+    const scale = rd > 1e-12 ? r / rd : 1;
+    const mx = xg * scale;
+    const my = yg * scale;
+    // S⁻¹: EUCM closed form (sqrt-only).
+    const r2 = mx * mx + my * my;
+    const s = 1 - (2 * alpha - 1) * beta * r2;
+    const validS = s >= 0;
+    const mz = (1 - beta * alpha * alpha * r2) / (alpha * Math.sqrt(Math.max(s, 0)) + 1 - alpha);
+    return { ray: norm3(mx, my, mz), valid: validS && validD && validH };
+  },
+};
+
+export const CAMERAS: CameraModel[] = [DS, UCM, EUCM, KB, RADTAN, OCAM, DSPLUS, EUCMPLUS];
 export const CAMERA_BY_ID: Record<string, CameraModel> = Object.fromEntries(
   CAMERAS.map((m) => [m.id, m]),
 );
