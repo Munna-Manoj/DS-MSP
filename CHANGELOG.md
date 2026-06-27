@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.5.0...v0.6.0) (2026-06-27)
+
+
+### Features
+
+* **models:** add DS+ and EUCM+ closed-form-invertible camera models ([#28](https://github.com/Munna-Manoj/DS-MSP/issues/28)) ([8c9d519](https://github.com/Munna-Manoj/DS-MSP/commit/8c9d51918abfe8d07b59ecbf1239f292c4a8d21e))
+* **web:** interactive multi-model camera studio + Pages deploy ([4940cac](https://github.com/Munna-Manoj/DS-MSP/commit/4940cac540ef1b3837e0547e95f3e1e2063827e9))
+* **web:** interactive multi-model camera studio + Pages deploy ([771d3da](https://github.com/Munna-Manoj/DS-MSP/commit/771d3daa624d12dd85c44903dfa4db737a22698c))
+
+
+### Bug Fixes
+
+* **web:** add DS+/EUCM+ projection formulas to the play stepper ([#30](https://github.com/Munna-Manoj/DS-MSP/issues/30)) ([3e23216](https://github.com/Munna-Manoj/DS-MSP/commit/3e2321603afeb8be826e861ac04edb5b26fc02d0))
+* **web:** upright synthesized image + clearer projection-step animation ([#29](https://github.com/Munna-Manoj/DS-MSP/issues/29)) ([fcd733e](https://github.com/Munna-Manoj/DS-MSP/commit/fcd733ee5fd6347e31ede2729c460fa6b7ec76ab))
+
+
+### Documentation
+
+* calibration how-to + reframe DS-MSP as a spherical-camera platform ([#32](https://github.com/Munna-Manoj/DS-MSP/issues/32)) ([d44ba49](https://github.com/Munna-Manoj/DS-MSP/commit/d44ba49b03befa928de8e4ee7bcdd5733bcfabde))
+* Double Sphere GIFs show both image planes, slower & smoother ([#31](https://github.com/Munna-Manoj/DS-MSP/issues/31)) ([997b390](https://github.com/Munna-Manoj/DS-MSP/commit/997b39012124f6a49b5e109f01ea6e86ab1c9e6c))
+* keep the public tree developer-facing; move internal notes local-only ([#33](https://github.com/Munna-Manoj/DS-MSP/issues/33)) ([de1517b](https://github.com/Munna-Manoj/DS-MSP/commit/de1517b14ce9a4c97d087391b420f3d1b993613f))
+* remove internal/conversational content from public docs ([#24](https://github.com/Munna-Manoj/DS-MSP/issues/24)) ([f00f413](https://github.com/Munna-Manoj/DS-MSP/commit/f00f4134da795a965d680e1dbd599481646c3965))
+
 ## [0.5.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.4.0...v0.5.0) (2026-06-21)
 
 
