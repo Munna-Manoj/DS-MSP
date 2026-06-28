@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.6.0...v0.7.0) (2026-06-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **release:** DS+ and EUCM+ are no longer MIT-licensed — from 0.7.0 they are PolyForm Noncommercial 1.0.0 (noncommercial use only, with attribution to Munna-Manoj). Commercial use of DS+/EUCM+ requires a separate license. The rest of the library stays MIT.
+
+### Features
+
+* **calib:** model-aware multi-start auto-init + robustness test suite (NFR-NUM-006) ([8db0f46](https://github.com/Munna-Manoj/DS-MSP/commit/8db0f46a2dc86d85cd277b6b769a0834273b7873))
+* **calib:** robust-by-default calibrate() — two-fold seeding, auto-scale, honest stats ([fb4d263](https://github.com/Munna-Manoj/DS-MSP/commit/fb4d2637a0a5db10705c5599a4ce052b67e8d045))
+
+
+### Bug Fixes
+
+* **adapt:** deterministic shape-parameter sweep in convert() (ADR-0007, NFR-NUM-007) ([e99af32](https://github.com/Munna-Manoj/DS-MSP/commit/e99af32f3b57e90b0e182fdb0a587dcda3c9ac30))
+* **calib:** pose seeding no longer crashes on sparse/degenerate views ([1a54ceb](https://github.com/Munna-Manoj/DS-MSP/commit/1a54cebb17ffa71e48e48b9a90466b6fa520a26e))
+* **core:** type annotations in robust.py for the typed-core mypy gate ([afc3529](https://github.com/Munna-Manoj/DS-MSP/commit/afc352963c58358d66c28e6d981a0c78b9e78cc9))
+* **docs:** correct license attribution and test counts for 0.7.0 publication ([bbd7933](https://github.com/Munna-Manoj/DS-MSP/commit/bbd79333eae1f624fc349622ad312560db90a564))
+* **lint:** clear pre-existing ruff debt in rig/io/scripts ([758ac62](https://github.com/Munna-Manoj/DS-MSP/commit/758ac628337a64f6f8ebbf64f2b56f0fac8ffd24))
+* **process:** address leak-guard audit of the SEMS docs ([863e246](https://github.com/Munna-Manoj/DS-MSP/commit/863e2466c620cf19691e27c12b7b6988ddd24333))
+* **rig:** remove pre-existing publication leaks from rig content ([075af65](https://github.com/Munna-Manoj/DS-MSP/commit/075af6540550c3882b4c07cdb48e9ea9e21b8ee1))
+* **tests:** put repo root on sys.path for cross-package test helpers ([8c8db2f](https://github.com/Munna-Manoj/DS-MSP/commit/8c8db2f3db6dac71af79742a417a38299ad2425c))
+
+
+### Documentation
+
+* **process:** SEMS P2–P3 — architecture description, ADRs, SRS, interfaces ([a1b0f36](https://github.com/Munna-Manoj/DS-MSP/commit/a1b0f36dabb78e1780dc3a5d7a03bf2e91cb3140))
+* **process:** SEMS P4–P5 — QA/V&V, DoD, CI/CD, management process, playbooks ([c49a1f4](https://github.com/Munna-Manoj/DS-MSP/commit/c49a1f4df41b45400e4388de3fc713bea419a9c5))
+* **process:** SEMS P6 — contribution wiring, governance CI job, handbook ([a0c4131](https://github.com/Munna-Manoj/DS-MSP/commit/a0c4131a803439026b1e197e8f0e1c27a080cba3))
+
+
+### Chores
+
+* **release:** prepare 0.7.0 — dual-license DS+/EUCM+, descope rig to 0.8.0 ([c3c72b5](https://github.com/Munna-Manoj/DS-MSP/commit/c3c72b5ecd033b38a0e2144bfaa5a82fcdb4d933))
+
 ## [0.6.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.5.0...v0.6.0) (2026-06-27)
 
 
