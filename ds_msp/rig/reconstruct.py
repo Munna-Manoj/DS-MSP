@@ -74,7 +74,7 @@ def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners
     for board_id, corner_ids, pts in detect_image(dets, gray, min_corners=min_corners,
                                                    subpix=subpix):
         out.append(BoardObs(cam_id=c, frame_id=frame_id, board_id=board_id,
-                            corner_ids=corner_ids, pts_2d=pts))
+                            corner_ids=corner_ids, pts_2d=pts, image_path=path))
     return c, (gray.shape[1], gray.shape[0]), out
 
 
@@ -256,8 +256,11 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
     boards' corners pooled — the most-constrained PnP). Mirrors what the keypoint reader
     produces, so the rest of the pipeline is untouched."""
     by_image: Dict[Tuple[int, int], Tuple[list, list]] = defaultdict(lambda: ([], []))
+    paths: Dict[Tuple[int, int], str] = {}
     for o in board_obs:
         rows, uvs = by_image[(o.cam_id, o.frame_id)]
+        if getattr(o, "image_path", None):
+            paths.setdefault((o.cam_id, o.frame_id), o.image_path)
         for cid, uv in zip(o.corner_ids, o.pts_2d):
             key = (int(o.board_id), int(cid))
             row = obj.pts_board_2_obj.get(key)
@@ -269,7 +272,8 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
         if len(rows) >= min_corners:
             obs.append(ObjectObs(cam_id=cam, frame_id=fr, object_id=obj.object_id,
                                  point_rows=np.array(rows, int),
-                                 pts_2d=np.array(uvs, float)))
+                                 pts_2d=np.array(uvs, float),
+                                 image_path=paths.get((cam, fr))))
     return obs
 
 

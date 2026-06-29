@@ -61,7 +61,9 @@ its architecture component and the test that verifies it. Areas:
 - **MODEL** (FR-MODEL-001..005) — project / unproject / analytic Jacobians / one contract / serialize.
 - **CALIB** (FR-CALIB-001..004) — bundle-adjustment calibration for any model; robust PnP seeding;
   stereo relative pose; board detection.
-- **RIG** (FR-RIG-001) — multi-camera rig calibration (intrinsics + extrinsics + object poses).
+- **RIG** (FR-RIG-001..005) — multi-camera rig calibration (intrinsics + extrinsics + object poses);
+  single-file `calib_param.yml` entry; per-camera intrinsics handling (load / validate / fix /
+  convert+warn / scratch); detect-once keypoints reuse; MC-Calib drop-in config & intrinsics interop.
 - **MVG** (FR-MVG-001..003) — two-view pose + triangulation; RANSAC on Sampson; angular BA refine.
 - **STEREO** (FR-STEREO-001..002) — sphere-sweep depth; spherical epipolar rectification.
 - **OPS** (FR-OPS-001..003) — undistort; multi-chart reproject; PnP on bearings.

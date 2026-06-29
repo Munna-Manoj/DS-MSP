@@ -43,6 +43,9 @@ class CameraGT:
     K: np.ndarray
     dist: Optional[np.ndarray]
     pose: np.ndarray            # 4x4 (group-ref -> camera convention, as stored)
+    model_name: Optional[str] = None   # canonical model the intrinsics are stored in, when the
+                                       # file states it (camera_model string / distortion_type int);
+                                       # None for a plain MC-Calib file (caller infers from dist len)
 
 
 @dataclass
@@ -105,6 +108,29 @@ def _load_detections(path: str, obj: Object3D):
     return per_cam, img_size
 
 
+def _camera_model_field(cn) -> Optional[str]:
+    """The canonical model an MC-Calib ``camera_<i>`` node states, or ``None`` for a plain file.
+
+    Prefers DS-MSP's ``camera_model`` string (it names *every* model — the only field that can
+    distinguish ucm/eucm/ds/dsplus, all of which MC-Calib writes with ``distortion_type`` 1).
+    Falls back to MC-Calib's own ``distortion_type``/``disto_type`` int (0 Brown→radtan,
+    1 Kannala→kb, 2 double-sphere→ds). Unknown strings are ignored (treated as "not stated")."""
+    from ..models.registry import canonical_name
+    cm = cn.getNode("camera_model")
+    if cm is not None and not cm.empty() and cm.isString():
+        try:
+            return canonical_name(cm.string())
+        except KeyError:
+            return None
+    for key in ("distortion_type", "disto_type"):
+        n = cn.getNode(key)
+        if n is not None and not n.empty() and not n.isString() and not n.isSeq() and not n.isMap():
+            v = int(round(n.real()))
+            if v in (0, 1, 2):
+                return {0: "radtan", 1: "kb", 2: "ds"}[v]
+    return None
+
+
 def _load_cameras(path: str) -> Tuple[Dict[int, CameraGT], Dict[int, float]]:
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
     nb = int(fs.getNode("nb_camera").real())
@@ -114,7 +140,8 @@ def _load_cameras(path: str) -> Tuple[Dict[int, CameraGT], Dict[int, float]]:
         K = cn.getNode("camera_matrix").mat()
         dist = cn.getNode("distortion_vector").mat()
         pose = cn.getNode("camera_pose_matrix").mat()
-        cams[ci] = CameraGT(K=K, dist=dist.ravel() if dist is not None else None, pose=pose)
+        cams[ci] = CameraGT(K=K, dist=dist.ravel() if dist is not None else None, pose=pose,
+                            model_name=_camera_model_field(cn))
     fs.release()
     return cams, {}
 
@@ -280,24 +307,37 @@ def save_mccalib_reprojection_error(rig, object_obs, path: str, *, cam_group: in
     fs.release()
 
 
+def _obs_image_path(obs_list, image_root, cam, fr, cam_prefix="Cam_", ext="png"):
+    """Source image for a ``(cam, frame)`` observation group, for overlay drawing.
+
+    Prefer the path recorded at detection time (``ObjectObs.image_path``) — robust to
+    ``detect_rig`` rebasing ``frame_id`` so it can drift from the raw filename. Fall back to
+    filename candidates, **0-indexed first** then MC-Calib's 1-indexed Blender naming.
+    """
+    for o in obs_list:
+        p = getattr(o, "image_path", None)
+        if p and os.path.exists(p):
+            return p
+    for cand in (f"{fr:05d}.{ext}", f"{fr + 1:05d}.{ext}", f"{fr:06d}.{ext}", f"{fr + 1:06d}.{ext}"):
+        p = os.path.join(image_root, f"{cam_prefix}{cam + 1:03d}", cand)
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
                              cam_prefix: str = "Cam_", ext: str = "png") -> int:
     """Draw detected (green) vs reprojected (red) corners per frame and save under
     ``<save_dir>/Reprojection/<cam:03d>/<frame:06d>.jpg`` — the MC-Calib layout
-    (McCalib.cpp:1923). Images are looked up as ``<image_root>/<cam_prefix><cam+1:03d>/
-    <frame+1:05d>.<ext>``. Returns the number of images written (0 if no images found)."""
+    (McCalib.cpp:1923). The source image is the one recorded at detection (``image_path``),
+    falling back to filename lookup. Returns the number of images written."""
     root = os.path.join(save_dir, "Reprojection")
     written = 0
     by_cf: Dict[Tuple[int, int], List] = {}
     for o in object_obs:
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
     for (cam, fr), obs_list in by_cf.items():
-        img_path = None
-        for cand in (f"{fr + 1:05d}.{ext}", f"{fr:05d}.{ext}", f"{fr + 1:06d}.{ext}"):
-            p = os.path.join(image_root, f"{cam_prefix}{cam + 1:03d}", cand)
-            if os.path.exists(p):
-                img_path = p
-                break
+        img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
             continue
         image = cv2.imread(img_path)
@@ -313,7 +353,7 @@ def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
                            (0, 0, 255), cv2.FILLED, 8)
                 cv2.circle(image, (int(round(uv_det[i, 0])), int(round(uv_det[i, 1]))), 4,
                            (0, 255, 0), cv2.FILLED, 8)
-        out_dir = os.path.join(root, f"{cam:03d}")
+        out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
         written += 1
@@ -347,7 +387,7 @@ def _write_str_seq(fs, name, values):
 def _resolve_frame_path(image_root, cam_prefix, cam, fr, ext="png"):
     """Resolve the source image path for ``(cam, frame)`` (MC-Calib's frame_paths), matching the
     detection/reprojection image resolver. Returns the path string or ``""`` if not found."""
-    for cand in (f"{fr + 1:05d}.{ext}", f"{fr:05d}.{ext}", f"{fr + 1:06d}.{ext}", f"{fr:06d}.{ext}"):
+    for cand in (f"{fr:05d}.{ext}", f"{fr + 1:05d}.{ext}", f"{fr:06d}.{ext}", f"{fr + 1:06d}.{ext}"):
         p = os.path.join(image_root, f"{cam_prefix}{cam + 1:03d}", cand)
         if os.path.exists(p):
             return p
@@ -374,8 +414,8 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
         frame_idxs, board_idxs, pts_2d, charuco, frame_paths = [], [], [], [], []
         for o in sorted(by_cam[cam], key=lambda x: x.frame_id):
             bc = b2[o.point_rows]                            # (n,2)
-            fp = (_resolve_frame_path(image_root, cam_prefix, cam, o.frame_id)
-                  if image_root else "")
+            fp = getattr(o, "image_path", None) or (
+                _resolve_frame_path(image_root, cam_prefix, cam, o.frame_id) if image_root else "")
             for bid in np.unique(bc[:, 0]):
                 m = bc[:, 0] == bid
                 frame_idxs.append(o.frame_id)
@@ -407,12 +447,7 @@ def save_detection_images(object_obs, image_root: str, save_dir: str, *,
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
     written = 0
     for (cam, fr), obs_list in by_cf.items():
-        img_path = None
-        for cand in (f"{fr + 1:05d}.{ext}", f"{fr:05d}.{ext}", f"{fr + 1:06d}.{ext}"):
-            p = os.path.join(image_root, f"{cam_prefix}{cam + 1:03d}", cand)
-            if os.path.exists(p):
-                img_path = p
-                break
+        img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
             continue
         image = cv2.imread(img_path)
@@ -421,7 +456,7 @@ def save_detection_images(object_obs, image_root: str, save_dir: str, *,
         for o in obs_list:
             for u, v in np.asarray(o.pts_2d, float):
                 cv2.circle(image, (int(round(u)), int(round(v))), 4, (0, 255, 0), cv2.FILLED, 8)
-        out_dir = os.path.join(root, f"{cam:03d}")
+        out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
         written += 1

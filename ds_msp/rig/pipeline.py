@@ -16,8 +16,8 @@ import numpy as np
 from ..io.mccalib import (Scenario, save_detection_images, save_mccalib_results,
                           save_reprojection_images)
 from ..models.registry import (FISHEYE_MODELS, PINHOLE_MODELS)
-from . import ba
-from .rig_calibrate import (_gated_pnp, calibrate_rig, make_bundle_front_end,
+from . import bundle
+from .calibrate import (_gated_pnp, calibrate_rig, make_bundle_front_end,
                             paraxial_focal)
 from .types import RigState
 
@@ -155,7 +155,7 @@ def _scenario_metrics(rig: RigState, scn: Scenario) -> Dict:
 
     GT/MC-Calib store camera->world poses; ``rig.T_c_g`` is world->camera, so invert before
     comparing baselines."""
-    rms = ba.reprojection_rms(rig, scn.object_obs)
+    rms = bundle.reprojection_rms(rig, scn.object_obs)
     ref = rig.ref_cam_id
 
     def worst_baseline(ref_poses: Dict[int, np.ndarray], invert: bool) -> Optional[float]:

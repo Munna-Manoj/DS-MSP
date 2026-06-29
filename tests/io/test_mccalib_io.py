@@ -13,8 +13,8 @@ from ds_msp.models.kb import KannalaBrandtModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.io.mccalib import (save_mccalib_cameras, save_mccalib_objects,
                                save_mccalib_object_poses, _load_cameras)
-from ds_msp.rig.rig_calibrate import calibrate_rig, make_bundle_front_end
-from ds_msp.rig.run import random_model_assignment
+from ds_msp.rig.calibrate import calibrate_rig, make_bundle_front_end
+from ds_msp.rig.pipeline import random_model_assignment
 import cv2
 
 from tests.rig._synth import make_rig

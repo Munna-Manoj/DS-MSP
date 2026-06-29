@@ -1,7 +1,7 @@
 """End-to-end MC-Calib-style runner: per-camera models, both optimize modes, exact output.
 
 Builds a synthetic Scenario (so the test is self-contained, no external dataset) and exercises
-``rig.run.calibrate_scenario`` the way ``scripts/calibrate_rig.py`` does on real data.
+``rig.pipeline.calibrate_scenario`` the way ``scripts/calibrate_rig.py`` does on real data.
 """
 
 import cv2
@@ -9,7 +9,7 @@ import numpy as np
 
 from ds_msp.io.mccalib import CameraGT, Scenario
 from ds_msp.models.radtan import RadTanModel
-from ds_msp.rig.run import calibrate_scenario, random_model_assignment
+from ds_msp.rig.pipeline import calibrate_scenario, random_model_assignment
 from ._synth import make_rig
 
 W, H = 1280, 960
@@ -65,7 +65,7 @@ def test_random_assignment_runs_within_1pct(tmp_path):
 def test_intrinsics_and_extrinsics_within_1pct():
     """Both the optimized intrinsics (paraxial focal vs GT) and the extrinsics (baseline vs
     GT) land within 1% with a random per-camera model — the headline guarantee."""
-    from ds_msp.rig.run import intrinsics_error, baseline_error_per_camera
+    from ds_msp.rig.pipeline import intrinsics_error, baseline_error_per_camera
     scn, _ = _scenario(seed=4)
     spec = random_model_assignment(scn.cam_ids, kind="pinhole", seed=5)
     res = calibrate_scenario(scn, spec)
@@ -79,12 +79,12 @@ def test_intrinsics_and_extrinsics_within_1pct():
 def test_intermediate_refinement_stages_run():
     """The per-object (fix_extrinsics) and per-camera-group stages run with analytic
     Jacobians and keep the fit consistent (reprojection stays sub-pixel)."""
-    from ds_msp.rig import ba
+    from ds_msp.rig import bundle
     scn, _ = _scenario(seed=6)
     res = calibrate_scenario(scn, "radtan")
     rig = res["rig"]
     # per-object stage: object poses only, cameras+intrinsics fixed
-    r1 = ba.refine(rig, scn.object_obs, fix_intrinsics=True, fix_extrinsics=True, max_iter=10)
+    r1 = bundle.refine(rig, scn.object_obs, fix_intrinsics=True, fix_extrinsics=True, max_iter=10)
     # per-group stage on the (single) group
-    r2 = ba.refine_groups(r1, scn.object_obs, [sorted(rig.cameras)], max_iter=10)
-    assert max(ba.reprojection_rms(r2, scn.object_obs).values()) < 1.0
+    r2 = bundle.refine_groups(r1, scn.object_obs, [sorted(rig.cameras)], max_iter=10)
+    assert max(bundle.reprojection_rms(r2, scn.object_obs).values()) < 1.0

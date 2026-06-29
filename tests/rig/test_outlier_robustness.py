@@ -57,7 +57,7 @@ def test_calibrate_rig_default_front_end_robust_to_gross_outliers():
     import sys
     sys.path.insert(0, "tests/rig")
     from _synth import make_rig                                  # noqa: E402
-    from ds_msp.rig.rig_calibrate import calibrate_rig          # noqa: E402
+    from ds_msp.rig.calibrate import calibrate_rig          # noqa: E402
 
     def worst_extr(rig, gt):
         ref = rig.ref_cam_id

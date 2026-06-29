@@ -30,6 +30,7 @@ calibrates straight from a raw image folder.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -43,20 +44,67 @@ from ..io.mccalib import (Scenario, _load_cameras, _load_detections, _load_groun
 from ..models.kb import KannalaBrandtModel
 from ..models.registry import canonical_name, model_class
 from ..rig.types import ObjectObs
-from .rig_calibrate import _seed_from_K
-from .run import calibrate_scenario
+from .calibrate import _seed_from_K
+from .pipeline import calibrate_scenario
 
 _BROWN, _KANNALA = 0, 1
 _DIST_TO_MODEL = {_BROWN: "radtan", _KANNALA: "kb"}
 
 
-def _source_model(cam):
-    """The model the provided intrinsics are stored in: KB (4 fisheye coeffs) or RadTan."""
+def _provided_model_name(cam) -> str:
+    """Canonical model the provided intrinsics are stored in.
+
+    Uses the model the file explicitly states (``camera_model`` string or ``distortion_type``
+    int, parsed into ``cam.model_name``) when present — this is the only reliable signal for the
+    sphere/poly models (ucm/eucm/ds/dsplus/eucmplus) whose distortion length overlaps. For a
+    plain MC-Calib file that states nothing, falls back to the historical length heuristic:
+    4 coeffs ⇒ KB (fisheye), anything else ⇒ RadTan/Brown."""
+    if getattr(cam, "model_name", None):
+        return canonical_name(cam.model_name)
     d = np.asarray(cam.dist, float).ravel() if cam.dist is not None else np.zeros(5)
-    K = cam.K
-    if d.size == 4:
-        return KannalaBrandtModel(K[0, 0], K[1, 1], K[0, 2], K[1, 2], *d[:4])
-    return radtan_from_cameragt(cam)
+    return "kb" if d.size == 4 else "radtan"
+
+
+def _model_from_K_dist(name: str, K, dist):
+    """Reconstruct a camera model from an MC-Calib ``camera_matrix`` + ``distortion_vector``.
+
+    The inverse of how :func:`ds_msp.io.mccalib.save_mccalib_cameras` serializes a model, so a
+    DS-MSP-written intrinsics file round-trips to the exact same parameters. All models except
+    OCam store their intrinsic vector as ``[fx, fy, cx, cy, *distortion]``; OCam stores
+    ``[cx, cy]`` in ``K`` and ``[c, d, e, a0..a4]`` in the distortion vector."""
+    name = canonical_name(name)
+    cls = model_class(name)
+    d = np.asarray(dist, float).ravel() if dist is not None else np.zeros(0)
+    K = np.asarray(K, float)
+    if name == "ocam":
+        if d.size != 8:
+            raise ValueError(f"ocam intrinsics need 8 distortion coeffs [c,d,e,a0..a4], "
+                             f"file has {d.size}")
+        return cls.from_params([K[0, 2], K[1, 2], *d])
+    n_dist = len(cls.param_names) - 4
+    if d.size != n_dist:
+        raise ValueError(f"{name} intrinsics need {n_dist} distortion coeffs "
+                         f"{cls.param_names[4:]}, file has {d.size}")
+    return cls.from_params([K[0, 0], K[1, 1], K[0, 2], K[1, 2], *d])
+
+
+def _source_model(cam):
+    """The camera model the provided intrinsics are stored in, built exactly from the file.
+
+    Honors the model the file states (any of the DS-MSP models); falls back to the KB/RadTan
+    length heuristic for a plain MC-Calib file. If the stated model and the distortion-vector
+    length disagree (a malformed / mismatched intrinsics entry) the reconstruction raises, and
+    for the safe default models we degrade to the heuristic rather than fail hard."""
+    name = _provided_model_name(cam)
+    try:
+        return _model_from_K_dist(name, cam.K, cam.dist)
+    except (ValueError, KeyError):
+        # A plain file labeled only by distortion_type can still be consistently read by length;
+        # keep the legacy KB/RadTan behavior so existing MC-Calib outputs never regress.
+        d = np.asarray(cam.dist, float).ravel() if cam.dist is not None else np.zeros(5)
+        if d.size == 4:
+            return KannalaBrandtModel(cam.K[0, 0], cam.K[1, 1], cam.K[0, 2], cam.K[1, 2], *d[:4])
+        return radtan_from_cameragt(cam)
 
 
 def _init_model(cam, model_name, wh):
@@ -330,13 +378,72 @@ def _gt_and_mccalib(cfg: RigConfig):
     return gt, mccalib
 
 
+def _warn(msg: str) -> None:
+    print(f"[ds-msp][rig] WARNING: {msg}", file=sys.stderr)
+
+
+def _resolve_init_intrinsics(cfg: RigConfig, cam_ids: List[int], spec: Dict[int, str],
+                             img_size: Dict[int, tuple]):
+    """Turn ``cam_params_path`` (if any) into ``(init_cameras, init_K)`` for the BA, enforcing the
+    intrinsics policy:
+
+    * **No intrinsics file** — ``fix_intrinsic=1`` is an error (nothing to hold fixed); otherwise
+      every camera initializes from scratch (front-end estimate, MC-Calib-style with DS-MSP's
+      wider model set), returning ``(None, None)``.
+    * **Intrinsics given** — each camera's stored model is read from the file (explicit
+      ``camera_model``/``distortion_type``, else inferred from the distortion length). For every
+      camera:
+
+      - *missing from the file* — error if ``fix_intrinsic`` (the intrinsics it must hold are
+        absent); otherwise that camera initializes from scratch.
+      - *model matches the config's chosen model* — built natively and used as-is.
+      - *model differs from the config's chosen model* — error if ``fix_intrinsic`` (you cannot
+        hold a camera fixed in a model it was not provided in); otherwise a WARNING is shown and
+        the same physical lens is carried into the chosen model via the ``convert()`` identity
+        (unproject a pixel grid through the provided model, fit the chosen model to the identical
+        ray↔pixel pairs) so the BA still starts from the real lens.
+    """
+    if not (cfg.cam_params_path and os.path.exists(cfg.cam_params_path)):
+        if cfg.fix_intrinsic:
+            raise FileNotFoundError(
+                "fix_intrinsic=1 needs cam_params_path with initial intrinsics for every camera")
+        return None, None
+
+    cams = _load_cameras(cfg.cam_params_path)[0]
+    init_K: Dict[int, np.ndarray] = {}
+    init_cameras: Dict[int, object] = {}
+    for c in cam_ids:
+        cam = cams.get(c)
+        if cam is None or cam.K is None:
+            if cfg.fix_intrinsic:
+                raise ValueError(
+                    f"fix_intrinsic=1 but camera {c} has no intrinsics in {cfg.cam_params_path}")
+            _warn(f"camera {c}: no intrinsics in {os.path.basename(cfg.cam_params_path)}; "
+                  f"initializing '{spec[c]}' from scratch")
+            continue
+        provided = _provided_model_name(cam)
+        chosen = canonical_name(spec[c])
+        if provided != chosen:
+            if cfg.fix_intrinsic:
+                raise ValueError(
+                    f"camera {c}: config selects '{chosen}' but provided intrinsics are '{provided}'. "
+                    f"With fix_intrinsic=1 the model must match — set camera_models[{c}]='{provided}' "
+                    f"to hold them fixed, or set fix_intrinsic=0 to convert+refine into '{chosen}'.")
+            _warn(f"camera {c}: config selects '{chosen}' but provided intrinsics are '{provided}'. "
+                  f"Using convert() to seed '{chosen}' from the '{provided}' lens, then refining "
+                  f"it in the bundle adjustment.")
+        init_K[c] = cam.K
+        init_cameras[c] = _init_model(cam, chosen, img_size[c])
+    return (init_cameras or None), (init_K or None)
+
+
 def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) -> Dict:
     """Run the full rig calibration from one MC-Calib ``calib_param.yml``.
 
     Detects ChArUco corners from ``root_path`` (or loads ``keypoints_path``), builds the
     per-camera model map, optimizes extrinsics-only (``fix_intrinsic=1``) or
     intrinsics+extrinsics, and writes MC-Calib-format results to ``save_path``. Returns the
-    :func:`~ds_msp.rig.run.calibrate_scenario` result dict plus the parsed ``config``.
+    :func:`~ds_msp.rig.pipeline.calibrate_scenario` result dict plus the parsed ``config``.
     """
     cfg = load_config(config_path, overrides)
 
@@ -354,21 +461,13 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
     spec = {c: cfg.camera_models[c] if c < len(cfg.camera_models) else cfg.camera_models[-1]
             for c in cam_ids}
 
-    # Initial intrinsics from cam_params_path (MC-Calib's intrinsic init). When intrinsics are
-    # fixed, every chosen model is built with the matching native distortion and held; when
-    # they are refined, the file still seeds each camera's focal / principal point (init_K) so
-    # a real strong-fisheye / mixed-resolution rig starts in the right basin and the BA refines.
-    init_cameras, init_K = None, None
-    if cfg.cam_params_path and os.path.exists(cfg.cam_params_path):
-        cams = _load_cameras(cfg.cam_params_path)[0]
-        init_K = {c: cams[c].K for c in cam_ids if c in cams}
-        # Build each camera's chosen model from the provided intrinsics and start the BA from
-        # it (native KB/RadTan exact, else same-lens conversion). ``fix_intrinsic`` then only
-        # decides whether the joint BA refines these or holds them — both start from the prior.
-        init_cameras = {c: _init_model(cams[c], spec[c], img_size[c])
-                        for c in cam_ids if c in cams}
-    elif cfg.fix_intrinsic:
-        raise FileNotFoundError("fix_intrinsic=1 needs cam_params_path with initial intrinsics")
+    # Initial intrinsics from cam_params_path (MC-Calib's intrinsic init), with the policy in
+    # _resolve_init_intrinsics: native when the provided model matches the chosen one, convert()
+    # (+warning) when it differs and intrinsics are being refined, and a hard error when
+    # fix_intrinsic demands an intrinsic that is absent or of the wrong model. The file also
+    # seeds each camera's focal / principal point (init_K) so a strong-fisheye / mixed-resolution
+    # rig starts in the right basin even when intrinsics are refined.
+    init_cameras, init_K = _resolve_init_intrinsics(cfg, cam_ids, spec, img_size)
 
     gt, mccalib = _gt_and_mccalib(cfg)
     scn = Scenario(name=os.path.basename(os.path.dirname(config_path)) or "rig", object=obj,

@@ -23,8 +23,8 @@ from scipy import stats
 
 sys.path.insert(0, ".")
 from tests.rig._synth import make_rig                                   # noqa: E402
-from ds_msp.rig import ba                                              # noqa: E402
-from ds_msp.rig.rig_calibrate import calibrate_rig, make_bundle_front_end  # noqa: E402
+from ds_msp.rig import bundle                                              # noqa: E402
+from ds_msp.rig.calibrate import calibrate_rig, make_bundle_front_end  # noqa: E402
 from ds_msp.models.radtan import RadTanModel                          # noqa: E402
 from ds_msp.models.double_sphere import DoubleSphereModel             # noqa: E402
 from ds_msp.models.ucm import UCMModel                                # noqa: E402
@@ -75,7 +75,7 @@ def _trial(model_name, model_cls, seed, noise_px):
             - np.linalg.norm(_rel(gt[ref], gt[c])[:3, 3]))
         / np.linalg.norm(_rel(gt[ref], gt[c])[:3, 3])
         for c in rig.T_c_g if c != ref)
-    rms = max(ba.reprojection_rms(rig, obs).values())
+    rms = max(bundle.reprojection_rms(rig, obs).values())
     return 100.0 * worst, rms
 
 

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from scipy import stats
 
-from ds_msp.rig.rig_calibrate import calibrate_rig, make_bundle_front_end
+from ds_msp.rig.calibrate import calibrate_rig, make_bundle_front_end
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.ucm import UCMModel

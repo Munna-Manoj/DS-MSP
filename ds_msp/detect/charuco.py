@@ -174,7 +174,8 @@ def detect_folder(image_dir: str, specs: List[BoardSpec], obj: Object3D, cam_id:
             if len(rows) >= min_corners:
                 obs.append(ObjectObs(object_id=obj.object_id, cam_id=cam_id,
                                      frame_id=frame_id, point_rows=np.array(rows, int),
-                                     pts_2d=np.array(uvs, float), T_c_o=None))
+                                     pts_2d=np.array(uvs, float), T_c_o=None,
+                                     image_path=path))
     return obs
 
 
