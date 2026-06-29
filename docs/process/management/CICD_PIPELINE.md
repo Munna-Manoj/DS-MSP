@@ -10,12 +10,30 @@
 
 | Job | Steps | Guards |
 |-----|-------|--------|
+| `detect changes` | `dorny/paths-filter` → `code` output | routes docs-only changes around the test work (see below) |
 | `lint + types + layering` | `ruff check .`; `lint-imports`; `mypy ds_msp/core` | code style; the layered architecture (NFR-ARCH-001/002); typed core |
-| `tests (py3.10/3.11/3.12)` | `pytest -q --cov=ds_msp` on the version matrix | all synthetic test levels; portability (NFR-PORT-001) |
+| `tests (py3.10/3.11/3.12)` | `pytest -q -n auto -m "not slow" --cov=ds_msp` on the version matrix | the fast tier (unit + contract), parallelized; portability (NFR-PORT-001) |
+| `tests (slow / rig integration)` | `pytest -q -n auto -m "slow"` | the authoritative rig integration gate; runs once (3.12), not 3× |
 | **`governance`** | `python tools/check_traceability.py --check`; `python tools/check_tree_hygiene.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content (NFR-PRIV-001) |
 
-The `governance` job uses only the standard library (no extra install), so it is fast and cannot break
-on dependency drift.
+The `governance` job uses only the standard library (no extra install), so it is fast, always runs
+(a docs-only PR is exactly when traceability/tree-hygiene matter), and cannot break on dependency drift.
+
+**Concurrency.** The workflow sets `concurrency: { group: ci-<workflow>-<ref>, cancel-in-progress: true }`,
+so a second push to a PR cancels the superseded run instead of paying for both.
+
+**Path filtering (docs-only changes).** The `detect changes` job decides whether the diff touches code
+(`ds_msp/`, `tests/`, `scripts/`, `tools/`, `configs/`, `examples/`, `benchmarks/`, build files, or this
+workflow). On a **docs-only** change:
+- `tests (slow / rig integration)` is skipped entirely (it is not a required check);
+- `lint` and `tests (pyX)` are **required** checks, so the *jobs* still run (the status always reports and
+  branch protection stays satisfied) but their checkout/install/pytest **steps** are gated off — each
+  finishes in seconds doing no real work;
+- `governance` always runs in full.
+
+This is why editing only Markdown / the `docs/process` tree no longer triggers the multi-minute rig suite,
+while a real code change still runs the full matrix + slow rig gate. If the diff cannot be determined, the
+filter defaults to running everything.
 
 ### `release.yml` — on push to `main`
 
