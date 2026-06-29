@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.7.0...v0.7.1) (2026-06-29)
+
+
+### Documentation
+
+* **learn:** measurable camera-model evaluation framework + EUCM⁺/DS⁺/KB case study ([#35](https://github.com/Munna-Manoj/DS-MSP/issues/35)) ([04b8026](https://github.com/Munna-Manoj/DS-MSP/commit/04b80266628fde2735a4405ce27114a2b9676fc8))
+
 ## [0.7.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.6.0...v0.7.0) (2026-06-28)
 
 
