@@ -11,7 +11,8 @@
 | Job | Steps | Guards |
 |-----|-------|--------|
 | `lint + types + layering` | `ruff check .`; `lint-imports`; `mypy ds_msp/core` | code style; the layered architecture (NFR-ARCH-001/002); typed core |
-| `tests (py3.10/3.11/3.12)` | `pytest -q --cov=ds_msp` on the version matrix | all synthetic test levels; portability (NFR-PORT-001) |
+| `tests (py3.10/3.11/3.12)` | `pytest -q -n auto -m "not slow" --cov=ds_msp` on the version matrix | the fast tier (unit + contract) across the support matrix, parallelized; portability (NFR-PORT-001) |
+| `tests (slow / rig integration)` | `pytest -q -n auto -m "slow"` | the authoritative rig integration gate; kept off the per-Python matrix so it runs once, not 3× |
 | **`governance`** | `python tools/check_traceability.py --check`; `python tools/check_tree_hygiene.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content (NFR-PRIV-001) |
 
 The `governance` job uses only the standard library (no extra install), so it is fast and cannot break
