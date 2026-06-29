@@ -28,7 +28,7 @@ import numpy as np
 
 sys.path.insert(0, ".")
 from tests.rig._synth import make_rig                                       # noqa: E402
-from ds_msp.rig.rig_calibrate import (calibrate_rig, make_bundle_front_end,  # noqa: E402
+from ds_msp.rig.calibrate import (calibrate_rig, make_bundle_front_end,  # noqa: E402
                                       paraxial_focal)
 from ds_msp.adapt.convert import convert                                    # noqa: E402
 from ds_msp.adapt.evaluate import reprojection_report                       # noqa: E402

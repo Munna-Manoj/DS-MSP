@@ -15,7 +15,7 @@ import numpy as np
 
 from ds_msp.io.mccalib import load_scenario
 from ds_msp.rig import calibrate_rig
-from ds_msp.rig import ba
+from ds_msp.rig import bundle
 
 
 def rot_angle_deg(R):
@@ -36,7 +36,7 @@ def main(scn_dir):
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
                         fix_intrinsics=False, verbose=True)
 
-    rms = ba.reprojection_rms(rig, scn.object_obs)
+    rms = bundle.reprojection_rms(rig, scn.object_obs)
     print("\nper-camera reprojection RMS (px):")
     for c in sorted(rms):
         print(f"  cam {c}: {rms[c]:.4f}")

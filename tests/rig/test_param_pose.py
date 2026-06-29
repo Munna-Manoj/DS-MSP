@@ -21,7 +21,7 @@ the robust SE(3) extrinsics-init consensus. Marked ``slow``::
 import numpy as np
 import pytest
 
-from ds_msp.rig.rig_calibrate import calibrate_rig, make_bundle_front_end, paraxial_focal
+from ds_msp.rig.calibrate import calibrate_rig, make_bundle_front_end, paraxial_focal
 from ds_msp.adapt.convert import convert
 from ds_msp.adapt.evaluate import reprojection_report
 from ds_msp.models.radtan import RadTanModel

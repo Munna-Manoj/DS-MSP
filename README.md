@@ -4,7 +4,7 @@
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20PolyForm--NC-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)
-![Tests](https://img.shields.io/badge/tests-417%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-426%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/)
 
 A clean, tested, **OpenCV-compatible** platform for wide-FOV (fisheye / omnidirectional) cameras: a
@@ -43,6 +43,7 @@ in wide-FOV camera geometry.
   - [Multi-model support & conversion](#multi-model-support--conversion)
   - [Hardware LDC export (TI Jacinto)](#hardware-ldc-export-ti-jacinto)
 - [Calibration](#calibration)
+- [Multi-camera rig calibration (MC-Calib-compatible)](#multi-camera-rig-calibration-mc-calib-compatible)
 - [Deep dive: FOV, validity & undistortion](#deep-dive-fov-validity--undistortion)
 - [Accuracy & verification](#accuracy--verification)
 - [FAQ](#faq)
@@ -65,8 +66,9 @@ rays approach 90°. DS-MSP implements the models that *can*, and does it careful
 | **Analytic Jacobians** | Exact closed-form derivatives (no autodiff, no finite differences) → faster, more robust calibration. KB & RadTan match OpenCV to ~1e-13. |
 | **Model conversion** | Translate a calibration between models **without images or recalibration** (sample → unproject → LM refit). |
 | **Calibration** | Generic Levenberg–Marquardt bundle adjustment for *any* model, with a robust (Cauchy) loss option. |
-| **Ecosystem fluency** | Read/write **Kalibr** camchain YAML; OpenCV-style drop-in API; **TI Jacinto** LDC hardware mesh export. |
-| **Verified, CI-tested** | 417 tests + import-linter layer checks + mypy, green on Python 3.10–3.12. |
+| **Multi-camera rigs** | An **[MC-Calib](https://github.com/rameau-fr/MC-Calib)-compatible** rig pipeline (`ds_msp.rig`): one `calib_param.yml`, ChArUco images in, MC-Calib-format extrinsics out — with a *different camera model per camera*. *(preview, from source → 0.8.0)* |
+| **Ecosystem fluency** | Read/write **Kalibr** camchain YAML and **MC-Calib** interchange; OpenCV-style drop-in API; **TI Jacinto** LDC hardware mesh export. |
+| **Verified, CI-tested** | 426 tests + import-linter layer checks + mypy, green on Python 3.10–3.12. |
 
 ---
 
@@ -182,12 +184,12 @@ python examples/03_calibrate_tumvi_aprilgrid.py
 
 | Path | Contents |
 | :-- | :-- |
-| [`ds_msp/`](ds_msp) | The library: `core/` (contracts + Lie/LM solver + robust kernels) → pure math → `models/` → services (`ops/`, `adapt/`, `io/`, `calib/`) → 3D stack (`mvg/` two-view geometry, `stereo/` depth), plus `cv.py` (OpenCV-style API) and `ldc.py` (hardware export). |
+| [`ds_msp/`](ds_msp) | The library: `core/` (contracts + Lie/LM solver + robust kernels) → pure math → `models/` → services (`ops/`, `adapt/`, `io/`, `calib/`) → 3D stack (`mvg/` two-view geometry, `stereo/` depth, `rig/` MC-Calib-compatible multi-camera calibration), plus `cv.py` (OpenCV-style API) and `ldc.py` (hardware export). |
 | [`examples/`](examples) | Ten runnable demos on real data (`01`–`10`) — round-trip precision, the calibration capstone, robust-loss A/B, model equivalence, stereo extrinsics, the >180° validity cone, sphere/cylinder/pinhole reprojection, monocular VO, and a measurable camera-model evaluation framework. *(Part II / Tier-1 demos landing — see [ROADMAP](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md).)* |
 | [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) | The guided curriculum (start here to learn) — Part I (calibration) + Part II (geometry & 3D). |
 | [`docs/`](docs) | [`MULTI_MODEL.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/MULTI_MODEL.md) (multi-model + conversion guide), [`ROADMAP.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md), [`WRITING_GUIDE.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/WRITING_GUIDE.md) (docs style guide). |
 | [`datasets/`](datasets/README.md) | Data guide: what to download, where it goes, how to start. |
-| [`tests/`](tests) | 417 tests (contract suite, analytic-Jacobian gradient checks, calibration, two-view geometry, stereo, manifold optimization). |
+| [`tests/`](tests) | 426 tests (contract suite, analytic-Jacobian gradient checks, calibration, two-view geometry, stereo, manifold optimization). |
 
 The library is **strictly layered** (enforced in CI by import-linter): `core` depends on nothing, the
 service layers depend only on the contract — not on concrete models or each other — and the pure-math
@@ -494,6 +496,56 @@ at **0.64 px** RMS.
 
 ---
 
+## Multi-camera rig calibration (MC-Calib-compatible)
+
+> **Status — preview, landing in 0.8.0.** The rig pipeline is implemented and tested on synthetic
+> **and real** multi-camera data, but is **not yet part of the `pip install ds-msp` wheel**: run it
+> from a source checkout via `scripts/calibrate_rig.py`. Governed under `FR-RIG-*` in the project's
+> [engineering process](docs/process/HANDBOOK.md).
+
+Beyond single-camera intrinsics, DS-MSP ships **`ds_msp.rig`** — the **N-camera analogue of
+[MC-Calib](https://github.com/rameau-fr/MC-Calib)**. It calibrates the **extrinsics** (where every
+camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images,
+driven by a single MC-Calib-style `calib_param.yml`. It is **drop-in with MC-Calib** — the same
+config schema and the same output files — with one extension: a **different camera model per camera**,
+chosen from any of DS-MSP's eight models (so one bench can mix `kb` fisheye, `radtan` pinhole, and
+`dsplus`).
+
+```bash
+# from a source checkout (the rig is not in the pip wheel yet)
+python scripts/calibrate_rig.py --init-config calib_param.yml   # write a starter config
+# edit it (cameras, board geometry, image folder, models), then:
+python scripts/calibrate_rig.py --config calib_param.yml
+```
+
+Faithful to MC-Calib's workflow: ChArUco detection → multi-board fused-object reconstruction (the
+`calibrate3DObjects` analogue) → camera-group extrinsics init → staged global bundle adjustment →
+MC-Calib-format results (`calibrated_cameras_data.yml`, `calibrated_objects_data.yml`, …). With two
+DS-MSP additions:
+
+- **Per-camera initial intrinsics** — provide a `camera_parameters` YAML; the rig loads it, checks the
+  stated model matches your config, then **holds it fixed** (`fix_intrinsic=1`, extrinsics-only) or
+  refines it. If the chosen model differs, it carries the *same lens* into that model via `convert()`
+  and warns — so the run proceeds either way.
+- **Detect-once, calibrate-many** — detected corners are saved to `detected_keypoints_data.yml` and
+  reused via `keypoints_path`, so you can re-calibrate with different models / options in seconds
+  instead of re-detecting.
+
+On a real **8-camera** rig (mixed fisheye + pinhole), the pipeline matches or beats a from-scratch
+baseline and is **robust to how intrinsics are supplied** — from-scratch, provided-and-refined, and
+provided-and-held-fixed all converge to the same extrinsics (≤ 0.05° / 2 mm) and reprojection error.
+
+**Developers — want to use or extend it?**
+- **Use it:** the full guide — data layout, folder/image naming, every config field, extrinsics-only
+  mode, and the keypoints-reuse workflow — is in **[`docs/RIG_CALIBRATION_GUIDE.md`](docs/RIG_CALIBRATION_GUIDE.md)**.
+  Starter configs: [`configs/calib_param.template.yml`](configs/calib_param.template.yml),
+  [`configs/calib_param.keypoints.template.yml`](configs/calib_param.keypoints.template.yml),
+  [`configs/camera_intrinsics.template.yml`](configs/camera_intrinsics.template.yml).
+- **Extend it:** the contributor recipe (requirements → tier rules → MC-Calib parity → tests → docs)
+  is the [rig playbook](docs/process/playbooks/extend-the-rig-pipeline.md).
+
+---
+
 ## Deep dive: FOV, validity & undistortion
 
 *A common question: "Why are pixels missing from my undistorted image, even when I try to keep the whole image?"*
@@ -637,6 +689,14 @@ This project builds on excellent open-source work and research.
   **UCM** — Geyer & Daniilidis / Mei & Rives.
 
 **Calibration ecosystem & tooling**
+- **MC-Calib** — F. Rameau, J. Park, O. Bailo, I. S. Kweon, *"MC-Calib: A generic and robust
+  calibration toolbox for multiple cameras"*, Computer Vision and Image Understanding (CVIU), 2022 ·
+  [github.com/rameau-fr/MC-Calib](https://github.com/rameau-fr/MC-Calib). DS-MSP's multi-camera rig
+  pipeline (`ds_msp.rig`) is a Python re-implementation that **follows MC-Calib's design**: its
+  `calib_param.yml` config schema, its result-file format (`calibrated_cameras_data.yml`, …), and its
+  workflow (ChArUco multi-board object reconstruction, camera groups, staged bundle adjustment). Files
+  are interoperable in both directions; full credit for the original toolbox and format goes to the
+  MC-Calib authors.
 - **Kalibr** — P. Furgale et al., [github.com/ethz-asl/kalibr](https://github.com/ethz-asl/kalibr)
   (DS & EUCM contributed by V. Usenko). We follow Kalibr's `camchain` YAML format for interop.
 - **[dscamera](https://github.com/matsuren/dscamera)** — Python DS utilities.

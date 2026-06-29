@@ -12,6 +12,6 @@ pipeline works for any of DS-MSP's camera models, exactly as it is in MC-Calib.
 from __future__ import annotations
 
 from .types import BoardObs, Object3D, ObjectObs, RigState
-from .rig_calibrate import calibrate_rig
+from .calibrate import calibrate_rig
 
 __all__ = ["BoardObs", "Object3D", "ObjectObs", "RigState", "calibrate_rig"]

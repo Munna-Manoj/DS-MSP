@@ -19,7 +19,7 @@ from ..calib.bundle import calibrate as _calibrate_single
 from ..geometry.resection import intrinsics_seed, ransac_pnp_normalized
 from ..core.contracts import CameraModel
 from ..models.radtan import RadTanModel
-from . import ba
+from . import bundle
 from .extrinsics import init_camera_groups
 from .pose_init import (average_object_pose_in_group, robust_pose_irls)
 from .types import Object3D, ObjectObs, RigState
@@ -122,9 +122,13 @@ def _front_end_opencv(obj: Object3D, obs_by_cam: Dict[int, List[ObjectObs]],
 
 
 # Neutral seed values per intrinsic parameter name — a generic, GT-free starting point
-# for from-scratch single-camera calibration of any model.
+# for from-scratch single-camera calibration of any model. Distortion/shape params not
+# listed here seed to 0.0 (see ``_seed_from_K``), so any model — including DS+/EUCM+ whose
+# extra terms (lambda1/lambda2 division-distortion, tau_x/tau_y tilt) are neutral at 0 —
+# is supported without enumerating every parameter name.
 _NEUTRAL = {"alpha": 0.5, "xi": 0.0, "beta": 1.0, "k1": 0.0, "k2": 0.0, "k3": 0.0,
-            "k4": 0.0, "p1": 0.0, "p2": 0.0}
+            "k4": 0.0, "p1": 0.0, "p2": 0.0,
+            "lambda1": 0.0, "lambda2": 0.0, "tau_x": 0.0, "tau_y": 0.0}
 
 
 def _seed_from_K(model_cls, K: np.ndarray) -> CameraModel:
@@ -136,7 +140,8 @@ def _seed_from_K(model_cls, K: np.ndarray) -> CameraModel:
         # `initialize_from_correspondences` fit the rest from rays.
         return model_cls(K[0, 2], K[1, 2])
     vals = {"fx": K[0, 0], "fy": K[1, 1], "cx": K[0, 2], "cy": K[1, 2], **_NEUTRAL}
-    vec = np.array([vals[n] for n in model_cls.param_names], float)
+    # Unknown shape/distortion params seed to 0.0 (neutral) so any model is supported.
+    vec = np.array([vals.get(n, 0.0) for n in model_cls.param_names], float)
     return model_cls.from_params(vec)
 
 
@@ -387,12 +392,12 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #    (a) per-object — refine each frame's object pose with cameras+intrinsics fixed
     #        (estimatePoseAllObjects / computeAllObjPoseInCameraGroup): a metric BA warm-up
     #        of the closed-form averaged object poses before any extrinsic moves.
-    rig = ba.refine(rig, object_obs, fix_intrinsics=True, fix_extrinsics=True,
+    rig = bundle.refine(rig, object_obs, fix_intrinsics=True, fix_extrinsics=True,
                     robust_kernel="huber", robust_scale="auto", verbose=verbose)
     #    (b) per-camera-group — refine each group's extrinsics + its object poses, intrinsics
     #        fixed (calibrateCameraGroup / refineAllCameraGroupAndObjects). Single group ->
     #        whole-rig poses-only; multiple groups -> each independently before the joint pass.
-    rig = ba.refine_groups(rig, object_obs, groups,
+    rig = bundle.refine_groups(rig, object_obs, groups,
                            robust_kernel="huber", robust_scale="auto", verbose=verbose)
     #    (c) global joint — full rig + (optionally) intrinsics with a redescending Cauchy
     #        kernel and a short GNC anneal (refineAllCameraGroupAndObjectsAndIntrinsics).
@@ -400,7 +405,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     # start + more steps escapes the bad-data basin under heavy (≈50%) gross-outlier
     # contamination, where a MAD scale is itself corrupted — measurably more robust at the
     # breakdown point with negligible cost on clean data.
-    rig = ba.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
+    rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
                     robust_scale="auto", gnc_iters=gnc_iters, gnc_start=gnc_start,
                     verbose=verbose)
 
@@ -412,14 +417,14 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     if refine_structure and len(obj.board_ids) > 1:
         prev = float("inf")
         for _ in range(structure_rounds):
-            rig = ba.refine_object_structure(rig, object_obs)
+            rig = bundle.refine_object_structure(rig, object_obs)
             # a light joint polish each round (no GNC, capped iters): the structure step did
             # the heavy lifting, so the BA only has to absorb it — full-length GNC passes here
             # were ~80% of total runtime for <0.5% extra accuracy.
-            rig = ba.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
+            rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", max_iter=25,
                             verbose=verbose)
-            cur = max(ba.reprojection_rms(rig, object_obs).values())
+            cur = max(bundle.reprojection_rms(rig, object_obs).values())
             if prev - cur < 0.003 * prev:           # converged -> stop early
                 break
             prev = cur

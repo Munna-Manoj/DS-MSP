@@ -12,8 +12,8 @@ import copy
 
 import numpy as np
 
-from ds_msp.rig import ba, calibrate_rig
-from ds_msp.rig.rig_calibrate import make_bundle_front_end
+from ds_msp.rig import bundle, calibrate_rig
+from ds_msp.rig.calibrate import make_bundle_front_end
 from ds_msp.models.radtan import RadTanModel
 from ._synth import make_rig
 
@@ -50,17 +50,17 @@ def test_robust_ba_beats_l2_under_outliers():
     dirty = _inject(obs, frac=0.12, px=50.0, seed=1)
 
     def two_pass(kernel_joint, **kw):
-        r = ba.refine(rig0, dirty, fix_intrinsics=True, robust_kernel="none"
+        r = bundle.refine(rig0, dirty, fix_intrinsics=True, robust_kernel="none"
                       if kernel_joint == "none" else "huber",
                       robust_scale=1.0 if kernel_joint == "none" else "auto")
-        return ba.refine(r, dirty, fix_intrinsics=False, robust_kernel=kernel_joint, **kw)
+        return bundle.refine(r, dirty, fix_intrinsics=False, robust_kernel=kernel_joint, **kw)
 
     rl = two_pass("none", robust_scale=1.0)
     rr = two_pass("cauchy", robust_scale="auto", gnc_iters=5, gnc_start=4.0)
     e_l2, e_rob = _worst_err(rl, gt), _worst_err(rr, gt)
     assert e_rob < e_l2, f"robust ({e_rob:.2f}%) should beat L2 ({e_l2:.2f}%)"
     assert e_rob < 1.0, f"robust BA should stay <1% under 12% outliers, got {e_rob:.2f}%"
-    m = ba.reprojection_metrics(rr, dirty)
+    m = bundle.reprojection_metrics(rr, dirty)
     assert all(v["median"] < 1.0 for v in m.values())         # inlier median sub-pixel
     assert all(v["inlier_frac"] > 0.8 for v in m.values())    # ~all genuine corners kept
 

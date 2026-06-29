@@ -30,12 +30,12 @@ import sys
 
 sys.path.insert(0, ".")
 from ds_msp.io.mccalib import load_scenario, radtan_from_cameragt          # noqa: E402
-from ds_msp.rig.run import calibrate_scenario, random_model_assignment     # noqa: E402
+from ds_msp.rig.pipeline import calibrate_scenario, random_model_assignment     # noqa: E402
 
 
 def _run_config(config_path, sets):
     """MC-Calib-compatible single-file entry: parse calib_param.yml and run."""
-    from ds_msp.rig.config import calibrate_from_config
+    from ds_msp.rig.calib_param import calibrate_from_config
     overrides = {}
     for kv in sets or []:
         k, _, v = kv.partition("=")
@@ -71,6 +71,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="path to a Blender_Images/Scenario_* directory")
     ap.add_argument("--config", help="MC-Calib calib_param.yml — drive the whole run from it")
+    ap.add_argument("--init-config", metavar="PATH", dest="init_config",
+                    help="write a base MC-Calib-compatible calib_param.yml template to PATH and exit")
+    ap.add_argument("--init-intrinsics", metavar="PATH", dest="init_intrinsics",
+                    help="write a camera_intrinsics.yml template (all models documented) to PATH and exit")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE",
                     help="override a config value (repeatable), e.g. --set save_path=/abs/out")
     g = ap.add_mutually_exclusive_group()
@@ -86,6 +90,18 @@ def main():
     ap.add_argument("--save-reprojection", action="store_true",
                     help="also write MC-Calib-style reprojection overlay images (needs Images/)")
     args = ap.parse_args()
+
+    if args.init_config or args.init_intrinsics:
+        import shutil
+        cfgdir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs")
+        if args.init_config:
+            shutil.copyfile(os.path.join(cfgdir, "calib_param.template.yml"), args.init_config)
+            print(f"wrote base calib_param template to: {args.init_config}")
+        if args.init_intrinsics:
+            shutil.copyfile(os.path.join(cfgdir, "camera_intrinsics.template.yml"),
+                            args.init_intrinsics)
+            print(f"wrote camera intrinsics template to: {args.init_intrinsics}")
+        return
 
     if args.config:
         _run_config(args.config, args.set)

@@ -18,7 +18,7 @@ import tempfile
 
 sys.path.insert(0, ".")
 from ds_msp.io.mccalib import load_scenario                                 # noqa: E402
-from ds_msp.rig.run import calibrate_scenario, random_model_assignment      # noqa: E402
+from ds_msp.rig.pipeline import calibrate_scenario, random_model_assignment      # noqa: E402
 
 SCENARIOS = ["Scenario_1", "Scenario_2", "Scenario_3", "Scenario_4", "Scenario_5"]
 

@@ -70,6 +70,7 @@ class BoardObs:
     pts_2d: np.ndarray          # (K, 2)     — detected pixels
     T_c_b: Optional[np.ndarray] = None   # (4,4) board->camera from robust PnP
     valid: bool = True          # False if PnP inliers < 4 (BoardObs.cpp:149)
+    image_path: Optional[str] = None     # source image this was detected in (for overlays)
 
 
 @dataclass
@@ -98,11 +99,12 @@ class ObjectObs:
     point_rows: np.ndarray      # (K,) int  — rows into Object3D.pts_3d
     pts_2d: np.ndarray          # (K, 2)
     T_c_o: Optional[np.ndarray] = None   # (4,4) object->camera from robust PnP
+    image_path: Optional[str] = None     # source image this was detected in (for overlays)
 
 
 @dataclass
 class RigState:
-    """The optimization variable mutated by the staged global BA (``rig.ba``)."""
+    """The optimization variable mutated by the staged global BA (``rig.bundle``)."""
 
     cameras: Dict[int, CameraModel]                     # per-camera intrinsics
     T_c_g: Dict[int, np.ndarray]                        # camera-in-group; ref cam = identity

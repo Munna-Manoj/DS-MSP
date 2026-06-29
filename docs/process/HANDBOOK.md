@@ -39,6 +39,7 @@ docs/process/
 │  ├─ CICD_PIPELINE.md  CHANGE_RELEASE_MGMT.md  BRANCHING_CONTRIBUTION.md
 │  ├─ ISSUE_DEFECT_PROCESS.md  RISK_REGISTER.md  risks.csv
 ├─ playbooks/                       add-a-{camera-model,robust-kernel,io-format,pipeline-capability}.md
+│                                   extend-the-rig-pipeline.md
 └─ traceability/TRACEABILITY.md     generated bidirectional matrix (CI-checked in sync)
 ```
 Root: [`CONTRIBUTING.md`](../../CONTRIBUTING.md), [`SECURITY.md`](../../SECURITY.md),

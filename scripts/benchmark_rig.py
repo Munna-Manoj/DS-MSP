@@ -14,8 +14,8 @@ import numpy as np
 
 sys.path.insert(0, ".")
 from tests.rig._synth import make_rig                          # noqa: E402
-from ds_msp.rig import ba                                      # noqa: E402
-from ds_msp.rig.rig_calibrate import (                         # noqa: E402
+from ds_msp.rig import bundle                                      # noqa: E402
+from ds_msp.rig.calibrate import (                         # noqa: E402
     _front_end_opencv, calibrate_rig)
 from ds_msp.rig.extrinsics import init_camera_groups           # noqa: E402
 from ds_msp.rig.pose_init import average_object_pose_in_group  # noqa: E402
@@ -56,8 +56,8 @@ def bench(n_cam, n_frame, repeats, label):
                     object_poses=dict(op), objects={0: obj}, img_size=img)
 
     def _ba():
-        r = ba.refine(rig0, obs, fix_intrinsics=True)
-        ba.refine(r, obs, fix_intrinsics=False)
+        r = bundle.refine(rig0, obs, fix_intrinsics=True)
+        bundle.refine(r, obs, fix_intrinsics=False)
     t_ba = _median(_ba, repeats)
 
     K = 6 * (n_cam - 1) + 6 * len(op) + sum(len(c.param_names) for c in cameras.values())

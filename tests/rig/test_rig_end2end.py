@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 
-from ds_msp.rig import ba, calibrate_rig
+from ds_msp.rig import bundle, calibrate_rig
 from ._synth import make_rig
 
 
@@ -34,7 +34,7 @@ def test_recovers_extrinsics_noiseless():
 def test_recovers_extrinsics_with_noise():
     obj, obs, img_size, gt, _ = make_rig(n_cam=3, n_frame=60, noise_px=0.3, seed=1)
     rig = calibrate_rig(obj, obs, img_size, fix_intrinsics=False)
-    rms = ba.reprojection_rms(rig, obs)
+    rms = bundle.reprojection_rms(rig, obs)
     assert max(rms.values()) < 1.0                            # sub-pixel at 0.3px noise
     ref = rig.ref_cam_id
     worst = max(

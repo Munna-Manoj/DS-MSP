@@ -28,8 +28,8 @@ import numpy as np
 
 sys.path.insert(0, ".")
 from ds_msp.io.mccalib import load_scenario, radtan_from_cameragt          # noqa: E402
-from ds_msp.rig import ba                                                   # noqa: E402
-from ds_msp.rig.run import (baseline_error_per_camera, calibrate_scenario,  # noqa: E402
+from ds_msp.rig import bundle                                                   # noqa: E402
+from ds_msp.rig.pipeline import (baseline_error_per_camera, calibrate_scenario,  # noqa: E402
                             intrinsics_error, random_model_assignment)
 
 SCENARIOS = ["Scenario_1", "Scenario_2", "Scenario_3", "Scenario_4", "Scenario_5"]
@@ -48,7 +48,7 @@ def _eval_run(scn, models, mode, save_dir, save_images, root):
     ie_gt = intrinsics_error(rig, {c: scn.gt[c].K for c in scn.gt})
     ie_mc = intrinsics_error(rig, {c: scn.mccalib[c].K for c in scn.mccalib})
     base = baseline_error_per_camera(rig, scn)
-    rms = ba.reprojection_rms(rig, scn.object_obs)
+    rms = bundle.reprojection_rms(rig, scn.object_obs)
     rows = []
     for c in sorted(rig.cameras):
         g, m = ie_gt.get(c, {}), ie_mc.get(c, {})
