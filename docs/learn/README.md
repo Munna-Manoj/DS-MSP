@@ -119,6 +119,17 @@ it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
   (`examples/05`) — why DS `fx≈152` and KB `fx≈191` are the same lens: the paraxial-focal
   derivation (`fx_DS/(1+ξ)`), project/unproject agreement vs field angle, and where two
   models stop agreeing (exactly where the data ran out).
+- [Is this camera model right for *my* lens and task?](choosing_a_camera_model.md)
+  (`examples/10`) — a measurable framework for picking a model: six diagnostics (capacity,
+  identifiability via Jacobian conditioning, parameter redundancy/collinearity, bound
+  sensitivity, compute cost by operation class, FOV sampling weight), each a number you verify
+  on two ground-truth lenses. Why the same model is a great choice on one lens and a poor one
+  on another.
+- [A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt](case_study_eucmplus_dsplus_kb.md)
+  (`examples/10`) — the framework applied to a real ship/retire decision, on three lenses, with
+  the honest good-and-bad verdict (DS⁺ wins accuracy + invertibility, loses ~2× on unproject;
+  EUCM⁺ is Pareto-dominated) — *including the hypothesis we had to retract when the data
+  contradicted it.*
 
 Chapters land incrementally — see [`../ROADMAP.md`](../ROADMAP.md) for the build order.
 

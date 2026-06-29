@@ -183,7 +183,7 @@ python examples/03_calibrate_tumvi_aprilgrid.py
 | Path | Contents |
 | :-- | :-- |
 | [`ds_msp/`](ds_msp) | The library: `core/` (contracts + Lie/LM solver + robust kernels) → pure math → `models/` → services (`ops/`, `adapt/`, `io/`, `calib/`) → 3D stack (`mvg/` two-view geometry, `stereo/` depth), plus `cv.py` (OpenCV-style API) and `ldc.py` (hardware export). |
-| [`examples/`](examples) | Eight runnable demos on real data (`01`–`08`) — round-trip precision, the calibration capstone, robust-loss A/B, model equivalence, stereo extrinsics, the >180° validity cone, and sphere/cylinder/pinhole reprojection. *(Part II / Tier-1 demos landing — see [ROADMAP](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md).)* |
+| [`examples/`](examples) | Ten runnable demos on real data (`01`–`10`) — round-trip precision, the calibration capstone, robust-loss A/B, model equivalence, stereo extrinsics, the >180° validity cone, sphere/cylinder/pinhole reprojection, monocular VO, and a measurable camera-model evaluation framework. *(Part II / Tier-1 demos landing — see [ROADMAP](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md).)* |
 | [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) | The guided curriculum (start here to learn) — Part I (calibration) + Part II (geometry & 3D). |
 | [`docs/`](docs) | [`MULTI_MODEL.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/MULTI_MODEL.md) (multi-model + conversion guide), [`ROADMAP.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/ROADMAP.md), [`WRITING_GUIDE.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/WRITING_GUIDE.md) (docs style guide). |
 | [`datasets/`](datasets/README.md) | Data guide: what to download, where it goes, how to start. |
@@ -224,6 +224,8 @@ optimization, stereo depth).
 | 🔬 | [Detecting every AprilGrid tag (fisheye periphery)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/robust_aprilgrid_detection.md) | why an off-centre board drops to 4/36 tags, and the multi-scale + recovery fix (focal 0.7%→0.003%) |
 | 🔬 | [Robust losses & evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/robust_losses_and_evaluation.md) | handle outliers without discarding data; why median/inlier RMS beat naive RMS |
 | 🔬 | [Are two models the same camera?](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/are_two_models_the_same_camera.md) | prove DS `fx≈152` and KB `fx≈191` describe the same lens |
+| 🔬 | [Is this model right for *my* lens?](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/choosing_a_camera_model.md) | a measurable framework to pick a camera model — capacity, identifiability (Jacobian conditioning), parameter redundancy, cost, FOV weighting |
+| 🔬 | [A fair fight: EUCM⁺ vs DS⁺ vs KB](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/case_study_eucmplus_dsplus_kb.md) | the framework applied to a real ship/retire decision — an honest good-and-bad verdict, *including the hypothesis we had to retract when the data contradicted it* |
 | 🔬 | [Sphere, cylinder & pinhole reprojection](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/spherical_and_cylindrical_reprojection.md) | move one fisheye between a sphere, cylinder, and pinhole image — exact pixel maps, verified to 1e-13 px |
 
 **Part II — Geometry & 3D** — *the wide-FOV SLAM/SfM stack. Library shipped & tested

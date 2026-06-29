@@ -140,5 +140,9 @@ farther.
 3. Re-run the capstone with `--stride 2` so more wide-angle corners are included, then redo
    this comparison. Does the agreement extend to larger θ as the data reaches further out?
 
+**Next:** if two models can describe the same camera, *which one should you actually pick?*
+That's a measurable question — see
+[Is this model right for my lens?](choosing_a_camera_model.md) and the worked
+[EUCM⁺ vs DS⁺ vs KB case study](case_study_eucmplus_dsplus_kb.md).
 **Back to:** the [capstone](capstone_calibrating_a_real_camera.md), or the
 [robust-loss deep-dive](robust_losses_and_evaluation.md).

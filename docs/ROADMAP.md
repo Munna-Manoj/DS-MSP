@@ -25,6 +25,11 @@ with both a clean implementation *and* a chapter that explains them.
   0.003% focal / 0.08 px median (multi-scale, periphery-robust detection — see the
   [deep-dive](learn/robust_aprilgrid_detection.md)). AprilGrid detection adds `ds_msp/calib/{targets,detect}.py`
   and the `[calib]` extra.
+- **Model-choice deep-dives** ✅ — a measurable framework for picking a camera model
+  ([choosing a camera model](learn/choosing_a_camera_model.md): capacity, Jacobian-conditioning
+  identifiability, parameter redundancy, cost, FOV weighting) and an honest worked case study
+  applying it ([EUCM⁺ vs DS⁺ vs KB](learn/case_study_eucmplus_dsplus_kb.md) — including a
+  retracted hypothesis), both runnable via `examples/10_evaluating_camera_models.py`.
 
 ## Next (learning curriculum)
 Build out [`docs/learn/`](learn/README.md) in order, each chapter anchored to existing
