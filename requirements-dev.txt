@@ -12,6 +12,7 @@
 # keeps numpy unpinned for consumers. Lift the bound once core is verified vs 2.5.
 pytest~=9.1
 pytest-cov~=7.1
+pytest-xdist~=3.8
 mypy==2.1.0
 ruff==0.15.18
 import-linter==2.11

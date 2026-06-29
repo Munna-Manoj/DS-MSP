@@ -44,6 +44,9 @@ jobs:
       - name: tree hygiene (no tracked local-only / leak content)
         run: python tools/check_tree_hygiene.py
 
+  # Fast tier: unit + contract tests across the support matrix, parallelized.
+  # Excludes the `slow` rig integration tests (full bundle adjustment, 200-415s each)
+  # which run once in `test-slow` below — so a typical PR's feedback is ~1 min, not ~10.
   test:
     name: tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -59,5 +62,21 @@ jobs:
           cache: pip
       - name: Install
         run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (+ coverage)
-        run: pytest -q --cov=ds_msp --cov-report=term-missing
+      - name: pytest (fast, parallel, + coverage)
+        run: pytest -q -n auto -m "not slow" --cov=ds_msp --cov-report=term-missing
+
+  # Slow tier: the rig integration suite, once (3.12 only), parallelized. Heavy but the
+  # authoritative rig gate; kept off the per-Python fast matrix so it doesn't run 3x.
+  test-slow:
+    name: tests (slow / rig integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[calib]" -r requirements-dev.txt
+      - name: pytest (slow rig integration, parallel)
+        run: pytest -q -n auto -m "slow"
