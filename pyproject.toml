@@ -48,9 +48,9 @@ calib = ["aprilgrid"]
 # fails ("Multiple top-level packages discovered").
 [tool.setuptools.packages.find]
 include = ["ds_msp*"]
-# The multi-camera rig pipeline (ds_msp.rig) is held for the 0.8.0 release pending its
-# real-data validation gate; its source stays in the repo but is excluded from the wheel.
-exclude = ["ds_msp.rig", "ds_msp.rig.*"]
+# The multi-camera rig pipeline (ds_msp.rig) now ships in the wheel: its real-data
+# validation gate is met (8-camera real rig + the MC-Calib Blender datasets — extrinsics
+# within ~0.16% of ground truth at sub-pixel reprojection, matching MC-Calib's own RMS).
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

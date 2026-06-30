@@ -66,7 +66,7 @@ rays approach 90°. DS-MSP implements the models that *can*, and does it careful
 | **Analytic Jacobians** | Exact closed-form derivatives (no autodiff, no finite differences) → faster, more robust calibration. KB & RadTan match OpenCV to ~1e-13. |
 | **Model conversion** | Translate a calibration between models **without images or recalibration** (sample → unproject → LM refit). |
 | **Calibration** | Generic Levenberg–Marquardt bundle adjustment for *any* model, with a robust (Cauchy) loss option. |
-| **Multi-camera rigs** | An **[MC-Calib](https://github.com/rameau-fr/MC-Calib)-compatible** rig pipeline (`ds_msp.rig`): one `calib_param.yml`, ChArUco images in, MC-Calib-format extrinsics out — with a *different camera model per camera*. *(preview, from source → 0.8.0)* |
+| **Multi-camera rigs** | An **[MC-Calib](https://github.com/rameau-fr/MC-Calib)-compatible** rig pipeline (`ds_msp.rig`): one `calib_param.yml`, ChArUco images in, MC-Calib-format extrinsics out — with a *different camera model per camera*. *(now shipped in the wheel)* |
 | **Ecosystem fluency** | Read/write **Kalibr** camchain YAML and **MC-Calib** interchange; OpenCV-style drop-in API; **TI Jacinto** LDC hardware mesh export. |
 | **Verified, CI-tested** | 426 tests + import-linter layer checks + mypy, green on Python 3.10–3.12. |
 
@@ -498,10 +498,10 @@ at **0.64 px** RMS.
 
 ## Multi-camera rig calibration (MC-Calib-compatible)
 
-> **Status — preview, landing in 0.8.0.** The rig pipeline is implemented and tested on synthetic
-> **and real** multi-camera data, but is **not yet part of the `pip install ds-msp` wheel**: run it
-> from a source checkout via `scripts/calibrate_rig.py`. Governed under `FR-RIG-*` in the project's
-> [engineering process](docs/process/HANDBOOK.md).
+> **Now shipped** in `pip install ds-msp` (`ds_msp.rig`), after passing its real-data validation
+> gate — a real **8-camera** rig and the **MC-Calib Blender** datasets (extrinsics within ~0.16% of
+> ground truth at sub-pixel reprojection, matching MC-Calib's own per-camera RMS). Governed under
+> `FR-RIG-*` in the project's [engineering process](docs/process/HANDBOOK.md).
 
 Beyond single-camera intrinsics, DS-MSP ships **`ds_msp.rig`** — the **N-camera analogue of
 [MC-Calib](https://github.com/rameau-fr/MC-Calib)**. It calibrates the **extrinsics** (where every
@@ -512,7 +512,7 @@ chosen from any of DS-MSP's eight models (so one bench can mix `kb` fisheye, `ra
 `dsplus`).
 
 ```bash
-# from a source checkout (the rig is not in the pip wheel yet)
+# scripts/ ship in the source tree (clone the repo); the ds_msp.rig library installs via pip
 python scripts/calibrate_rig.py --init-config calib_param.yml   # write a starter config
 # edit it (cameras, board geometry, image folder, models), then:
 python scripts/calibrate_rig.py --config calib_param.yml
