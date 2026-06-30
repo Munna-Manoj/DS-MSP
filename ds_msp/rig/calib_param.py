@@ -216,6 +216,7 @@ class RigConfig:
     ransac_threshold: float
     number_iterations: int
     he_approach: int
+    noise_bound: float = 1.0
     object_path: Optional[str] = None
     raw: Dict = field(default_factory=dict)
 
@@ -293,6 +294,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         ransac_threshold=float(_scalar(fs, "ransac_threshold", 10.0)),
         number_iterations=int(_scalar(fs, "number_iterations", 1000)),
         he_approach=int(_scalar(fs, "he_approach", 0)),
+        noise_bound=float(_scalar(fs, "noise_bound", 1.0)),
         object_path=_resolve(base, ov.get("object_path")) if ov.get("object_path") else None,
         raw={"path": config_path},
     )
@@ -479,6 +481,7 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              camera_params_file_name=cfg.camera_params_file_name,
                              image_root=image_root, cam_prefix=cfg.cam_prefix,
                              he_approach=cfg.he_approach,
-                             refine_structure=(cfg.number_board > 1))
+                             refine_structure=(cfg.number_board > 1),
+                             noise_bound=cfg.noise_bound)
     res["config"] = cfg
     return res
