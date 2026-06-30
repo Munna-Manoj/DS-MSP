@@ -37,7 +37,7 @@ so the same loop drives two-view BA and multi-image calibration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -287,7 +287,7 @@ def gnc_tls_solve(
     continuation: float = GNC_TLS_CONTINUATION,
     inner_max_iter: int = 50,
     weights: Optional[np.ndarray] = None,
-    **lm_kwargs,
+    **lm_kwargs: Any,
 ) -> OptResult:
     r"""High-breakdown, **median-free**, no-initial-guess robust optimization via Graduated
     Non-Convexity with a Truncated-Least-Squares surrogate (Yang et al., RA-L 2020).
@@ -324,7 +324,7 @@ def gnc_tls_solve(
     OptResult
         With ``weights`` set to the final per-block inlier weights (≈1 inlier / ≈0 outlier).
     """
-    def inner_solve(state, block_weights):
+    def inner_solve(state: object, block_weights: Optional[np.ndarray]) -> OptResult:
         return lm_solve(state, residual, jacobian, retract, block=block,
                         robust_kernel="none", weights=block_weights,
                         max_iter=inner_max_iter, **lm_kwargs)
@@ -348,7 +348,7 @@ def gnc_tls_schur_solve(
     continuation: float = GNC_TLS_CONTINUATION,
     inner_max_iter: int = 50,
     weights: Optional[np.ndarray] = None,
-    **schur_kwargs,
+    **schur_kwargs: Any,
 ) -> OptResult:
     r"""GNC-TLS robust optimization for **separable** problems — the :func:`schur_lm` analogue
     of :func:`gnc_tls_solve`.
@@ -360,7 +360,7 @@ def gnc_tls_schur_solve(
     are stacked in the same order ``linearize`` concatenates its groups. See :func:`gnc_tls_solve`
     for the ``noise_bound`` semantics (``c̄ ≈ 3.03·σ`` for a 2-DoF 99% band).
     """
-    def inner_solve(state, block_weights):
+    def inner_solve(state: object, block_weights: Optional[np.ndarray]) -> OptResult:
         return schur_lm(state, residual, linearize, retract, n_groups=n_groups,
                         shared_dim=shared_dim, local_dim=local_dim, block=block,
                         robust_kernel="none", weights=block_weights,
