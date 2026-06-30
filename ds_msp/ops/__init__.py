@@ -1,6 +1,6 @@
 """Model-agnostic services: undistortion, pose estimation, and chart reprojection."""
 
-from .pose import solve_pnp
+from .pose import solve_pnp, solve_pnp_ransac
 from .reproject import (
     Chart,
     Cylindrical,
@@ -15,6 +15,7 @@ from .undistort import Undistorter
 
 __all__ = [
     "solve_pnp",
+    "solve_pnp_ransac",
     "Undistorter",
     "Chart",
     "Equirectangular",

@@ -356,9 +356,22 @@ class DoubleSphereCamera:
         if success:
             rvec = rvec.squeeze()
             tvec = tvec.squeeze()
-        
+
         return success, rvec, tvec
-    
+
+    def solve_pnp_ransac(self, points_3d: np.ndarray, points_2d: np.ndarray,
+                         *, thresh_px: float = 3.0, max_iters: int = 300,
+                         confidence: float = 0.999, seed: int = 0, refine: bool = True
+                         ) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+        """Outlier-robust PnP — rejects gross-outlier correspondences with RANSAC before
+        solving, then refines the pose on the consensus set. Returns
+        ``(success, rvec, tvec, inliers)`` with an ``(N,)`` boolean inlier mask. See
+        :func:`ds_msp.ops.solve_pnp_ransac`. Use the plain :meth:`solve_pnp` when the
+        correspondences are already clean."""
+        from .ops import solve_pnp_ransac as _ransac
+        return _ransac(self, points_3d, points_2d, thresh_px=thresh_px, max_iters=max_iters,
+                       confidence=confidence, seed=seed, refine=refine)
+
     # ========================================================================
     # Visualization
     # ========================================================================

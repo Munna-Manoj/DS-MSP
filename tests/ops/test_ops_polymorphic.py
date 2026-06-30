@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from ds_msp.ops import Undistorter, solve_pnp
+from ds_msp.ops import Undistorter, solve_pnp, solve_pnp_ransac
 from ds_msp.testing import FakeModel
 from ds_msp.model import DoubleSphereCamera
 from ds_msp.models.double_sphere import DoubleSphereModel
@@ -33,6 +33,28 @@ def test_solve_pnp_recovers_known_pose(factory):
     ok, rvec, tvec = solve_pnp(model, obj[valid], uv[valid])
     assert ok
     assert np.linalg.norm(tvec - tvec_gt) < 0.05
+
+
+@pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
+def test_solve_pnp_ransac_rejects_gross_outliers(factory):
+    """RANSAC PnP recovers the pose and flags the blunders where a plain solve drifts."""
+    model = factory()
+    g = np.mgrid[0:7, 0:7].reshape(2, -1).T * 0.1
+    obj = np.column_stack([g, np.zeros(len(g))]).astype(np.float64)
+    rvec_gt = np.array([0.05, -0.1, 0.02])
+    tvec_gt = np.array([-0.15, 0.1, 2.0])
+    R, _ = cv2.Rodrigues(rvec_gt)
+    uv, valid = model.project((R @ obj.T).T + tvec_gt)
+    obj_v, uv_v = obj[valid], np.asarray(uv)[valid].copy()
+    # corrupt 25% of the pixels with large blunders
+    rng = np.random.default_rng(0)
+    out = rng.choice(len(uv_v), len(uv_v) // 4, replace=False)
+    uv_v[out] += rng.uniform(-120, 120, size=(len(out), 2))
+    ok, rvec, tvec, inliers = solve_pnp_ransac(model, obj_v, uv_v, seed=0)
+    assert ok
+    assert np.linalg.norm(tvec - tvec_gt) < 0.05            # pose recovered despite outliers
+    assert not inliers[out].any()                           # every injected blunder flagged out
+    assert inliers.sum() >= len(uv_v) // 2                   # the clean majority kept
 
 
 @pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
