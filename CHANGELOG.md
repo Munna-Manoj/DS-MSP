@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.7.1...v0.8.0) (2026-06-29)
+
+
+### Features
+
+* **rig:** MC-Calib-compatible intrinsics handling, keypoints reuse, docs + SEMS ([#38](https://github.com/Munna-Manoj/DS-MSP/issues/38)) ([4dc33b0](https://github.com/Munna-Manoj/DS-MSP/commit/4dc33b02557d82961fc45ca9f9c0aa24c8ef0cd8))
+
 ## [0.7.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.7.0...v0.7.1) (2026-06-29)
 
 
