@@ -42,7 +42,8 @@ from typing import Callable, Optional
 import numpy as np
 
 from .robust import (
-    auto_kernel_scale, gnc_scale, robust_cost, robust_weight, VALID_KERNELS,
+    auto_kernel_scale, gnc_scale, gnc_tls_mu_init, gnc_tls_weight,
+    robust_cost, robust_weight, GNC_TLS_CONTINUATION, VALID_KERNELS,
 )
 
 
@@ -57,6 +58,9 @@ class OptResult:
     success: bool
     converged: bool
     final_lambda: float
+    #: Per-block inlier weights from a graduated solve (:func:`gnc_tls_solve`); ``None`` for
+    #: the plain :func:`lm_solve` path. ≈binary after GNC-TLS converges (1 inlier / 0 outlier).
+    weights: Optional[np.ndarray] = None
 
 
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
@@ -269,6 +273,95 @@ def lm_solve(
     return OptResult(state=state, cost=f, rms=rms, iterations=it,
                      success=converged or it < max_iter, converged=converged,
                      final_lambda=lam)
+
+
+def gnc_tls_solve(
+    state0: object,
+    residual: Callable[[object], np.ndarray],
+    jacobian: Callable[[object], np.ndarray],
+    retract: Callable[[object, np.ndarray], object],
+    *,
+    noise_bound: float,
+    block: int = 2,
+    max_outer: int = 100,
+    continuation: float = GNC_TLS_CONTINUATION,
+    inner_max_iter: int = 50,
+    weights: Optional[np.ndarray] = None,
+    **lm_kwargs,
+) -> OptResult:
+    r"""High-breakdown, **median-free**, no-initial-guess robust optimization via Graduated
+    Non-Convexity with a Truncated-Least-Squares surrogate (Yang et al., RA-L 2020).
+
+    Why this exists (vs ``lm_solve(robust_kernel=..., robust_scale='auto')``)
+    -----------------------------------------------------------------------
+    The redescending-kernel + MAD-auto-scale path keys the inlier band off the **median**, whose
+    breakdown point is exactly **50%**. Past half gross outliers the auto-scale is dragged up,
+    the kernel never tightens to the true band, and the solve fails. ``gnc_tls_solve`` instead
+    graduates a *truncated* surrogate against an **explicit noise bound** ``c̄ = noise_bound``
+    (in calibration this is known — the expected reprojection σ), so it recovers **well past 50%**
+    contamination and returns a **hard inlier set**. It is deterministic and needs no init.
+
+    It reuses :func:`lm_solve` as the inner weighted least-squares solver: each graduation level
+    fixes per-block weights and runs an ordinary (non-robust) weighted solve, so the same Lie
+    re-basing, damping, and Cholesky-jitter robustness apply.
+
+    Parameters
+    ----------
+    noise_bound
+        The inlier scale ``c̄`` in residual-norm units (e.g. pixels for a 2-D reprojection block);
+        the inlier band is ``barc2 = c̄²``. Pick ``c̄`` from a χ² bound on the expected noise σ
+        (2-DoF 99% ⇒ ``c̄ ≈ 3.03·σ``), **not** from a MAD estimate.
+    block
+        Residual components per robustness unit (2 for image points, 3 for 3-D registration).
+    max_outer, continuation
+        Graduation budget and geometric ``μ`` growth (``μ ← μ·continuation`` each level).
+    inner_max_iter, weights, **lm_kwargs
+        Forwarded to the inner :func:`lm_solve` (``weights`` are optional per-block confidence
+        priors, multiplied into the TLS weights; e.g. ``damping``, ``schedule``, ``tol``).
+
+    Returns
+    -------
+    OptResult
+        With ``weights`` set to the final per-block inlier weights (≈1 inlier / ≈0 outlier).
+    """
+    barc2 = float(noise_bound) ** 2
+    if barc2 <= 0.0:
+        raise ValueError("noise_bound must be positive")
+
+    def block_sq(state: object) -> np.ndarray:
+        r = np.asarray(residual(state), float)
+        if r.size % block:
+            raise ValueError(f"residual length {r.size} not a multiple of block {block}")
+        return np.sum(r.reshape(-1, block) ** 2, axis=1)
+
+    # Initialize from an ordinary (unweighted) solve — no robustness yet, no init guess needed.
+    res = lm_solve(state0, residual, jacobian, retract, block=block,
+                   robust_kernel="none", weights=weights, max_iter=inner_max_iter, **lm_kwargs)
+    state = res.state
+    s = block_sq(state)
+    mu = gnc_tls_mu_init(s, barc2)
+
+    w = np.ones_like(s)
+    prev = float("inf")
+    outer = 0
+    for outer in range(1, max_outer + 1):
+        w = gnc_tls_weight(s, barc2, mu)
+        bw = w if weights is None else w * weights
+        res = lm_solve(state, residual, jacobian, retract, block=block,
+                       robust_kernel="none", weights=bw, max_iter=inner_max_iter, **lm_kwargs)
+        state = res.state
+        s = block_sq(state)
+        cost = float((s * w).sum())
+        binary = bool(np.all((w <= 1e-9) | (np.abs(1.0 - w) <= 1e-9)))
+        if binary or abs(cost - prev) < 1e-12:
+            break
+        mu *= continuation
+        prev = cost
+
+    bn = np.sqrt(s)
+    rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
+    return OptResult(state=state, cost=float((s * w).sum()), rms=rms, iterations=outer,
+                     success=True, converged=True, final_lambda=res.final_lambda, weights=w)
 
 
 def schur_lm(

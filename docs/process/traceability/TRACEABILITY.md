@@ -11,6 +11,7 @@ CI fails if this file is out of sync with the registry and the test suite.
 | FR-CALIB-002 | FR | CALIB | ARC-GEOMETRY | `ds_msp/geometry/resection.py` | `tests/calib/test_robust_init.py` | implemented | no | tests/calib/test_robust_init.py (module) |
 | FR-CALIB-003 | FR | CALIB | ARC-CALIB | `ds_msp/calib/stereo.py` | `tests/calib/test_stereo.py` | implemented | no | tests/calib/test_stereo.py (module) |
 | FR-CALIB-004 | FR | CALIB | ARC-DETECT | `ds_msp/detect` | `tests/calib/test_charuco.py` | implemented | no | tests/calib/test_charuco.py (module) |
+| FR-CORE-001 | FR | CORE | ARC-CORE | `ds_msp/core/optimize.py` | `tests/core/test_gnc_tls.py` | implemented | no | tests/core/test_gnc_tls.py (module) |
 | FR-INTEROP-001 | FR | INTEROP | ARC-INTEROP | `ds_msp/cv.py` | `tests/test_ds_camera_cv.py` | implemented | no | tests/test_ds_camera_cv.py (module) |
 | FR-INTEROP-002 | FR | INTEROP | ARC-INTEROP | `ds_msp/ldc.py` | `tests/test_robustness_and_ldc.py` | implemented | no | tests/test_robustness_and_ldc.py (module) |
 | FR-IO-001 | FR | IO | ARC-IO | `ds_msp/io/kalibr.py` | `tests/io/test_kalibr.py` | implemented | no | tests/io/test_kalibr.py (module) |

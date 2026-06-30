@@ -44,3 +44,4 @@ NFR-ARCH-003,NFR,ARCH,Every camera model satisfies the CameraModel contract,ARC-
 NFR-PORT-001,NFR,PORT,Library runs on Python 3.10 3.11 and 3.12,ARC-CORE,ds_msp,.github/workflows/ci.yml,implemented,no
 NFR-REPRO-001,NFR,REPRO,Tests and validations are deterministic via fixed seeds,ARC-CORE,tests,tests/contract/test_gradcheck.py,implemented,no
 NFR-PRIV-001,NFR,PRIV,No internal R&D / AI-process content reaches tracked files,ARC-CORE,.,tools/check_tree_hygiene.py,implemented,no
+FR-CORE-001,FR,CORE,High-breakdown GNC-TLS robust optimization with an explicit noise bound (median-free; recovers past MAD's 50% breakdown),ARC-CORE,ds_msp/core/optimize.py,tests/core/test_gnc_tls.py,implemented,no
