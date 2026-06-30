@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from ds_msp.core.lie import hat, so3_exp, so3_log
-from ds_msp.core.optimize import gnc_tls_solve, lm_solve
+from ds_msp.core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from ds_msp.core.robust import gnc_tls_mu_init, gnc_tls_weight
 
 pytestmark = pytest.mark.req("FR-CORE-001")
@@ -141,3 +141,99 @@ def test_deterministic():
     a = gnc_tls_solve((np.eye(3), np.zeros(3)), res, jac, ret, noise_bound=0.1, block=3)
     b = gnc_tls_solve((np.eye(3), np.zeros(3)), res, jac, ret, noise_bound=0.1, block=3)
     assert np.array_equal(a.state[0], b.state[0]) and np.array_equal(a.state[1], b.state[1])
+
+
+# ---------------------------------------------- the Schur (separable / sparse BA) path
+def _separable_problem(n_groups=6, m=24, sdim=2, ldim=2, outlier_frac=0.0, noise=0.01, seed=0):
+    """Shared params s + independent per-group locals L_i: y_ij = A_i·s + B_i·L_i (+noise),
+    a fraction of observations grossly corrupted. Mirrors BA's shared-intrinsics + per-image-pose
+    separability so the test exercises gnc_tls_schur_solve the way calibration BA would call it."""
+    rng = np.random.default_rng(seed)
+    A = [rng.normal(size=(m, sdim)) for _ in range(n_groups)]
+    B = [rng.normal(size=(m, ldim)) for _ in range(n_groups)]
+    s_true = rng.normal(size=sdim)
+    L_true = rng.normal(size=(n_groups, ldim))
+    y = [A[i] @ s_true + B[i] @ L_true[i] + noise * rng.normal(size=m) for i in range(n_groups)]
+    n_out = int(round(outlier_frac * m))
+    if n_out:
+        for i in range(n_groups):
+            idx = rng.choice(m, n_out, replace=False)
+            y[i][idx] += rng.uniform(5.0, 15.0, size=n_out) * rng.choice([-1.0, 1.0], size=n_out)
+    return A, B, y, s_true, L_true
+
+
+def _separable_fns(A, B, y, n_groups):
+    def residual(state):
+        s, L = state
+        return np.concatenate([A[i] @ s + B[i] @ L[i] - y[i] for i in range(n_groups)])
+
+    def linearize(state):
+        s, L = state
+        return ([A[i] @ s + B[i] @ L[i] - y[i] for i in range(n_groups)], A, B)
+
+    def retract(state, ds, dl):
+        return (state[0] + ds, state[1] + dl)
+
+    return residual, linearize, retract
+
+
+def test_schur_gnc_tls_recovers_shared_params_past_50pct():
+    """gnc_tls_schur_solve recovers the shared parameters at 60% gross outliers, where a plain
+    Schur solve (block=1 reprojection-like residuals) is dragged off."""
+    n_groups, m, sdim, ldim = 6, 24, 2, 2
+    A, B, y, s_true, _ = _separable_problem(n_groups, m, sdim, ldim,
+                                            outlier_frac=0.6, noise=0.01, seed=2)
+    res, lin, ret = _separable_fns(A, B, y, n_groups)
+    state0 = (np.zeros(sdim), np.zeros((n_groups, ldim)))
+
+    out = gnc_tls_schur_solve(state0, res, lin, ret, noise_bound=0.1,
+                              n_groups=n_groups, shared_dim=sdim, local_dim=ldim, block=1)
+    s_rb, _ = out.state
+    assert np.allclose(s_rb, s_true, atol=0.05)
+
+    plain = schur_lm(state0, res, lin, ret, n_groups=n_groups,
+                     shared_dim=sdim, local_dim=ldim, block=1)
+    s_ls, _ = plain.state
+    assert np.linalg.norm(s_rb - s_true) < np.linalg.norm(s_ls - s_true)
+
+
+def test_schur_gnc_tls_returns_hard_inlier_set():
+    """The returned per-block weights are ≈binary and recover the planted inlier/outlier labels."""
+    n_groups, m, sdim, ldim = 5, 30, 2, 2
+    rng = np.random.default_rng(11)
+    A = [rng.normal(size=(m, sdim)) for _ in range(n_groups)]
+    B = [rng.normal(size=(m, ldim)) for _ in range(n_groups)]
+    s_true = rng.normal(size=sdim)
+    L_true = rng.normal(size=(n_groups, ldim))
+    y, is_out = [], []
+    n_out = int(round(0.4 * m))
+    for i in range(n_groups):
+        yi = A[i] @ s_true + B[i] @ L_true[i] + 0.01 * rng.normal(size=m)
+        idx = rng.choice(m, n_out, replace=False)
+        yi[idx] += rng.uniform(5.0, 15.0, size=n_out) * rng.choice([-1.0, 1.0], size=n_out)
+        oi = np.zeros(m, bool)
+        oi[idx] = True
+        y.append(yi)
+        is_out.append(oi)
+    res, lin, ret = _separable_fns(A, B, y, n_groups)
+    out = gnc_tls_schur_solve((np.zeros(sdim), np.zeros((n_groups, ldim))), res, lin, ret,
+                              noise_bound=0.1, n_groups=n_groups, shared_dim=sdim,
+                              local_dim=ldim, block=1)
+    w = out.weights
+    assert w is not None and np.all(np.isin(np.round(w, 6), [0.0, 1.0]))
+    # weights are stacked group0..groupN in linearize order; compare to the planted labels
+    inlier = (w > 0.5).reshape(n_groups, m)
+    planted_out = np.array(is_out)
+    assert inlier[~planted_out].mean() > 0.95
+    assert inlier[planted_out].mean() < 0.05
+
+
+def test_schur_gnc_tls_clean_matches_plain():
+    """No outliers: the Schur GNC-TLS path recovers the shared params like a plain Schur solve."""
+    n_groups, m, sdim, ldim = 5, 20, 2, 2
+    A, B, y, s_true, _ = _separable_problem(n_groups, m, sdim, ldim, noise=0.0, seed=4)
+    res, lin, ret = _separable_fns(A, B, y, n_groups)
+    out = gnc_tls_schur_solve((np.zeros(sdim), np.zeros((n_groups, ldim))), res, lin, ret,
+                              noise_bound=0.05, n_groups=n_groups, shared_dim=sdim,
+                              local_dim=ldim, block=1)
+    assert np.allclose(out.state[0], s_true, atol=1e-3)
