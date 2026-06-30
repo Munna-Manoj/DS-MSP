@@ -307,7 +307,7 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
                 rms, med, _ = mc_rms[scn][c]
                 ratio = o / rms if rms > 1e-9 else float("nan")
                 L.append(f"| {scn} | {c} | {o:.3f} | {rms:.3f} | {ratio:.2f}× | {med:.3f} |")
-    # Focused comparison the user asked for: does choosing DS+ and *optimizing* intrinsics
+    # Focused comparison: does choosing DS+ and *optimizing* intrinsics
     # (seeded from the authors' original intrinsics via convert()) change extrinsics accuracy
     # vs holding those original intrinsics fixed (the `given` run)?
     by = {(s["scn"], s["mode"]): s for s in summary}
