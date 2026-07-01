@@ -12,6 +12,15 @@ on:
 permissions:
   contents: read
 
+# One BLAS thread per process for every job — avoids the OpenBLAS thread-oversubscription
+# crash under `pytest -n auto` (4 workers × core-count BLAS threads thrash and can take a
+# worker down). Applied workflow-wide so the heavy, coverage, and realdata jobs all get it.
+env:
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+
 concurrency:
   group: nightly-${{ github.ref }}
   cancel-in-progress: true

@@ -41,6 +41,10 @@ _SLOW = (
     "test_calib_param.py::test_calibrate_from_config_raw_images",        # real Blender images
 )
 
+# A ``*_smoke`` test stays fast even when it lives in an otherwise-heavy file: it is the
+# small-fixture PR-time counterpart of a full-size statistical test in the same module.
+_FAST_OVERRIDE = ("_smoke",)
+
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
@@ -48,5 +52,7 @@ def pytest_collection_modifyitems(config, items):
             item.path.relative_to(_RIG_DIR)
         except ValueError:
             continue  # not a rig test
+        if any(o in item.nodeid for o in _FAST_OVERRIDE):
+            continue  # explicitly fast (small-fixture smoke)
         if any(s in item.nodeid for s in _SLOW):
             item.add_marker(pytest.mark.slow)

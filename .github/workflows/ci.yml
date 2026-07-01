@@ -113,6 +113,16 @@ jobs:
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # One BLAS thread per process. Under `pytest -n auto` each worker otherwise spawns
+    # core-count OpenBLAS threads (4 workers × 4 = 16 threads on 4 cores): the oversubscription
+    # thrashes and can crash a worker outright ("node down"). Single-threaded BLAS × N workers =
+    # N threads on N cores — no oversubscription, no crash, and typically faster on the small
+    # matrices calibration uses. This is the standard numpy + xdist configuration.
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     strategy:
       fail-fast: false
       matrix:

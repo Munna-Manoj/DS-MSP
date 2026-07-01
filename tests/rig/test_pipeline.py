@@ -28,6 +28,28 @@ def _scenario(seed=0, n_cam=3):
                     img_size=img, gt=gt, mccalib=gt, mccalib_rms={}), gtm
 
 
+def test_calibrate_scenario_smoke(tmp_path):
+    """Fast PR-time smoke test: ``calibrate_scenario`` runs end-to-end on a minimal
+    2-camera / few-frame rig and writes the MC-Calib output set. The full-size accuracy
+    guarantees are validated by the ``slow`` tests in this module (nightly). Kept fast
+    (see ``conftest._FAST_OVERRIDE``) so the rig product pipeline has PR-time coverage."""
+    def fac(cam_id, rng):
+        fx = 800.0 * rng.uniform(0.98, 1.02)
+        return RadTanModel(fx, fx, W / 2, H / 2, -0.05, 0.01, 0.0, 0.0, 0.0)
+    obj, obs, img, gt_ext, gtm = make_rig(n_cam=2, n_frame=6, noise_px=0.2, seed=0,
+                                          w=W, h=H, model_factory=fac)
+    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c])) for c in range(2)}
+    scn = Scenario(name="smoke", object=obj, object_obs=obs, cam_ids=sorted(img),
+                   img_size=img, gt=gt, mccalib=gt, mccalib_rms={})
+    res = calibrate_scenario(scn, {0: "radtan", 1: "ucm"}, save_dir=str(tmp_path))
+    assert res["models"] == {0: "radtan", 1: "ucm"}
+    assert len(res["rig"].cameras) == 2
+    # sub-pixel reprojection on the tiny fixture (loose bound; tight accuracy is nightly)
+    assert res["metrics"]["max_rms_px"] < 2.0
+    for fn in ("calibrated_cameras_data.yml", "calibrated_objects_data.yml"):
+        assert (tmp_path / fn).exists()
+
+
 def test_calibrate_scenario_per_camera_writes_mccalib_output(tmp_path):
     scn, _ = _scenario()
     spec = {0: "radtan", 1: "double_sphere", 2: "ucm"}
