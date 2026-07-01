@@ -125,6 +125,51 @@ def gnc_scale(iteration: int, gnc_iters: int,
     return float(scale_end * (scale_start / scale_end) ** (1.0 - t))
 
 
+#: Geometric continuation factor for the GNC-TLS surrogate schedule (Yang et al. RA-L 2020).
+GNC_TLS_CONTINUATION = 1.4
+
+
+def gnc_tls_weight(block_sq: np.ndarray, barc2: float, mu: float) -> np.ndarray:
+    r"""Graduated-non-convexity **Truncated-Least-Squares** weight (Yang et al. RA-L 2020).
+
+    Unlike the redescending kernels in :func:`robust_weight` (parameterized by a *scale* that
+    is normally a MAD estimate — capped at MAD's 50% breakdown), the TLS surrogate is graduated
+    by ``mu`` against an **explicit inlier band** ``barc2 = c̄²`` (a known noise bound, NOT a
+    median estimate). That is what lets it reject **more than half** gross outliers with no
+    initial guess. ``block_sq`` is the squared block residual ``s_i = ‖r_i‖²`` (same convention
+    as :func:`robust_weight`'s ``s``); the 3-region weight is the closed-form minimizer of the
+    GNC-TLS surrogate at level ``mu`` (exact port of MIT-SPARK ``gncWeightsUpdate.m``)::
+
+        w = 1                                   if  s ≤ th2 = μ/(μ+1)·c̄²     (sure inlier)
+        w = sqrt(c̄²·μ(μ+1)/s) − μ ∈ (0,1)       if  th2 < s < th1            (boundary)
+        w = 0                                   if  s ≥ th1 = (μ+1)/μ·c̄²      (sure outlier)
+
+    Small ``mu`` → an almost-convex surrogate (everything weighted in); growing ``mu`` →
+    quadratic-vs-truncated graduation until the weights binarize to a hard inlier set. Returns
+    weights in ``[0, 1]``, one per block.
+    """
+    s = np.asarray(block_sq, float)
+    th1 = (mu + 1.0) / mu * barc2          # w = 0 above
+    th2 = mu / (mu + 1.0) * barc2          # w = 1 below   (th1 > th2)
+    w = np.ones_like(s)
+    hi = s >= th1
+    mid = (~hi) & (s > th2)
+    w[hi] = 0.0
+    w[mid] = np.sqrt(barc2 * mu * (mu + 1.0) / s[mid]) - mu
+    return np.clip(w, 0.0, 1.0)
+
+
+def gnc_tls_mu_init(block_sq: np.ndarray, barc2: float) -> float:
+    """Deterministic, data-driven initial ``mu`` for :func:`gnc_tls_weight` (no tuning).
+
+    ``μ = 1/(2·max(sᵢ)/c̄² − 1)`` makes the first surrogate nearly convex (``th1 = 2·max sᵢ``,
+    so nothing is rejected at the start) — the no-initial-guess property of GNC-TLS.
+    """
+    s_max = float(np.asarray(block_sq, float).max())
+    denom = 2.0 * s_max / barc2 - 1.0
+    return 1.0 / denom if denom > 0 else 1e4
+
+
 #: Floor on the ``(I − H_ii)`` eigenvalues — caps the studentization inflation of an
 #: extreme-leverage block at ``1/eps`` (default 20x), a standard robust-IRLS safeguard.
 STUDENT_EPS = 0.05

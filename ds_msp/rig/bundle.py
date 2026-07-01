@@ -16,13 +16,13 @@ count is small at calibration scale (a handful of cameras, hundreds of object po
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
-from ..core.optimize import lm_solve, schur_lm
+from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from .types import ObjectObs, RigState
 
 Key = Tuple[int, int]
@@ -365,7 +365,8 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
 def refine(rig: RigState, object_obs: List[ObjectObs], *,
            fix_intrinsics: bool = True, fix_extrinsics: bool = False, max_iter: int = 60,
            robust_kernel: str = "huber", robust_scale="auto", gnc_iters: int = 0,
-           gnc_start: float = 0.0, verbose: bool = False, sparse: bool = True,
+           gnc_start: float = 0.0, noise_bound: Optional[float] = None,
+           verbose: bool = False, sparse: bool = True,
            residual_mode: str = "pixel") -> RigState:
     """One BA pass. Returns a refined copy of ``rig``.
 
@@ -374,12 +375,20 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     ``fix_extrinsics=True`` (cameras held) refines only the object poses — the per-object
     intermediate stage (``estimatePoseAllObjects`` / ``computeAllObjPoseInCameraGroup``).
 
-    **Robust weighting, no rejection.** Every observation is kept; outliers are
+    **Robust weighting, no rejection (default).** Every observation is kept; outliers are
     down-weighted by IRLS (``w = ρ'(r)/r``). ``robust_scale="auto"`` re-estimates the
     inlier scale by MAD each iteration so the kernel adapts to the actual noise instead of
     a hand-set pixel threshold. A redescending ``cauchy`` kernel mutes gross outliers
     smoothly; ``gnc_iters>0`` anneals the scale from ``gnc_start`` down (graduated
     non-convexity) so the redescending fit cannot get trapped by a bad initial residual.
+
+    **High-breakdown rejection (opt-in).** The MAD auto-scale above is capped at 50%
+    contamination (the median's breakdown). Pass ``noise_bound`` (the expected per-corner
+    reprojection σ in pixels, e.g. ``~0.3``) to instead run a median-free **GNC-TLS** solve
+    (:func:`core.optimize.gnc_tls_solve` / :func:`~core.optimize.gnc_tls_schur_solve`): it
+    graduates a truncated surrogate against the explicit ``barc2 = (3.03·σ)²`` inlier band,
+    recovers **past 50%** gross-outlier contamination, and returns a hard inlier set. When set,
+    ``robust_kernel``/``robust_scale``/``gnc_*`` are ignored.
 
     ``sparse=True`` (default) Schur-eliminates the per-frame object poses
     (:func:`build_schur_problem` + :func:`core.optimize.schur_lm`); ``sparse=False`` uses
@@ -387,6 +396,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     """
     rk = dict(robust_kernel=robust_kernel, robust_scale=robust_scale,
               gnc_iters=gnc_iters, gnc_start=gnc_start)
+    barc = None if noise_bound is None else 3.03 * float(noise_bound)   # 2-DoF 99% χ² band
     if residual_mode == "angular":
         # The bearing (angular) residual is the model-agnostic, pinhole/fisheye-uniform error:
         # compare the predicted ray to the observed bearing in the tangent plane.
@@ -397,7 +407,11 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             residual_mode="angular")
         if Kdim == 0:
             return rig
-        res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
+        if barc is not None:
+            res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
+                                block=2, inner_max_iter=max_iter)
+        else:
+            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
         return _rig_from_state(rig, res.state)
     if sparse:
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
@@ -405,15 +419,24 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         if shared_dim == 0 or n_groups == 0:           # nothing shared to solve -> dense
             return refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                           fix_extrinsics=fix_extrinsics, max_iter=max_iter,
-                          verbose=verbose, sparse=False, **rk)
-        res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
-                       shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter, **rk)
+                          noise_bound=noise_bound, verbose=verbose, sparse=False, **rk)
+        if barc is not None:
+            res = gnc_tls_schur_solve(state0, residual, linearize, retract, noise_bound=barc,
+                                      n_groups=n_groups, shared_dim=shared_dim, local_dim=6,
+                                      block=2, inner_max_iter=max_iter)
+        else:
+            res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
+                           shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter, **rk)
     else:
         state0, residual, jacobian, retract, K = build_problem(
             rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
         if K == 0:
             return rig
-        res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
+        if barc is not None:
+            res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
+                                block=2, inner_max_iter=max_iter)
+        else:
+            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
     if verbose:
         print(f"  BA: rms {res.rms:.4f}px iters={res.iterations} "
               f"intr={'free' if not fix_intrinsics else 'fixed'} "

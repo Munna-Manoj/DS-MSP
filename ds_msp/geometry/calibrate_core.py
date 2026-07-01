@@ -20,7 +20,7 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from ..core.lie import hat_batch, so3_exp
-from ..core.optimize import OptResult, schur_lm
+from ..core.optimize import OptResult, gnc_tls_schur_solve, schur_lm
 
 
 def bundle_adjust(model_cls,
@@ -32,6 +32,7 @@ def bundle_adjust(model_cls,
                   visibility_list: Sequence[np.ndarray],
                   *, kernel: str = "none", scale: "float | str" = 1.0,
                   gnc_start: float = 0.0, gnc_iters: int = 0,
+                  noise_bound: "float | None" = None,
                   max_iter: int = 200) -> Tuple[np.ndarray, np.ndarray, np.ndarray, OptResult]:
     """Refine ``model_cls`` intrinsics + per-image poses from seeded extrinsics.
 
@@ -45,6 +46,11 @@ def bundle_adjust(model_cls,
         Seeded per-image rotation matrices and translations (object->camera).
     kernel, scale : robust IRLS kernel name + inlier scale (``"none"`` ⇒ plain L2).
     gnc_start, gnc_iters : graduated-non-convexity schedule (0 ⇒ off).
+    noise_bound : expected per-corner reprojection σ in pixels (e.g. ``~0.3``). When set, run a
+        median-free **GNC-TLS** solve (:func:`core.optimize.gnc_tls_schur_solve`) against the
+        explicit ``barc2 = (3.03·σ)²`` inlier band instead of the MAD-capped kernel path — it
+        rejects **past 50%** gross corner-detection outliers and returns a hard inlier set.
+        ``kernel``/``scale``/``gnc_*`` are ignored when ``noise_bound`` is given.
 
     Returns ``(params, Rb, t, OptResult)`` — refined intrinsics, refined base rotations,
     translations, and the raw solver result.
@@ -111,9 +117,15 @@ def bundle_adjust(model_cls,
             t[i] = t[i] + d_local[i, 3:]
         return (params, Rb, t)
 
-    out = schur_lm(state0, residual, linearize, retract,
-                   n_groups=n_img, shared_dim=P, local_dim=6, block=2,
-                   max_iter=max_iter, robust_kernel=kernel, robust_scale=scale,
-                   gnc_start=gnc_start, gnc_iters=gnc_iters)
+    if noise_bound is not None:
+        out = gnc_tls_schur_solve(state0, residual, linearize, retract,
+                                  noise_bound=3.03 * float(noise_bound),   # 2-DoF 99% χ² band
+                                  n_groups=n_img, shared_dim=P, local_dim=6, block=2,
+                                  inner_max_iter=max_iter)
+    else:
+        out = schur_lm(state0, residual, linearize, retract,
+                       n_groups=n_img, shared_dim=P, local_dim=6, block=2,
+                       max_iter=max_iter, robust_kernel=kernel, robust_scale=scale,
+                       gnc_start=gnc_start, gnc_iters=gnc_iters)
     params, Rb, t = out.state
     return params, Rb, t, out

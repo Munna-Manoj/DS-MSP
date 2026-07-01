@@ -324,16 +324,34 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
 
 
 def _gated_pnp(model, X, uv, max_rms_px: float = 2.0):
-    """Per-view pose by **robust reweighting, not rejection** (the down-weight-don't-drop
-    philosophy, matching the global BA and the robust PnP path).
+    """Per-view pose by **high-breakdown RANSAC PnP**, falling back to redescending IRLS.
 
-    A RANSAC P3P warm-start seeds a redescending IRLS refinement over *every* corner
-    (:func:`pose_init.robust_pose_irls`): gross outliers get a vanishing weight instead of
-    being discarded, so a partly-corrupted view still contributes its good corners to the
-    extrinsics graph rather than being thrown away. Returns ``None`` only when the view has
-    too few unprojectable points to define any pose (insufficient data, MC-Calib's <4 rule)
-    — not as outlier rejection. ``max_rms_px`` is accepted for signature compatibility and
-    no longer gates the result."""
+    A RANSAC PnP (:func:`ds_msp.ops.solve_pnp_ransac`) rejects gross-outlier corners by
+    consensus and refines the pose on the inlier set, so a view stays correct *past* the 50%
+    breakdown of a median-scaled reweighting — the front-end seed that lets the rig survive
+    heavy per-frame contamination (the MAD-based IRLS warm-started here used to soften the seed
+    back toward outliers above 50%). Falls back to the keep-every-corner IRLS refinement
+    (:func:`pose_init.robust_pose_irls`) when RANSAC finds no consensus (too few points /
+    extreme contamination). On clean views RANSAC keeps every corner, so the pose is unchanged.
+    Returns ``T_cam_obj`` (4x4), or ``None`` only when the view has too few unprojectable
+    points. ``max_rms_px`` is the RANSAC inlier gate in pixels.
+
+    RANSAC is used only to **identify** gross-outlier corners; the pose is then refined by the
+    accurate IRLS on the clean inlier subset (seeded from the RANSAC pose). When RANSAC finds
+    no outliers — every clean view — this is bit-identical to the plain IRLS over all corners,
+    so there is no clean-data regression; only contaminated views drop their blunders before
+    the refine."""
+    from ..ops.pose import solve_pnp_ransac
+    ok, rvec, tvec, inliers = solve_pnp_ransac(model, X, uv, thresh_px=max_rms_px,
+                                               max_iters=1000)
+    X = np.asarray(X, float)
+    uv = np.asarray(uv, float)
+    if ok and inliers is not None and 4 <= int(inliers.sum()) < len(uv):
+        T0 = np.eye(4)
+        T0[:3, :3] = cv2.Rodrigues(np.asarray(rvec, float))[0]
+        T0[:3, 3] = np.asarray(tvec, float).ravel()
+        return robust_pose_irls(model, X[inliers], uv[inliers], T0=T0, kernel="cauchy",
+                                gnc_iters=5, gnc_start=4.0, studentize=True)
     return robust_pose_irls(model, X, uv, kernel="cauchy", gnc_iters=5, gnc_start=4.0,
                             studentize=True)
 
@@ -343,11 +361,21 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   *, fix_intrinsics: bool = False, verbose: bool = False,
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
-                  gnc_iters: int = 5, gnc_start: float = 4.0) -> RigState:
+                  gnc_iters: int = 5, gnc_start: float = 4.0,
+                  noise_bound: Optional[float] = None) -> RigState:
     """Calibrate a multi-camera rig from fused-object observations.
 
     Returns a :class:`RigState` with per-camera intrinsics, ``T_c_g`` extrinsics
     (reference camera = identity), and per-frame object poses.
+
+    ``noise_bound`` (per-corner reprojection σ in pixels) makes the **global joint** BA run the
+    median-free **GNC-TLS** solver (``barc = 3.03·σ`` inlier band), which rejects gross-outlier
+    corners past the 50% breakdown of the MAD auto-scale; the cheaper stages (group refine,
+    structure polish) stay on the legacy reweighting so the cost stays bounded. The per-frame
+    pose seed (:func:`_gated_pnp`) always uses a high-breakdown RANSAC PnP. This low-level
+    primitive defaults to ``None`` (legacy path); the config-driven product entry
+    :func:`~ds_msp.rig.calib_param.calibrate_from_config` supplies a ``noise_bound`` (config
+    default ``1.0`` px) so a real calibration is robust by default.
     """
     obs_by_cam: Dict[int, List[ObjectObs]] = defaultdict(list)
     for o in object_obs:
@@ -407,7 +435,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     # breakdown point with negligible cost on clean data.
     rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
                     robust_scale="auto", gnc_iters=gnc_iters, gnc_start=gnc_start,
-                    verbose=verbose)
+                    noise_bound=noise_bound, verbose=verbose)
 
     #    (d) object-structure refinement (MC-Calib's refineObject), multi-board only: alternate
     #        re-triangulating the fused object's 3-D points (gauge anchored on the reference

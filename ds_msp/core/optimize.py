@@ -37,12 +37,13 @@ so the same loop drives two-view BA and multi-image calibration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
 from .robust import (
-    auto_kernel_scale, gnc_scale, robust_cost, robust_weight, VALID_KERNELS,
+    auto_kernel_scale, gnc_scale, gnc_tls_mu_init, gnc_tls_weight,
+    robust_cost, robust_weight, GNC_TLS_CONTINUATION, VALID_KERNELS,
 )
 
 
@@ -57,6 +58,9 @@ class OptResult:
     success: bool
     converged: bool
     final_lambda: float
+    #: Per-block inlier weights from a graduated solve (:func:`gnc_tls_solve`); ``None`` for
+    #: the plain :func:`lm_solve` path. ≈binary after GNC-TLS converges (1 inlier / 0 outlier).
+    weights: Optional[np.ndarray] = None
 
 
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
@@ -271,6 +275,155 @@ def lm_solve(
                      final_lambda=lam)
 
 
+def gnc_tls_solve(
+    state0: object,
+    residual: Callable[[object], np.ndarray],
+    jacobian: Callable[[object], np.ndarray],
+    retract: Callable[[object, np.ndarray], object],
+    *,
+    noise_bound: float,
+    block: int = 2,
+    max_outer: int = 100,
+    continuation: float = GNC_TLS_CONTINUATION,
+    inner_max_iter: int = 50,
+    weights: Optional[np.ndarray] = None,
+    **lm_kwargs: Any,
+) -> OptResult:
+    r"""High-breakdown, **median-free**, no-initial-guess robust optimization via Graduated
+    Non-Convexity with a Truncated-Least-Squares surrogate (Yang et al., RA-L 2020).
+
+    Why this exists (vs ``lm_solve(robust_kernel=..., robust_scale='auto')``)
+    -----------------------------------------------------------------------
+    The redescending-kernel + MAD-auto-scale path keys the inlier band off the **median**, whose
+    breakdown point is exactly **50%**. Past half gross outliers the auto-scale is dragged up,
+    the kernel never tightens to the true band, and the solve fails. ``gnc_tls_solve`` instead
+    graduates a *truncated* surrogate against an **explicit noise bound** ``c̄ = noise_bound``
+    (in calibration this is known — the expected reprojection σ), so it recovers **well past 50%**
+    contamination and returns a **hard inlier set**. It is deterministic and needs no init.
+
+    It reuses :func:`lm_solve` as the inner weighted least-squares solver: each graduation level
+    fixes per-block weights and runs an ordinary (non-robust) weighted solve, so the same Lie
+    re-basing, damping, and Cholesky-jitter robustness apply.
+
+    Parameters
+    ----------
+    noise_bound
+        The inlier scale ``c̄`` in residual-norm units (e.g. pixels for a 2-D reprojection block);
+        the inlier band is ``barc2 = c̄²``. Pick ``c̄`` from a χ² bound on the expected noise σ
+        (2-DoF 99% ⇒ ``c̄ ≈ 3.03·σ``), **not** from a MAD estimate.
+    block
+        Residual components per robustness unit (2 for image points, 3 for 3-D registration).
+    max_outer, continuation
+        Graduation budget and geometric ``μ`` growth (``μ ← μ·continuation`` each level).
+    inner_max_iter, weights, **lm_kwargs
+        Forwarded to the inner :func:`lm_solve` (``weights`` are optional per-block confidence
+        priors, multiplied into the TLS weights; e.g. ``damping``, ``schedule``, ``tol``).
+
+    Returns
+    -------
+    OptResult
+        With ``weights`` set to the final per-block inlier weights (≈1 inlier / ≈0 outlier).
+    """
+    def inner_solve(state: object, block_weights: Optional[np.ndarray]) -> OptResult:
+        return lm_solve(state, residual, jacobian, retract, block=block,
+                        robust_kernel="none", weights=block_weights,
+                        max_iter=inner_max_iter, **lm_kwargs)
+    return _gnc_tls_graduate(state0, residual, inner_solve, noise_bound=noise_bound,
+                             block=block, max_outer=max_outer, continuation=continuation,
+                             weights=weights)
+
+
+def gnc_tls_schur_solve(
+    state0: object,
+    residual: Callable[[object], np.ndarray],
+    linearize: Callable[[object], tuple],
+    retract: Callable[[object, np.ndarray, np.ndarray], object],
+    *,
+    noise_bound: float,
+    n_groups: int,
+    shared_dim: int,
+    local_dim: int,
+    block: int = 2,
+    max_outer: int = 100,
+    continuation: float = GNC_TLS_CONTINUATION,
+    inner_max_iter: int = 50,
+    weights: Optional[np.ndarray] = None,
+    **schur_kwargs: Any,
+) -> OptResult:
+    r"""GNC-TLS robust optimization for **separable** problems — the :func:`schur_lm` analogue
+    of :func:`gnc_tls_solve`.
+
+    Same median-free, explicit-``noise_bound``, >50%-breakdown graduation as
+    :func:`gnc_tls_solve`, but the inner weighted solve is the sparse Schur-complement
+    :func:`schur_lm` — so it drives high-breakdown robustness through bundle adjustment over
+    shared intrinsics + per-image poses without paying the dense cost. The per-block TLS weights
+    are stacked in the same order ``linearize`` concatenates its groups. See :func:`gnc_tls_solve`
+    for the ``noise_bound`` semantics (``c̄ ≈ 3.03·σ`` for a 2-DoF 99% band).
+    """
+    def inner_solve(state: object, block_weights: Optional[np.ndarray]) -> OptResult:
+        return schur_lm(state, residual, linearize, retract, n_groups=n_groups,
+                        shared_dim=shared_dim, local_dim=local_dim, block=block,
+                        robust_kernel="none", weights=block_weights,
+                        max_iter=inner_max_iter, **schur_kwargs)
+    return _gnc_tls_graduate(state0, residual, inner_solve, noise_bound=noise_bound,
+                             block=block, max_outer=max_outer, continuation=continuation,
+                             weights=weights)
+
+
+def _gnc_tls_graduate(
+    state0: object,
+    residual: Callable[[object], np.ndarray],
+    inner_solve: Callable[[object, Optional[np.ndarray]], OptResult],
+    *,
+    noise_bound: float,
+    block: int,
+    max_outer: int,
+    continuation: float,
+    weights: Optional[np.ndarray],
+) -> OptResult:
+    """Solver-agnostic GNC-TLS outer loop shared by :func:`gnc_tls_solve` (dense) and
+    :func:`gnc_tls_schur_solve` (sparse). ``inner_solve(state, block_weights) -> OptResult``
+    runs one ordinary (non-robust) weighted least-squares solve; this loop graduates the
+    truncated surrogate ``μ`` against ``barc2 = noise_bound²`` until the per-block weights
+    binarize into a hard inlier set."""
+    barc2 = float(noise_bound) ** 2
+    if barc2 <= 0.0:
+        raise ValueError("noise_bound must be positive")
+
+    def block_sq(state: object) -> np.ndarray:
+        r = np.asarray(residual(state), float)
+        if r.size % block:
+            raise ValueError(f"residual length {r.size} not a multiple of block {block}")
+        return np.sum(r.reshape(-1, block) ** 2, axis=1)
+
+    # Initialize from an ordinary (unweighted) solve — no robustness yet, no init guess needed.
+    res = inner_solve(state0, weights)
+    state = res.state
+    s = block_sq(state)
+    mu = gnc_tls_mu_init(s, barc2)
+
+    w = np.ones_like(s)
+    prev = float("inf")
+    outer = 0
+    for outer in range(1, max_outer + 1):
+        w = gnc_tls_weight(s, barc2, mu)
+        bw = w if weights is None else w * weights
+        res = inner_solve(state, bw)
+        state = res.state
+        s = block_sq(state)
+        cost = float((s * w).sum())
+        binary = bool(np.all((w <= 1e-9) | (np.abs(1.0 - w) <= 1e-9)))
+        if binary or abs(cost - prev) < 1e-12:
+            break
+        mu *= continuation
+        prev = cost
+
+    bn = np.sqrt(s)
+    rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
+    return OptResult(state=state, cost=float((s * w).sum()), rms=rms, iterations=outer,
+                     success=True, converged=True, final_lambda=res.final_lambda, weights=w)
+
+
 def schur_lm(
     state0: object,
     residual: Callable[[object], np.ndarray],
@@ -292,6 +445,7 @@ def schur_lm(
     robust_scale_floor: float = 0.3,
     gnc_start: float = 0.0,
     gnc_iters: int = 0,
+    weights: Optional[np.ndarray] = None,
 ) -> OptResult:
     r"""Levenberg–Marquardt for **separable** problems: a small block of *shared*
     parameters (``shared_dim``) coupled to ``n_groups`` *independent* per-group local
@@ -322,6 +476,11 @@ def schur_lm(
         Invalid rows should already be zeroed.
     retract(state, δ_shared, δ_local) -> state
         ``δ_shared (shared_dim,)``; ``δ_local (n_groups, local_dim)``.
+    weights
+        Optional per-block confidence weights ``(M//block,)`` stacked in the same order the
+        ``linearize`` groups concatenate (group 0's blocks first, then group 1's, …). Folded
+        into the IRLS row weights — this is the hook :func:`gnc_tls_solve` uses to drive a
+        graduated solve through the sparse separable solver.
     """
     if robust_kernel not in VALID_KERNELS:
         raise ValueError(f"robust_kernel must be one of {VALID_KERNELS!r}")
@@ -329,7 +488,10 @@ def schur_lm(
 
     def cost(r: np.ndarray, c: float) -> float:
         s = np.linalg.norm(r.reshape(-1, block), axis=1) ** 2
-        return float(robust_cost(s, robust_kernel, c).sum())
+        rho = robust_cost(s, robust_kernel, c)
+        if weights is not None:
+            rho = rho * weights
+        return float(rho.sum())
 
     def scale_at(it: int, r: np.ndarray) -> float:
         if robust_kernel == "none":
@@ -340,11 +502,18 @@ def schur_lm(
             c = gnc_scale(it, gnc_iters, gnc_start, 1.0) * c if auto else gnc_scale(it, gnc_iters, gnc_start, c)
         return c
 
-    def row_weights(r_i: np.ndarray) -> Optional[np.ndarray]:
-        if robust_kernel == "none":
+    def row_weights(r_i: np.ndarray, ext_w: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if robust_kernel == "none" and ext_w is None:
             return None
-        s = np.linalg.norm(r_i.reshape(-1, block), axis=1) ** 2
-        return np.repeat(robust_weight(s, robust_kernel, c), block)
+        n_blk = r_i.size // block
+        if robust_kernel == "none":
+            wk = np.ones(n_blk)
+        else:
+            s = np.linalg.norm(r_i.reshape(-1, block), axis=1) ** 2
+            wk = robust_weight(s, robust_kernel, c)
+        if ext_w is not None:
+            wk = wk * ext_w
+        return np.repeat(wk, block)
 
     state = state0
     r_full = np.asarray(residual(state), float)
@@ -364,8 +533,12 @@ def schur_lm(
         U = np.zeros((shared_dim, shared_dim))
         ga = np.zeros(shared_dim)
         Vs, Ws, gbs = [], [], []
+        boff = 0                                            # running per-block cursor for `weights`
         for r_i, A_i, B_i in zip(r_list, A_list, B_list):
-            w = row_weights(r_i)
+            n_blk = r_i.size // block
+            ext = None if weights is None else weights[boff:boff + n_blk]
+            boff += n_blk
+            w = row_weights(r_i, ext)
             Aw = A_i if w is None else A_i * w[:, None]
             Bw = B_i if w is None else B_i * w[:, None]
             U += A_i.T @ Aw

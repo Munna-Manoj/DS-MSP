@@ -13,6 +13,10 @@
 pytest~=9.1
 pytest-cov~=7.1
 pytest-xdist~=3.8
+# Per-test wall-clock budget on the fast PR tier: a "not slow" test that exceeds the
+# timeout FAILS, so a heavy full-BA test can never silently rejoin the <15-min PR gate
+# (it must be marked `slow` -> nightly, or shrunk). Guards the CI-time budget structurally.
+pytest-timeout~=2.3
 mypy==2.1.0
 ruff==0.15.18
 import-linter==2.11

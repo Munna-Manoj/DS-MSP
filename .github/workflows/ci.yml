@@ -1,5 +1,11 @@
 name: CI
 
+# The per-PR / per-push gate. Everything here is FAST by design: lint + types + layering,
+# governance, and the fast test tier (unit + contract + rig smoke) across the support matrix.
+# The heavy synthetic statistical suite and the real-dataset validation do NOT run here —
+# they run in nightly.yml — so this gate stays well under 15 minutes. A `slow`-marked test
+# can never rejoin this gate silently: the fast tier runs under a per-test timeout, so a heavy
+# test would fail here until it is marked `slow` (-> nightly) or shrunk.
 on:
   push:
     branches: [main]
@@ -8,75 +14,136 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded run on the same ref (e.g. a second push to a PR) instead of
+# letting both run to completion — saves CI minutes and gives faster feedback.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Decide whether this change touches code/tests/build config. A docs-only change
+  # (Markdown, the docs/process governance tree, LICENSE, …) skips the expensive test
+  # work below. Defaults to running everything if the diff can't be determined.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'ds_msp/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - 'tools/**'
+              - 'configs/**'
+              - 'examples/**'
+              - 'benchmarks/**'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+              - '.github/workflows/**'
+
+  # Required check. The JOB always runs so the `lint + types + layering` status always
+  # reports (branch protection stays satisfied), but on a docs-only change the heavy
+  # steps are gated off — only ds_msp/** changes affect ruff/import-linter/mypy.
   lint:
     name: lint + types + layering
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v5
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - name: Install
+        if: needs.changes.outputs.code == 'true'
         run: pip install -e ".[calib]" -r requirements-dev.txt
       - name: ruff (lint)
+        if: needs.changes.outputs.code == 'true'
         run: ruff check .
       - name: import-linter (layer decoupling)
+        if: needs.changes.outputs.code == 'true'
         run: lint-imports
       - name: mypy (typed core)
         # The core contracts/pinhole layer is fully typed and gated strictly here;
         # the typed surface expands over time (see pyproject [tool.mypy]).
+        if: needs.changes.outputs.code == 'true'
         run: mypy ds_msp/core --follow-imports=silent --ignore-missing-imports
+      - name: docs-only change — nothing to lint
+        if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — no Python touched, skipping lint/types/layering."
 
+  # Always runs (no path gate): the governance checks validate the docs/process tree and the
+  # packaging contract — requirements traceability, tree hygiene, and that the docs never
+  # advertise a subpackage the wheel excludes (the "rig documented but not shipped" guard).
+  # Pure stdlib, no install, ~seconds — so a docs-only PR is exactly when they matter most.
   governance:
-    name: governance (traceability + tree hygiene)
+    name: governance (traceability + hygiene + packaging)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # Both checkers are pure standard library on purpose — no install step, so this
-      # gate is fast and cannot break on dependency drift. See docs/process/.
       - name: traceability (requirements <-> tests <-> ADRs in sync)
         run: python tools/check_traceability.py --check
       - name: tree hygiene (no tracked local-only / leak content)
         run: python tools/check_tree_hygiene.py
+      - name: packaging (docs match the wheel — no advertised-but-excluded subpackage)
+        run: python tools/check_packaging.py
 
-  # Fast tier: unit + contract tests across the support matrix, parallelized.
-  # Excludes the `slow` rig integration tests (full bundle adjustment, 200-415s each)
-  # which run once in `test-slow` below — so a typical PR's feedback is ~1 min, not ~10.
+  # Fast tier: unit + contract + rig-smoke tests across the support matrix, parallelized.
+  # `-m "not slow"` excludes the heavy synthetic suite (nightly). `--timeout` is the
+  # structural budget guard: any fast test exceeding it fails, so a heavy test cannot silently
+  # blow the <15-min gate. Coverage is enforced with `--cov-fail-under`. Required check: the
+  # JOB always runs so `tests (pyX)` always reports; on a docs-only change every step is gated
+  # off and the job finishes in seconds with no install/test work.
   test:
     name: tests (py${{ matrix.python-version }})
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # One BLAS thread per process. Under `pytest -n auto` each worker otherwise spawns
+    # core-count OpenBLAS threads (4 workers × 4 = 16 threads on 4 cores): the oversubscription
+    # thrashes and can crash a worker outright ("node down"). Single-threaded BLAS × N workers =
+    # N threads on N cores — no oversubscription, no crash, and typically faster on the small
+    # matrices calibration uses. This is the standard numpy + xdist configuration.
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v5
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
+        if: needs.changes.outputs.code == 'true'
         run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (fast, parallel, + coverage)
-        run: pytest -q -n auto -m "not slow" --cov=ds_msp --cov-report=term-missing
-
-  # Slow tier: the rig integration suite, once (3.12 only), parallelized. Heavy but the
-  # authoritative rig gate; kept off the per-Python fast matrix so it doesn't run 3x.
-  test-slow:
-    name: tests (slow / rig integration)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install
-        run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (slow rig integration, parallel)
-        run: pytest -q -n auto -m "slow"
+      - name: pytest (fast tier, parallel, per-test timeout + coverage gate)
+        if: needs.changes.outputs.code == 'true'
+        run: >
+          pytest -q -n auto -m "not slow"
+          --timeout=120 --timeout-method=thread
+          --cov=ds_msp --cov-report=term-missing --cov-fail-under=80
+      - name: docs-only change — skipping tests
+        if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — no code touched, skipping the test suite."

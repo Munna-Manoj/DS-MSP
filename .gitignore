@@ -53,3 +53,5 @@ docs/research/
 /reports/
 # Scratch diagnostics dropped in the repo root during investigations.
 /diag_*.py
+# Blender rig-evaluation scenario scripts/assets — local-only scratch, not package code.
+/Blender_Images/

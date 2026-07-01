@@ -4,18 +4,63 @@
 > §6.3). Maps each GitHub Actions workflow to what it guards, and records how to keep this document in
 > sync with the workflows.
 
+## Test tiers (the design that keeps the PR gate fast)
+
+Tests are split into three tiers by cost and purpose, so the per-PR gate stays **under 15 minutes**
+while the expensive validation still runs — just not on the PR path:
+
+| Tier | Marker | What | Where it runs | Budget |
+|------|--------|------|---------------|--------|
+| **fast** | *(default, `not slow`)* | unit + contract + Jacobian gradient-checks + **rig smoke** (small-fixture end-to-end) | **every PR / push** (`ci.yml`) | seconds-to-minutes; per-test `--timeout` |
+| **slow** | `@pytest.mark.slow` | heavy synthetic statistical validation (multi-model × multi-seed sweeps, robustness sweeps, full-size bundle adjustment) | **nightly** (`nightly.yml`) | ≤ 60 min |
+| **realdata** | `@pytest.mark.realdata` | validation against real datasets (TUM-VI, MC-Calib Blender); dataset-gated, self-skips without data | **nightly** (if a dataset is provisioned) + pre-release | ≤ 30 min |
+
+The rig tests are tiered in `tests/rig/conftest.py`: only the genuinely-heavy tests are marked `slow`
+(listed explicitly there), everything else is a fast smoke test. This was a deliberate correction — the
+suite used to blanket-mark **all** rig tests `slow`, which hid ~34 fast tests and left the rig pipeline
+with no PR-time coverage while the slow job grew past the CI timeout.
+
+**Structural guard against regressing this.** The fast tier runs under a per-test `--timeout`
+(`ci.yml`): a `not slow` test that exceeds it *fails*, so a heavy full-BA test can never silently rejoin
+the <15-min PR gate — it must be marked `slow` (→ nightly) or shrunk. A `--cov-fail-under` gate on the
+same run keeps coverage from regressing.
+
 ## Workflows
 
-### `ci.yml` — on every pull request and push to `main`
+### `ci.yml` — the PR / push gate (fast, < 15 min)
 
 | Job | Steps | Guards |
 |-----|-------|--------|
+| `detect changes` | `dorny/paths-filter` → `code` output | routes docs-only changes around the test work (see below) |
 | `lint + types + layering` | `ruff check .`; `lint-imports`; `mypy ds_msp/core` | code style; the layered architecture (NFR-ARCH-001/002); typed core |
-| `tests (py3.10/3.11/3.12)` | `pytest -q --cov=ds_msp` on the version matrix | all synthetic test levels; portability (NFR-PORT-001) |
-| **`governance`** | `python tools/check_traceability.py --check`; `python tools/check_tree_hygiene.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content (NFR-PRIV-001) |
+| **`governance`** | `check_traceability.py --check`; `check_tree_hygiene.py`; `check_packaging.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content (NFR-PRIV-001); **docs never advertise a subpackage the wheel excludes** |
+| `tests (py3.10/3.11/3.12)` | `pytest -m "not slow" --timeout=120 --cov=ds_msp --cov-fail-under=80` on the version matrix | the fast tier, parallelized; portability (NFR-PORT-001); the timeout + coverage budget guards |
 
-The `governance` job uses only the standard library (no extra install), so it is fast and cannot break
-on dependency drift.
+The **slow** and **realdata** tiers are **not** in this workflow — they run in `nightly.yml`. This is the
+change that keeps the PR gate fast: the heavy synthetic suite (30+ min) no longer gates a merge.
+
+The `governance` job uses only the standard library (no extra install), so it is fast, always runs
+(a docs-only PR is exactly when traceability/tree-hygiene/packaging matter), and cannot break on
+dependency drift.
+
+**Concurrency.** `concurrency: { group: ci-<workflow>-<ref>, cancel-in-progress: true }`, so a second
+push to a PR cancels the superseded run instead of paying for both.
+
+**Path filtering (docs-only changes).** The `detect changes` job decides whether the diff touches code
+(`ds_msp/`, `tests/`, `scripts/`, `tools/`, `configs/`, `examples/`, `benchmarks/`, build files, or any
+workflow). On a **docs-only** change the `lint`/`tests` job *steps* are gated off (the required jobs still
+report green in seconds), while `governance` always runs in full. If the diff cannot be determined, the
+filter defaults to running everything.
+
+### `nightly.yml` — the heavy validation (scheduled + on-demand, not on PRs)
+
+Runs daily (`cron: 0 6 * * *`) and via `workflow_dispatch`:
+
+| Job | Runs | Purpose |
+|-----|------|---------|
+| `slow synthetic suite` | `pytest -m "slow" --timeout=1200` | the full multi-model × multi-seed rig statistical validation; ≤ 60 min |
+| `fast tier + coverage (matrix)` | `pytest -m "not slow" --cov` on 3.10/3.11/3.12 | daily portability + coverage snapshot |
+| `real-data validation (dataset-gated)` | `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | the FR-RIG-001 / NFR-NUM-004 real-data evidence; self-skips when no dataset |
 
 ### `release.yml` — on push to `main`
 
