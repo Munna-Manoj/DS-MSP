@@ -1,5 +1,11 @@
 name: CI
 
+# The per-PR / per-push gate. Everything here is FAST by design: lint + types + layering,
+# governance, and the fast test tier (unit + contract + rig smoke) across the support matrix.
+# The heavy synthetic statistical suite and the real-dataset validation do NOT run here —
+# they run in nightly.yml — so this gate stays well under 15 minutes. A `slow`-marked test
+# can never rejoin this gate silently: the fast tier runs under a per-test timeout, so a heavy
+# test would fail here until it is marked `slow` (-> nightly) or shrunk.
 on:
   push:
     branches: [main]
@@ -25,7 +31,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -40,7 +46,7 @@ jobs:
               - 'benchmarks/**'
               - 'pyproject.toml'
               - 'requirements*.txt'
-              - '.github/workflows/ci.yml'
+              - '.github/workflows/**'
 
   # Required check. The JOB always runs so the `lint + types + layering` status always
   # reports (branch protection stays satisfied), but on a docs-only change the heavy
@@ -49,10 +55,10 @@ jobs:
     name: lint + types + layering
     needs: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - if: needs.changes.outputs.code == 'true'
         uses: actions/setup-python@v5
         with:
@@ -76,15 +82,16 @@ jobs:
         if: needs.changes.outputs.code != 'true'
         run: echo "Docs-only change — no Python touched, skipping lint/types/layering."
 
-  # Always runs (no path gate): the governance checks validate the docs/process tree
-  # itself — requirements.csv, the traceability matrix, ADRs, tree hygiene — so a
-  # docs-only PR is exactly when they matter most. Pure stdlib, no install, ~seconds.
+  # Always runs (no path gate): the governance checks validate the docs/process tree and the
+  # packaging contract — requirements traceability, tree hygiene, and that the docs never
+  # advertise a subpackage the wheel excludes (the "rig documented but not shipped" guard).
+  # Pure stdlib, no install, ~seconds — so a docs-only PR is exactly when they matter most.
   governance:
-    name: governance (traceability + tree hygiene)
+    name: governance (traceability + hygiene + packaging)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -92,23 +99,27 @@ jobs:
         run: python tools/check_traceability.py --check
       - name: tree hygiene (no tracked local-only / leak content)
         run: python tools/check_tree_hygiene.py
+      - name: packaging (docs match the wheel — no advertised-but-excluded subpackage)
+        run: python tools/check_packaging.py
 
-  # Fast tier: unit + contract tests across the support matrix, parallelized
-  # (excludes the `slow` rig integration tests, run once in `test-slow`). Required
-  # check: the JOB always runs so `tests (pyX)` always reports; on a docs-only change
-  # every step is gated off and the job finishes in seconds with no install/test work.
+  # Fast tier: unit + contract + rig-smoke tests across the support matrix, parallelized.
+  # `-m "not slow"` excludes the heavy synthetic suite (nightly). `--timeout` is the
+  # structural budget guard: any fast test exceeding it fails, so a heavy test cannot silently
+  # blow the <15-min gate. Coverage is enforced with `--cov-fail-under`. Required check: the
+  # JOB always runs so `tests (pyX)` always reports; on a docs-only change every step is gated
+  # off and the job finishes in seconds with no install/test work.
   test:
     name: tests (py${{ matrix.python-version }})
     needs: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - if: needs.changes.outputs.code == 'true'
         uses: actions/setup-python@v5
         with:
@@ -117,31 +128,12 @@ jobs:
       - name: Install
         if: needs.changes.outputs.code == 'true'
         run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (fast, parallel, + coverage)
+      - name: pytest (fast tier, parallel, per-test timeout + coverage gate)
         if: needs.changes.outputs.code == 'true'
-        run: pytest -q -n auto -m "not slow" --cov=ds_msp --cov-report=term-missing
+        run: >
+          pytest -q -n auto -m "not slow"
+          --timeout=120 --timeout-method=thread
+          --cov=ds_msp --cov-report=term-missing --cov-fail-under=80
       - name: docs-only change — skipping tests
         if: needs.changes.outputs.code != 'true'
         run: echo "Docs-only change — no code touched, skipping the test suite."
-
-  # Slow tier: the rig integration suite, once (3.12 only), parallelized. Heavy but the
-  # authoritative rig gate; kept off the per-Python fast matrix so it doesn't run 3x.
-  # Not a required check, so the whole job is skipped on docs-only changes.
-  test-slow:
-    name: tests (slow / rig integration)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    # The rig integration suite runs many full bundle-adjustment calibrations; on the
-    # slower hosted runners it lands near half an hour, so give it headroom over 30m.
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install
-        run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (slow rig integration, parallel)
-        run: pytest -q -n auto -m "slow"

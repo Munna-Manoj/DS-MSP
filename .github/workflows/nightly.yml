@@ -1,0 +1,81 @@
+name: Nightly
+
+# The heavy validation that must NOT gate a PR: the full synthetic statistical rig suite
+# (multi-model × multi-seed sweeps, robustness sweeps) and — when a dataset is provisioned —
+# the real-data validation. Runs on a schedule and on demand, never on the PR path, so the
+# per-PR gate (ci.yml) stays under 15 minutes while this still exercises the full suite daily.
+on:
+  schedule:
+    - cron: "0 6 * * *"          # 06:00 UTC daily
+  workflow_dispatch: {}          # manual "run now" from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The full heavy synthetic rig suite (no external data needed — the real-Blender parity
+  # tests self-skip when Blender_Images is absent, which it is on hosted runners).
+  slow-tests:
+    name: slow synthetic suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[calib]" -r requirements-dev.txt
+      - name: pytest (slow tier, parallel)
+        # Per-test cap well above the heaviest statistical test, so a genuinely hung test
+        # fails instead of burning the whole 60-min job budget.
+        run: pytest -q -n auto -m "slow" --timeout=1200 --timeout-method=thread
+
+  # Full-matrix fast tier with coverage — the daily portability + coverage snapshot across
+  # every supported Python (the PR gate runs the same fast tier; this repeats it on schedule
+  # so a Python-version-specific regression is caught even on a quiet day).
+  full-coverage:
+    name: fast tier + coverage (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: pip install -e ".[calib]" -r requirements-dev.txt
+      - name: pytest (fast tier + coverage)
+        run: pytest -q -n auto -m "not slow" --cov=ds_msp --cov-report=term-missing
+
+  # Real-data validation gate (FR-RIG-001 / NFR-NUM-004). Dataset-gated: it runs the
+  # `realdata` suite when a dataset is provisioned via the DSMSP_BLENDER_DIR / DSMSP_MCCALIB_DIR
+  # secrets, and self-skips otherwise. Kept green as the pre-release evidence that the shipped
+  # rig + single-camera calibration recover real intrinsics/extrinsics. Non-blocking for PRs.
+  realdata:
+    name: real-data validation (dataset-gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[calib]" -r requirements-dev.txt
+      - name: pytest (realdata; skips if no dataset)
+        env:
+          DSMSP_BLENDER_DIR: ${{ secrets.DSMSP_BLENDER_DIR }}
+          DSMSP_MCCALIB_DIR: ${{ secrets.DSMSP_MCCALIB_DIR }}
+        run: pytest -q -m "realdata" -rs
