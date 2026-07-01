@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ds_msp"
-version = "0.8.0"
+version = "0.9.0"
 description = "Double Sphere & multi-model spherical-camera platform: models, calibration, conversion & 3D for wide-FOV lenses"
 readme = "README.md"
 # Dual-licensed: the library is MIT; the DS+ and EUCM+ model implementations

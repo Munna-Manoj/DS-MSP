@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.8.0...v0.9.0) (2026-07-01)
+
+
+### Features
+
+* ship the multi-camera rig (robust-by-default), RANSAC PnP, task-oriented README ([#41](https://github.com/Munna-Manoj/DS-MSP/issues/41)) ([b5f4cae](https://github.com/Munna-Manoj/DS-MSP/commit/b5f4caea585746478b1870b363169b1fe8b9ee4c))
+
 ## [0.8.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.7.1...v0.8.0) (2026-06-29)
 
 
