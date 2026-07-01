@@ -59,7 +59,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        image_root: Optional[str] = None,
                        cam_prefix: str = "Cam_", he_approach: int = 0,
                        refine_structure: bool = False,
-                       noise_bound: Optional[float] = 1.0) -> Dict:
+                       noise_bound: Optional[float] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).

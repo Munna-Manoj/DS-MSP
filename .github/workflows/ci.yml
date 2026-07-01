@@ -132,7 +132,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The rig integration suite runs many full bundle-adjustment calibrations; on the
+    # slower hosted runners it lands near half an hour, so give it headroom over 30m.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

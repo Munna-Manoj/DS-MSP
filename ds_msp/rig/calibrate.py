@@ -362,20 +362,20 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
-                  noise_bound: Optional[float] = 1.0) -> RigState:
+                  noise_bound: Optional[float] = None) -> RigState:
     """Calibrate a multi-camera rig from fused-object observations.
 
     Returns a :class:`RigState` with per-camera intrinsics, ``T_c_g`` extrinsics
     (reference camera = identity), and per-frame object poses.
 
-    ``noise_bound`` (per-corner reprojection σ in pixels, default ``1.0``) makes the **global
-    joint** BA run the median-free **GNC-TLS** solver (``barc = 3.03·σ`` inlier band), which
-    rejects gross-outlier corners past the 50% breakdown of the MAD auto-scale. The cheaper
-    stages (group refine, structure polish) stay on the legacy reweighting — the joint pass is
-    where the decisive outlier rejection happens, and limiting GNC-TLS to it keeps the cost
-    down. Set ``noise_bound=None`` to fall back to the legacy path everywhere. The per-frame
-    pose seed (:func:`_gated_pnp`) uses a high-breakdown RANSAC PnP so the seed survives heavy
-    per-view contamination too.
+    ``noise_bound`` (per-corner reprojection σ in pixels) makes the **global joint** BA run the
+    median-free **GNC-TLS** solver (``barc = 3.03·σ`` inlier band), which rejects gross-outlier
+    corners past the 50% breakdown of the MAD auto-scale; the cheaper stages (group refine,
+    structure polish) stay on the legacy reweighting so the cost stays bounded. The per-frame
+    pose seed (:func:`_gated_pnp`) always uses a high-breakdown RANSAC PnP. This low-level
+    primitive defaults to ``None`` (legacy path); the config-driven product entry
+    :func:`~ds_msp.rig.calib_param.calibrate_from_config` supplies a ``noise_bound`` (config
+    default ``1.0`` px) so a real calibration is robust by default.
     """
     obs_by_cam: Dict[int, List[ObjectObs]] = defaultdict(list)
     for o in object_obs:
