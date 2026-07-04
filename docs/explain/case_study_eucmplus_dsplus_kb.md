@@ -165,4 +165,4 @@ its willingness to publish the result it didn't want.
 
 **Built on:** [the model-evaluation framework](choosing_a_camera_model.md). **Related:**
 [Are two models the same camera?](are_two_models_the_same_camera.md) ·
-[The Double Sphere model](02_double_sphere_model.md).
+[The Double Sphere model](../learn/02_double_sphere_model.md).

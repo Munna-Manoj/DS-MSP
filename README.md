@@ -110,7 +110,7 @@ R, t         = relative_pose(f1, f2)           # camera-2 pose relative to camer
 pts_3d, _, _ = triangulate_rays(f1, f2, R, t)  # (N,3) triangulated points
 ```
 
-Measured PnP + reprojection RMS on bundled real images: 0.43 px / 0.85 px. → [Two-view geometry](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/two_view_geometry.md)
+Measured PnP + reprojection RMS on bundled real images: 0.43 px / 0.85 px. → [Two-view geometry](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/two_view_geometry.md)
 
 ### Calibrate from scratch
 
@@ -231,7 +231,7 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 - **KB** stays the right default when unproject throughput rules and an iterative inverse is acceptable.
 - **EUCM+** is Pareto-dominated by DS+ at equal parameter count and is deprecated as a default. Use EUCM when 2 distortion DOF suffice; reach for DS+ when they don't.
 
-→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/case_study_eucmplus_dsplus_kb.md)
+→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
 ---
 

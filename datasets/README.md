@@ -103,7 +103,7 @@ fetches all three.
   > Want a **Double Sphere** reference number specifically? The reference is KB, so either
   > calibrate DS directly on the images (the capstone fits both KB and DS), or `convert()` the
   > published KB to DS (Chapter 2). Why DS `fx` looks different from KB is proven in
-  > [`docs/learn/are_two_models_the_same_camera.md`](../docs/learn/are_two_models_the_same_camera.md).
+  > [`docs/explain/are_two_models_the_same_camera.md`](../docs/explain/are_two_models_the_same_camera.md).
 - Source: `https://cdn3.vision.in.tum.de/tumvi/exported/euroc/512_16/`.
 
 ### 4.2 EuRoC MAV — Vicon Room 1 *(stereo + IMU + GT + radtan, ~4.9 GB)*

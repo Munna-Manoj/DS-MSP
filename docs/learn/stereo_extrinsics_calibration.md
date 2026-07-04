@@ -296,8 +296,8 @@ Deepen your understanding by modifying the code. Each of the following exercises
   depth](README.md#part-ii--geometry--3d)**, which gets dense depth straight on raw fisheye.
 - **Recover pose without a board.** This chapter leaned on a known calibration target. The
   `ds_msp.mvg` two-view geometry recovers relative pose from *feature matches alone* — the
-  essential matrix on bearing vectors. See **Part II → [Two-view geometry on
-  rays](README.md#part-ii--geometry--3d)**.
+  essential matrix on bearing vectors. See **[Chapter 8 — Two-view geometry on
+  rays](08_two_view_geometry_on_rays.md)**.
 - **Reference:** the two functions used here live in
   [`ds_msp/calib/stereo.py`](../../ds_msp/calib/stereo.py); the camchain I/O in
   [`ds_msp/io/kalibr.py`](../../ds_msp/io/kalibr.py).

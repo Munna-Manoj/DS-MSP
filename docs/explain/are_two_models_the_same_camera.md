@@ -4,7 +4,7 @@
 > (after `pip install -e .[calib]` and the TUM-VI download). Read this, then read the
 > printed numbers.
 
-In the [capstone](capstone_calibrating_a_real_camera.md) we calibrated the *same* TUM-VI
+In the [capstone](../learn/capstone_calibrating_a_real_camera.md) we calibrated the *same* TUM-VI
 lens two ways and got parameters that look nothing alike:
 
 ```
@@ -42,7 +42,7 @@ r(θ) = fx_KB · (θ + k₁θ³ + k₂θ⁵ + k₃θ⁷ + k₄θ⁹)
 ```
 Here `fx` *is* the paraxial focal. Easy.
 
-**Double Sphere** builds the profile geometrically (see [Chapter 2](02_double_sphere_model.md)).
+**Double Sphere** builds the profile geometrically (see [Chapter 2](../learn/02_double_sphere_model.md)).
 For a unit ray `(sinθ, 0, cosθ)` the projection in [`ds_math.py`](../../ds_msp/models/ds_math.py)
 gives, with `d1 = 1`:
 ```
@@ -144,5 +144,5 @@ farther.
 That's a measurable question — see
 [Is this model right for my lens?](choosing_a_camera_model.md) and the worked
 [EUCM⁺ vs DS⁺ vs KB case study](case_study_eucmplus_dsplus_kb.md).
-**Back to:** the [capstone](capstone_calibrating_a_real_camera.md), or the
-[robust-loss deep-dive](robust_losses_and_evaluation.md).
+**Back to:** the [capstone](../learn/capstone_calibrating_a_real_camera.md), or the
+[robust-loss deep-dive](../learn/robust_losses_and_evaluation.md).

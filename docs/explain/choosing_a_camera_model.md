@@ -215,4 +215,4 @@ use (E)." That sentence is a *measurement*, and it's the whole point of this cur
 **See it applied, with an honest good-and-bad verdict:**
 [A fair fight — EUCM⁺ vs DS⁺ vs Kannala-Brandt](case_study_eucmplus_dsplus_kb.md).
 **Related:** [Are two models the same camera?](are_two_models_the_same_camera.md) ·
-[Robust losses & honest evaluation](robust_losses_and_evaluation.md).
+[Robust losses & honest evaluation](../learn/robust_losses_and_evaluation.md).

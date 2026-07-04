@@ -145,7 +145,7 @@ Evaluated over 1879 rays spanning 179.8 deg of field of view:
 power to capture this lens to a fortieth of a pixel. (Notice `fx` changed from 191 to 240:
 focal length is *model-relative* — the same lens has a different `fx` under KB vs DS because
 the denominators differ. The true paraxial focal is `fx_DS/(1+ξ)`; a whole deep-dive proves
-this — **[are two models the same camera?](are_two_models_the_same_camera.md)**. What's
+this — **[are two models the same camera?](../explain/are_two_models_the_same_camera.md)**. What's
 invariant is where rays land, not the raw numbers.)
 
 > **This is model *conversion*, not calibration.** We re-expressed one set of published

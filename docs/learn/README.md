@@ -15,7 +15,9 @@ of a pixel, matching the published reference.*
 
 This is the teaching layer. The library it teaches (`ds_msp/`) stays deliberately
 clean and untouched by tutorial clutter — read the docs to learn, read the code to
-see how it's done in production.
+see how it's done in production. Looking for the "why" behind a proof or a derivation
+instead of a hands-on walkthrough? That lives in [**Explanation**](../explain/README.md),
+kept deliberately separate so this track stays runnable end to end.
 
 ## Who this is for
 Aspiring 3D-vision researchers, applied-perception engineers, and developers who know
@@ -37,8 +39,9 @@ See [`datasets/README.md`](../../datasets/README.md) for what each dataset conta
 ## The path
 
 The track has two arcs. **Part I — Calibration** takes one camera from "what is a fisheye"
-to a published-grade calibration you reproduce yourself. **Part II — Geometry & 3D** takes
-that calibrated camera *out into the world*: two-view pose, manifold optimization, and stereo
+to a published-grade calibration you reproduce yourself, then a set of companion chapters
+that go deeper on specific pieces of that pipeline. **Part II — Geometry & 3D** takes that
+calibrated camera *out into the world*: two-view pose, manifold optimization, and stereo
 depth — the geometry behind SLAM and SfM. Part II's **library is shipped and tested**
 (`ds_msp/mvg/`, `ds_msp/core/`, `ds_msp/stereo/`); its chapters and runnable examples are
 landing now (see [ROADMAP](../ROADMAP.md)).
@@ -52,7 +55,7 @@ graph LR
         A3 -.-> A4["4 · Analytic<br/>Jacobians"]
         A4 -.-> A5["5 · LM<br/>calibration"]
         A5 -.-> CAP
-        CAP --> DD["🔬 Deep-dives:<br/>robust loss · model equivalence · charts"]
+        CAP --> DD["Companions:<br/>AprilGrid · robust loss ·<br/>stereo extrinsics · charts"]
     end
     subgraph PII["Part II · Geometry &amp; 3D"]
         B8["8 · Two-view<br/>geometry on rays"] --> B9["9 · Optimizing<br/>on the manifold"]
@@ -63,8 +66,9 @@ graph LR
     CAP ==> B8
 ```
 
-*Part I solid = runnable today (do Ch.1 → Ch.2 → capstone); dotted = theory chapters landing
-incrementally. Part II = library shipped & tested, chapters/examples in progress.*
+*Part I solid = runnable today (do Ch.1 → Ch.2 → capstone → companions); dotted = theory
+chapters landing incrementally. Part II Ch.8 is runnable today; Ch.9–12 land incrementally
+on top of the shipped, tested library.*
 
 ### Part I — Calibration
 
@@ -78,6 +82,28 @@ incrementally. Part II = library shipped & tested, chapters/examples in progress
 | 6 | One model to another: conversion *(coming soon)* | turn a DS calib into KB/EUCM without re-shooting | `ds_msp/adapt/` |
 | 7 | Reproducing a published calibration *(coming soon)* | match TUM-VI / EuRoC reference numbers with your own code | `ds_msp/io/kalibr.py` |
 
+### 🏆 The capstone (runnable now)
+**[Calibrate a real fisheye camera and match the published numbers](capstone_calibrating_a_real_camera.md)**
+— detect AprilGrid corners in TUM-VI's raw footage, bundle-adjust the intrinsics from
+scratch, and land on the calibration the dataset authors published to **0.003%** focal
+(0.081 px median reprojection). This is the artifact the chapters build toward; you can run
+it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
+
+### Capstone companions — go deeper on one piece of the pipeline
+
+Each of these takes a specific step inside the capstone and puts it under a microscope: same
+TUM-VI data, a runnable script, and a number you verify. Read them after the capstone, in any
+order — they don't depend on each other.
+
+| Chapter | You'll be able to… | Code anchor |
+|---------|--------------------|--------------|
+| [Detecting every AprilGrid tag, even at the fisheye periphery](robust_aprilgrid_detection.md) | explain why a fully-visible board drops to 4/36 tags off-centre, and apply the multi-scale + board-guided recovery fix that takes recall 36%→94% and tightens the focal fit 0.7%→0.003% | `examples/03_calibrate_tumvi_aprilgrid.py` |
+| [Robust losses vs hard rejection — and why naive RMS lies](robust_losses_and_evaluation.md) | apply a Cauchy loss that down-weights bad corners without discarding them, derive the IRLS weighting, and score a robust fit by median / inlier RMS instead of RMS | `examples/04_robust_vs_rejection.py` |
+| [Stereo extrinsics: recovering a rig's camera-to-camera transform](stereo_extrinsics_calibration.md) | recover a rig's camera-to-camera transform from a shared board, average per-frame poses (chordal mean + median), and score it against a published reference (**0.062° rotation, 0.25 mm baseline**, ~0.2%) | `examples/06_stereo_extrinsics_tumvi.py` |
+| [Sphere, cylinder, pinhole: one camera, three images, and the pixel math that links them](spherical_and_cylindrical_reprojection.md) | derive the exact pixel↔pixel maps between three charts of the same camera (verified to 1e-13 px round-trip), and find where the cylinder silently drops the polar cone | `examples/08_reproject_sphere_cylinder.py` |
+
+Chapters land incrementally — see [`../ROADMAP.md`](../ROADMAP.md) for the build order.
+
 ### Part II — Geometry & 3D *(library shipped & tested; chapters + examples landing)*
 
 A fisheye measures **rays**, so this whole arc is built on `project` / `unproject` — epipolar
@@ -86,52 +112,22 @@ bearing vectors.
 
 | # | Chapter | You'll be able to… | Code anchor (shipped) |
 |---|---------|--------------------|-----------------------|
-| 8 | Two-view geometry on rays *(chapter pending)* | recover relative pose from an image pair — essential matrix on bearings, ray triangulation, on-sphere RANSAC | `ds_msp/mvg/` (`two_view.py`, `ransac.py`) |
+| 8 | [Two-view geometry on rays](08_two_view_geometry_on_rays.md) | recover relative pose from an image pair — essential matrix on bearings, ray triangulation, on-sphere RANSAC — on a real TUM-VI fisheye pair | `ds_msp/mvg/` (`two_view.py`, `ransac.py`) |
 | 9 | Optimizing on the manifold *(chapter pending)* | see why flat pose parameterization is a *correctness* bug, and how an in-house SO(3)/SE(3) LM solver fixes it | `ds_msp/core/` (`lie.py`, `optimize.py`) |
 | 10 | Scalable bundle adjustment *(chapter pending)* | minimize angular reprojection error with a Schur-complement sparse solve | `ds_msp/mvg/bundle.py`, `ds_msp/calib/bundle.py` |
 | 11 | Sphere-sweep stereo depth *(chapter pending)* | get dense depth straight on raw fisheye — no rectification, no pinhole detour | `ds_msp/stereo/sphere_sweep.py` |
 | 12 | Spherical epipolar rectification *(chapter pending)* | the pedagogically-clean depth path; matches sphere-sweep to <1% | `ds_msp/stereo/rectify.py` |
 
-### 🏆 The capstone (runnable now)
-**[Calibrate a real fisheye camera and match the published numbers](capstone_calibrating_a_real_camera.md)**
-— detect AprilGrid corners in TUM-VI's raw footage, bundle-adjust the intrinsics from
-scratch, and land on the calibration the dataset authors published to **0.003%** focal
-(0.081 px median reprojection). This is the artifact the chapters build toward; you can run
-it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
+Chapter 8's formal companion — the epipolar-constraint proof, the four-fold decomposition, and
+the numerical-stability notes — lives in Explanation:
+[**Two-view geometry on bearing vectors**](../explain/two_view_geometry.md).
 
-**Deep-dives:**
-- [Detecting every AprilGrid tag, even at the fisheye periphery](robust_aprilgrid_detection.md)
-  (`examples/03`) — why a fully-visible board drops to 4/36 tags off-centre, the multi-scale +
-  board-guided recovery fix (36%→94% recall), and the two subpixel/pixel-centre subtleties that
-  turn the recovered corners into a *tighter* calibration (focal 0.7%→0.003%).
-- [Stereo extrinsics: recovering a rig's camera-to-camera transform](stereo_extrinsics_calibration.md)
-  (`examples/06`) — why a shared board cancels the unknown motion (one cancellation, the whole
-  method), per-frame pose alignment, chordal-mean + median averaging, and a scored comparison
-  against the published reference: **0.062° rotation, 0.25 mm baseline** (~0.2%).
-- [Sphere, cylinder, pinhole: one camera, three images, and the pixel math that links them](spherical_and_cylindrical_reprojection.md)
-  (`examples/08`) — why a fisheye on a sphere/cylinder is real geometry (not a trick), the exact
-  pixel↔pixel maps between the three charts (verified to 1e-13 px round-trip), and where the
-  cylinder silently drops the polar cone.
-- [Robust losses vs hard rejection — and why naive RMS lies](robust_losses_and_evaluation.md)
-  (`examples/04`) — how a Cauchy loss handles bad corners without discarding them, the IRLS
-  weighting math, and why a robust fit must be scored by median / inlier RMS.
-- [Are two different camera models the same camera?](are_two_models_the_same_camera.md)
-  (`examples/05`) — why DS `fx≈152` and KB `fx≈191` are the same lens: the paraxial-focal
-  derivation (`fx_DS/(1+ξ)`), project/unproject agreement vs field angle, and where two
-  models stop agreeing (exactly where the data ran out).
-- [Is this camera model right for *my* lens and task?](choosing_a_camera_model.md)
-  (`examples/10`) — a measurable framework for picking a model: six diagnostics (capacity,
-  identifiability via Jacobian conditioning, parameter redundancy/collinearity, bound
-  sensitivity, compute cost by operation class, FOV sampling weight), each a number you verify
-  on two ground-truth lenses. Why the same model is a great choice on one lens and a poor one
-  on another.
-- [A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt](case_study_eucmplus_dsplus_kb.md)
-  (`examples/10`) — the framework applied to a real ship/retire decision, on three lenses, with
-  the honest good-and-bad verdict (DS⁺ wins accuracy + invertibility, loses ~2× on unproject;
-  EUCM⁺ is Pareto-dominated) — *including the hypothesis we had to retract when the data
-  contradicted it.*
+## Looking for the "why", not the "how"?
 
-Chapters land incrementally — see [`../ROADMAP.md`](../ROADMAP.md) for the build order.
+Some questions in this space aren't a hands-on skill so much as a conceptual puzzle worth
+settling once, in depth — "are two calibrations of the same lens really the same camera?",
+"which model should I pick?". Those live in [**Explanation**](../explain/README.md) so this
+tutorial track stays focused on runnable, hands-on chapters.
 
 ## How to use it
 Read the chapter, run its script, then **change one thing and predict what happens**

@@ -100,14 +100,17 @@ nav:
       - 2 · The Double Sphere model: learn/02_double_sphere_model.md
       - 3 · Projection validity & the >180° cone: learn/03_projection_validity.md
       - Capstone — calibrate a real camera: learn/capstone_calibrating_a_real_camera.md
-      - "Deep-dive: AprilGrid detection": learn/robust_aprilgrid_detection.md
-      - "Deep-dive: robust losses & evaluation": learn/robust_losses_and_evaluation.md
-      - "Deep-dive: are two models the same camera?": learn/are_two_models_the_same_camera.md
-      - "Deep-dive: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
-      - "Deep-dive: stereo extrinsics": learn/stereo_extrinsics_calibration.md
-      - "Deep-dive: choosing a camera model": learn/choosing_a_camera_model.md
-      - "Deep-dive: EUCM+/DS+/KB case study": learn/case_study_eucmplus_dsplus_kb.md
-      - "Deep-dive: two-view geometry": learn/two_view_geometry.md
+      - "Companion: AprilGrid detection": learn/robust_aprilgrid_detection.md
+      - "Companion: robust losses & evaluation": learn/robust_losses_and_evaluation.md
+      - "Companion: stereo extrinsics": learn/stereo_extrinsics_calibration.md
+      - "Companion: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
+      - 8 · Two-view geometry on rays: learn/08_two_view_geometry_on_rays.md
+  - Explanation:
+      - explain/README.md
+      - Two-view geometry (derivations): explain/two_view_geometry.md
+      - Are two models the same camera?: explain/are_two_models_the_same_camera.md
+      - Choosing a camera model: explain/choosing_a_camera_model.md
+      - "Case study: EUCM+/DS+/KB": explain/case_study_eucmplus_dsplus_kb.md
   - Guides:
       - Calibrate a single camera: CALIBRATE_GUIDE.md
       - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md

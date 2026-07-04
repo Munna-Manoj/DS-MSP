@@ -77,7 +77,7 @@ The library's flagship **Double Sphere** model fits the very same corners just a
 (the true paraxial focal is `fx_DS/(1+ξ) ≈ 191`, matching KB to 0.1%), and on a *planar*
 target DS additionally has a focal↔(`xi`,`alpha`) gauge freedom. A full proof that the DS
 and KB calibrations are the *same camera* — and where they stop being — is in
-**[are two models the same camera?](are_two_models_the_same_camera.md)**. Judge a model by
+**[are two models the same camera?](../explain/are_two_models_the_same_camera.md)**. Judge a model by
 reprojection error, not by its raw focal.
 
 ## War-story: why the detector returned **zero** tags (and the real fix)

@@ -1,8 +1,10 @@
 # Two-view geometry on bearing vectors — derivations, proofs, and numerical notes
 
-Formal companion to [`ds_msp/mvg/two_view.py`](../../ds_msp/mvg/two_view.py). Every
-claim here is checked by a named test in [`tests/mvg/test_two_view.py`](../../tests/mvg/test_two_view.py),
-so the math and the code can't drift.
+Formal companion to [`ds_msp/mvg/two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/mvg/two_view.py). Every
+claim here is checked by a named test in [`tests/mvg/test_two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/tests/mvg/test_two_view.py),
+so the math and the code can't drift. For the hands-on, runnable version of this material —
+recovering pose from a real image pair — see
+[Chapter 8, Two-view geometry on rays](../learn/08_two_view_geometry_on_rays.md).
 
 ## Setup and conventions
 
@@ -153,21 +155,22 @@ rays to $\sim0°$.
   two-view problem has a **two-fold ambiguity** and the eight-point becomes unreliable (a planar
   test scene here lands several degrees off). Use a plane-aware (homography-decomposition) path,
   or ensure non-degenerate 3D coverage — the same "the data must exercise the geometry" lesson as
-  the [calibration FOV-coverage](../learn/are_two_models_the_same_camera.md) point.
+  the [calibration FOV-coverage](are_two_models_the_same_camera.md) point.
 
 ## Manifold-correct refinement
 
 The nonlinear refinement (`mvg.refine_two_view`) and the calibration bundle do **not** optimize an
 absolute axis-angle vector (biased >30°, singular at `‖r‖=π`). They optimize a **local
 perturbation** retracted through the exponential map, `R ← R₀·Exp([δω]_×)` with `δω` starting at
-`0`, using the SO(3) `exp`/`log` and **right Jacobian** in [`ds_msp/core/lie.py`]
+`0`, using the SO(3) `exp`/`log` and **right Jacobian** in
+[`ds_msp/core/lie.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/lie.py)
 (`∂(Exp(w)v)/∂w = -Exp(w)[v]_× J_r(w)`, verified by finite difference). The calibrator's analytic
-extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)` — same numbers in benign
-regimes, stable at large rotation.
+extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)`. The result matches the flat
+parameterization in benign regimes and stays stable at large rotation.
 
 ## What this unlocks
 
 Relative pose + triangulation on rays is the front end of **Structure-from-Motion**: chain
 two-view poses, triangulate a point cloud, and refine by manifold bundle adjustment with the
-**angular reprojection residual** — all without ever flattening the fisheye to a
-pinhole, with a robust wrapper (RANSAC + spherical normalization) on top.
+**angular reprojection residual** — all without ever flattening the fisheye to a pinhole, with
+a robust wrapper (RANSAC + spherical normalization) on top.
