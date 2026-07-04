@@ -86,7 +86,24 @@ def _run(cfg: CalibConfig, *, pass_px: float, warn_px: float) -> int:
     return 0 if level in ("PASS", "WARN") else 1
 
 
-def main():
+def main() -> None:
+    """Entry point for the ``ds-msp-calibrate`` console script.
+
+    Parses CLI arguments (see the module docstring for usage), then dispatches to one of
+    three modes: write a starter config (``--init-config``), run from a config file
+    (``--config``, with optional ``--set key=value`` overrides), or run from plain CLI
+    flags (board type/geometry + camera model + images directory). Calls
+    :func:`sys.exit`/raises :class:`SystemExit` with the process exit code from
+    :func:`_run` (``0`` on PASS/WARN, ``1`` on FAIL) so a CI/cron caller can detect
+    calibration quality without parsing stdout.
+
+    Raises
+    ------
+    SystemExit
+        On missing/invalid arguments (e.g. no images directory or config given), on an
+        unreadable first image, or with the run's own exit code once calibration
+        completes.
+    """
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("images_dir", nargs="?", help="folder of calibration images")

@@ -99,6 +99,21 @@ def _resolve_spec(args, cam_ids):
 
 
 def main():
+    """Entry point for the ``ds-msp-calibrate-rig`` console command.
+
+    Parses CLI arguments (see the module docstring for usage examples). With
+    ``--init-config``/``--init-intrinsics``, writes the requested template file(s)
+    and returns. Otherwise runs the rig calibration (config-file-driven via
+    ``--config``, or scenario-driven from a positional scenario path), prints the
+    report, and exits the process with a code reflecting the pass/warn/fail verdict.
+
+    Raises
+    ------
+    SystemExit
+        On calibration completion (exit code 0 on PASS/WARN, 1 on FAIL) and on CLI
+        usage errors (e.g. neither a scenario nor ``--config`` given, or a
+        ``--models`` list that doesn't match the rig's camera count).
+    """
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="path to a Blender_Images/Scenario_* directory")

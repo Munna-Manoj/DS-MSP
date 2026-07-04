@@ -46,7 +46,32 @@ class Board(Protocol):
     """The one seam between board-specific detection and the model-agnostic backend."""
 
     def detect(self, image_paths: Sequence[str],
-              progress_cb: Optional[ProgressCB] = None) -> List[Observation]: ...
+              progress_cb: Optional[ProgressCB] = None) -> List[Observation]:
+        """Detect this board's known target in a batch of images.
+
+        Every concrete implementation (:class:`CheckerboardBoard`, :class:`CharucoBoard`,
+        :class:`AprilGridBoard`) turns raw image files into
+        :class:`~ds_msp.data.observations.Observation`\\ s carrying known 3D board-local
+        points paired with their detected 2D pixels, so
+        :func:`ds_msp.calib.single_camera.calibrate_camera` can fit any camera model
+        without knowing which board produced the correspondences.
+
+        Parameters
+        ----------
+        image_paths : Sequence[str]
+            Paths to the images to search for the board, in any order.
+        progress_cb : callable, optional
+            ``progress_cb(i, n, path)`` called once per image (``1 <= i <= n``) as it is
+            processed, for live progress reporting. ``None`` (default) disables it.
+
+        Returns
+        -------
+        list of Observation
+            One entry per detected board sighting. Images the board was not found in (or
+            that failed to load) are silently skipped, so the result length is not
+            guaranteed to equal ``len(image_paths)``.
+        """
+        ...
 
 
 def to_correspondences(
@@ -66,6 +91,26 @@ class CheckerboardBoard:
 
     def detect(self, image_paths: Sequence[str],
               progress_cb: Optional[ProgressCB] = None) -> List[Observation]:
+        """Detect the checkerboard in every readable image.
+
+        One :class:`~ds_msp.data.observations.Observation` per image the board was found
+        in, using the fixed board geometry from ``self.spec`` (see
+        :func:`ds_msp.detect.checkerboard.board_object_points`); all corners are marked
+        visible (``findChessboardCornersSB`` is all-or-nothing per image).
+
+        Parameters
+        ----------
+        image_paths : Sequence[str]
+            Paths to the images to search.
+        progress_cb : callable, optional
+            ``progress_cb(i, n, path)`` fired once per image; see :meth:`Board.detect`.
+
+        Returns
+        -------
+        list of Observation
+            One per image with a successful detection; unreadable images and images with
+            no detected board are silently skipped.
+        """
         xyz = checkerboard_object_points(self.spec)
         vis = np.ones(len(xyz), dtype=bool)
         n = len(image_paths)
@@ -98,6 +143,28 @@ class CharucoBoard:
 
     def detect(self, image_paths: Sequence[str],
               progress_cb: Optional[ProgressCB] = None) -> List[Observation]:
+        """Detect every configured ChArUco board in every readable image.
+
+        Each board actually found in an image (there may be zero, one, or several, when
+        ``self.specs`` has more than one entry) becomes its own independent
+        :class:`~ds_msp.data.observations.Observation`, sharing that image's ``frame_id``
+        but carrying only that board's own corners — boards seen together in one image are
+        not fused into a single pose. Boards with fewer than ``self.min_corners`` detected
+        corners are dropped.
+
+        Parameters
+        ----------
+        image_paths : Sequence[str]
+            Paths to the images to search.
+        progress_cb : callable, optional
+            ``progress_cb(i, n, path)`` fired once per image; see :meth:`Board.detect`.
+
+        Returns
+        -------
+        list of Observation
+            Zero or more entries per image (one per board found in it); unreadable images
+            contribute none.
+        """
         n = len(image_paths)
         obs: List[Observation] = []
         for i, path in enumerate(image_paths):
@@ -134,6 +201,28 @@ class AprilGridBoard:
 
     def detect(self, image_paths: Sequence[str],
               progress_cb: Optional[ProgressCB] = None) -> List[Observation]:
+        """Detect the AprilGrid in every image, one image at a time.
+
+        Every tag found in an image is concatenated into a single
+        :class:`~ds_msp.data.observations.Observation` for that image (tags within one
+        AprilGrid share one rigid pose, unlike :class:`CharucoBoard`'s independent
+        boards). Calls :func:`ds_msp.detect.detect.detect_aprilgrid` per image, one at a
+        time, so ``frame_id`` stays a genuine index into ``image_paths`` even though that
+        function's own batch API silently drops frames below its ``min_tags`` threshold.
+
+        Parameters
+        ----------
+        image_paths : Sequence[str]
+            Paths to the images to search.
+        progress_cb : callable, optional
+            ``progress_cb(i, n, path)`` fired once per image; see :meth:`Board.detect`.
+
+        Returns
+        -------
+        list of Observation
+            One entry per image with at least one detected tag; images with no detection
+            (below ``min_tags``, or too few recovered corners) are silently skipped.
+        """
         n = len(image_paths)
         obs: List[Observation] = []
         for i, path in enumerate(image_paths):

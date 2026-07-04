@@ -43,6 +43,11 @@ def make_fixed_intrinsic_front_end(cameras: Dict[int, object]):
     global BA then refines extrinsics with these intrinsics held fixed, mirroring MC-Calib's
     fixed-intrinsic mode (which needs initial intrinsics and never refines them)."""
     def front_end(obj, obs_by_cam, img_size):
+        """Seed per-frame object poses by robust PnP; intrinsics are the fixed ``cameras``.
+
+        Matches the ``front_end(obj, obs_by_cam, img_size) -> {cam_id: CameraModel}``
+        signature :func:`~ds_msp.rig.calibrate.calibrate_rig` expects.
+        """
         for cam_id, obs in obs_by_cam.items():
             model = cameras[cam_id]
             for o in obs:
@@ -177,6 +182,14 @@ def _scenario_metrics(rig: RigState, scn: Scenario) -> Dict:
     ref = rig.ref_cam_id
 
     def worst_baseline(ref_poses: Dict[int, np.ndarray], invert: bool) -> Optional[float]:
+        """Largest inter-camera baseline error (%) vs a reference pose set.
+
+        Compares each non-reference camera's baseline relative to ``ref`` (from
+        ``rig.T_c_g``) against the same relative baseline in ``ref_poses``.
+        ``invert=True`` treats ``ref_poses`` as camera->world (GT/MC-Calib
+        convention) and inverts before comparing. Returns ``None`` if ``ref`` has
+        no entry in ``ref_poses`` or there is no overlapping camera to compare.
+        """
         common = [c for c in rig.T_c_g if c in ref_poses and c != ref] if ref in ref_poses else []
         if not common:
             return None

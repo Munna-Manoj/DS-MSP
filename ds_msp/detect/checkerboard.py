@@ -44,6 +44,7 @@ class CheckerboardSpec:
 
     @property
     def n_corners(self) -> int:
+        """Total interior corner count, ``cols * rows``."""
         return self.cols * self.rows
 
 

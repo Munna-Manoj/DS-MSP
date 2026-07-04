@@ -120,6 +120,23 @@ nav:
       - Choosing a camera model: explain/choosing_a_camera_model.md
       - "Case study: EUCM+/DS+/KB": explain/case_study_eucmplus_dsplus_kb.md
       - Projection validity & FOV: explain/projection_validity_and_fov.md
+  - Reference:
+      - reference/index.md
+      - Core (CameraModel contract): reference/core.md
+      - Camera models: reference/models.md
+      - Calibration: reference/calib.md
+      - Detection: reference/detect.md
+      - Model conversion: reference/adapt.md
+      - Rig calibration: reference/rig.md
+      - I/O (Kalibr/MC-Calib/COLMAP/nerfstudio): reference/io.md
+      - Multi-view geometry: reference/mvg.md
+      - Stereo: reference/stereo.md
+      - Visual odometry: reference/vo.md
+      - Geometry primitives: reference/geometry.md
+      - Ops (undistort/PnP): reference/ops.md
+      - Data: reference/data.md
+      - OpenCV-compatible shim: reference/cv.md
+      - LDC mesh export: reference/ldc.md
   - Guides:
       - Calibrate a single camera: CALIBRATE_GUIDE.md
       - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md

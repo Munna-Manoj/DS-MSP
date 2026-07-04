@@ -110,6 +110,22 @@ def _R_from_qvec(qvec: Sequence[float]) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 @dataclass
 class ColmapCamera:
+    """One row of a COLMAP ``cameras.txt`` record.
+
+    Parameters
+    ----------
+    id : int
+        1-based camera id, referenced by :attr:`ColmapImage.camera_id`.
+    model : str
+        COLMAP model name, e.g. ``"OPENCV_FISHEYE"``, ``"OPENCV"``, ``"PINHOLE"``.
+        See the module docstring for the DS-MSP <-> COLMAP model mapping.
+    width, height : int
+        Image resolution in pixels.
+    params : list of float
+        Intrinsic parameters in the COLMAP order for ``model`` (see
+        :func:`model_to_colmap` / :func:`colmap_to_model`).
+    """
+
     id: int
     model: str
     width: int
@@ -119,6 +135,27 @@ class ColmapCamera:
 
 @dataclass
 class ColmapImage:
+    """One image record from ``images.txt`` (pose + optional 2D observations).
+
+    Parameters
+    ----------
+    id : int
+        1-based image id.
+    qvec : (4,) array
+        World-to-camera rotation quaternion in COLMAP's **(w, x, y, z)** order.
+    tvec : (3,) array
+        World-to-camera translation, meters: ``X_cam = R(qvec) @ X_world + tvec``.
+    camera_id : int
+        Id of the :class:`ColmapCamera` this image was taken with.
+    name : str
+        Image file name.
+    xys : (K, 2) array, optional
+        Pixel coordinates of 2D feature observations. Empty when the image was
+        exported pose-only (no correspondences).
+    point3D_ids : (K,) int64 array, optional
+        Per-observation index into the sparse point cloud (parallel to ``xys``).
+    """
+
     id: int
     qvec: np.ndarray  # (4,) w,x,y,z  (world->cam)
     tvec: np.ndarray  # (3,)          (world->cam)
@@ -129,6 +166,14 @@ class ColmapImage:
 
     @property
     def T_cam_world(self) -> np.ndarray:
+        """4x4 world-to-camera pose built from :attr:`qvec` and :attr:`tvec`.
+
+        Returns
+        -------
+        (4, 4) ndarray
+            Homogeneous transform with ``T[:3, :3] = R(qvec)``, ``T[:3, 3] = tvec``,
+            such that ``X_cam_h = T @ X_world_h``.
+        """
         T = np.eye(4)
         T[:3, :3] = _R_from_qvec(self.qvec)
         T[:3, 3] = self.tvec
@@ -137,6 +182,21 @@ class ColmapImage:
 
 @dataclass
 class ColmapPoint3D:
+    """One row of a COLMAP ``points3D.txt`` record (sparse point cloud entry).
+
+    Parameters
+    ----------
+    id : int
+        1-based point id, referenced by :attr:`ColmapImage.point3D_ids`.
+    xyz : (3,) array
+        World-frame position, meters.
+    rgb : (3,) uint8 array
+        Point color.
+    error : float, default 0.0
+        Mean reprojection error over the point's track, pixels. DS-MSP writes
+        ``0.0`` (per-track error is not tracked by the exporter).
+    """
+
     id: int
     xyz: np.ndarray
     rgb: np.ndarray  # (3,) uint8

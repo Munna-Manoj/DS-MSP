@@ -13,7 +13,16 @@ Conventions
 The calibrated epipolar constraint is ``f2ᵀ E f1 = 0`` with ``E = [t]_× R`` (rank 2). It
 holds for bearing vectors of any central camera, which is why nothing here is pinhole-specific.
 
-Derivations, proofs, and numerical-stability notes: ``docs/learn/two_view_geometry.md``.
+References
+----------
+Hartley, R. and Zisserman, A., *Multiple View Geometry in Computer Vision*, 2nd ed.,
+Cambridge University Press, 2004 — the eight-point algorithm (§11.3) applied here to
+bearing vectors instead of pixels, and the four-fold ``E`` decomposition (§9.6.2, Result
+9.19) implemented in `decompose_essential`.
+
+Derivations, proofs, and numerical-stability notes: see the explanation page
+[Two-view geometry](../explain/two_view_geometry.md) and the tutorial
+[Chapter 8 — Two-view geometry on rays](../learn/08_two_view_geometry_on_rays.md).
 """
 
 from __future__ import annotations
@@ -36,9 +45,37 @@ def _as_rays(f: np.ndarray) -> np.ndarray:
 
 
 def epipolar_residual(E: np.ndarray, f1: np.ndarray, f2: np.ndarray) -> np.ndarray:
-    """Algebraic epipolar residual ``f2ᵀ E f1`` per correspondence, shape ``(N,)``.
+    """Algebraic epipolar residual ``f2ᵀ E f1`` for each ray correspondence.
 
-    Zero (to numerical precision) for a perfect correspondence + exact ``E``.
+    This is the raw algebraic constraint, not an angle — use :func:`~ds_msp.mvg.sampson_residual`
+    for a threshold that is meaningful in radians (e.g. for RANSAC).
+
+    Parameters
+    ----------
+    E : (3, 3) ndarray
+        Essential matrix, e.g. from :func:`essential_from_rays`.
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2,
+        one correspondence per row.
+
+    Returns
+    -------
+    (N,) ndarray
+        ``f2[i] @ E @ f1[i]`` for each row ``i``. Zero to float64 round-off for an exact ``E``
+        and noise-free correspondences.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ds_msp.mvg import essential_from_rays, epipolar_residual
+    >>> rng = np.random.default_rng(0)
+    >>> X1 = rng.uniform(-2, 2, (10, 3)) + np.array([0, 0, 5])  # points in front of camera 1
+    >>> X2 = X1 + np.array([1.0, 0.0, 0.0])                    # camera 2 shifted along +x
+    >>> f1 = X1 / np.linalg.norm(X1, axis=1, keepdims=True)
+    >>> f2 = X2 / np.linalg.norm(X2, axis=1, keepdims=True)
+    >>> E = essential_from_rays(f1, f2)
+    >>> float(np.abs(epipolar_residual(E, f1, f2)).max()) < 1e-10
+    True
     """
     f1 = _as_rays(f1)
     f2 = _as_rays(f2)
@@ -67,15 +104,52 @@ def _whiten(f: np.ndarray, reg: float = 1e-2) -> Tuple[np.ndarray, np.ndarray]:
 
 def essential_from_rays(f1: np.ndarray, f2: np.ndarray, *, normalize: bool = False
                         ) -> np.ndarray:
-    """Essential matrix from ≥8 ray correspondences (eight-point on bearing vectors).
+    """Essential matrix from >=8 ray correspondences (eight-point on bearing vectors).
 
-    Solves ``f2ᵀ E f1 = 0`` in the least-squares (smallest-singular-vector) sense, then
-    projects onto the essential manifold (singular values forced to ``(1, 1, 0)``).
+    Solves ``f2ᵀ E f1 = 0`` in the least-squares (smallest-singular-vector) sense — the
+    eight-point algorithm (Hartley & Zisserman, §11.3) applied to unit bearing vectors instead
+    of pixels — then projects the raw least-squares solution onto the essential manifold
+    (singular values forced to ``(1, 1, 0)``).
 
-    ``normalize=True`` applies spherical whitening (`_whiten`) before the solve and undoes it
-    after — leave it off for clean data (it changes nothing in the noise-free limit), turn it
-    on for noisy / narrow-baseline rays where conditioning matters. Pixel-domain Hartley
-    normalization does **not** apply to bearing vectors; this is its spherical analogue.
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2,
+        one correspondence per row, ``N >= 8``.
+    normalize : bool, default False
+        Apply spherical whitening (see the module-private ``_whiten``) before the solve and
+        undo it after. Leave off for clean data — it changes nothing in the noise-free limit
+        (verified in [Chapter 8](../learn/08_two_view_geometry_on_rays.md), residual
+        ``5.69e-16`` either way). Turn on for noisy / narrow-baseline rays where conditioning
+        matters; pixel-domain Hartley normalization does not apply to bearing vectors, so this
+        is its spherical analogue.
+
+    Returns
+    -------
+    (3, 3) ndarray
+        Essential matrix ``E`` with singular values ``(1, 1, 0)``, satisfying
+        ``f2ᵀ E f1 ≈ 0`` for the input correspondences.
+
+    Raises
+    ------
+    ValueError
+        If fewer than 8 correspondences are given, or if ``f1``/``f2`` are not shape ``(N, 3)``
+        or contain a zero-length vector (checked in the shared ``_as_rays`` validator).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ds_msp.mvg import essential_from_rays, epipolar_residual
+    >>> rng = np.random.default_rng(0)
+    >>> X1 = rng.uniform(-2, 2, (10, 3)) + np.array([0, 0, 5])
+    >>> X2 = X1 + np.array([1.0, 0.0, 0.0])
+    >>> f1 = X1 / np.linalg.norm(X1, axis=1, keepdims=True)
+    >>> f2 = X2 / np.linalg.norm(X2, axis=1, keepdims=True)
+    >>> E = essential_from_rays(f1, f2)
+    >>> E.shape
+    (3, 3)
+    >>> np.round(np.linalg.svd(E, compute_uv=False), 6)
+    array([1., 1., 0.])
     """
     f1 = _as_rays(f1)
     f2 = _as_rays(f2)
@@ -100,8 +174,36 @@ def essential_from_rays(f1: np.ndarray, f2: np.ndarray, *, normalize: bool = Fal
 def decompose_essential(E: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
     """The four ``(R, t)`` candidates consistent with an essential matrix.
 
-    ``t`` is unit-length (translation is scale-free). Cheirality (``recover_pose``) selects
-    the one physical solution among the four.
+    Every essential matrix factors as ``E = [t]_× R`` for exactly two rotations and two signs
+    of ``t`` (Hartley & Zisserman, §9.6.2, Result 9.19) — ambiguous without an extra
+    cheirality test, which :func:`recover_pose` applies to pick the one physical solution.
+
+    Parameters
+    ----------
+    E : (3, 3) ndarray
+        Essential matrix, e.g. from :func:`essential_from_rays`. Need not already be exactly
+        rank 2 / equal-singular-value — only its left/right singular bases are used.
+
+    Returns
+    -------
+    list of (ndarray, ndarray)
+        The four ``(R, t)`` candidates ``[(R1, t), (R1, -t), (R2, t), (R2, -t)]``. Each ``R``
+        is a ``(3, 3)`` rotation matrix (``det = +1``); ``t`` is a ``(3,)`` unit vector
+        (translation is recovered only up to scale).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ds_msp.mvg import essential_from_rays, decompose_essential
+    >>> rng = np.random.default_rng(0)
+    >>> X1 = rng.uniform(-2, 2, (10, 3)) + np.array([0, 0, 5])
+    >>> X2 = X1 + np.array([1.0, 0.0, 0.0])
+    >>> f1 = X1 / np.linalg.norm(X1, axis=1, keepdims=True)
+    >>> f2 = X2 / np.linalg.norm(X2, axis=1, keepdims=True)
+    >>> E = essential_from_rays(f1, f2)
+    >>> candidates = decompose_essential(E)
+    >>> len(candidates)
+    4
     """
     U, _, Vt = np.linalg.svd(np.asarray(E, float))
     if np.linalg.det(U) < 0:
@@ -118,9 +220,36 @@ def triangulate_rays(f1: np.ndarray, f2: np.ndarray, R: np.ndarray, t: np.ndarra
                      ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Midpoint triangulation of ray pairs under pose ``(R, t)``.
 
-    Returns ``(X, depth1, depth2)``: 3D points in **camera-1** frame ``(N, 3)``, and the
-    signed depth of each point along ``f1`` and along ``f2``. Positive depths ⇒ the point is
-    in front of both cameras.
+    For each correspondence, finds the two points (one on ray 1, one on ray 2, expressed in
+    camera-1 frame) that minimize the distance between the rays, and returns their midpoint —
+    the closed-form linear method (see e.g. Hartley & Sturm, *Triangulation*, CVIU 1997, §2.1).
+
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2.
+    R, t : (3, 3), (3,) ndarray
+        Relative pose mapping a point from camera 1 to camera 2: ``X2 = R @ X1 + t``
+        (the convention returned by :func:`recover_pose` / :func:`decompose_essential`).
+
+    Returns
+    -------
+    X : (N, 3) ndarray
+        Triangulated 3D points, in the **camera-1** frame.
+    depth1 : (N,) ndarray
+        Signed distance of each point along ``f1`` from camera 1's centre.
+    depth2 : (N,) ndarray
+        Signed distance of each point along ``f2`` from camera 2's centre. A point is in front
+        of both cameras iff ``depth1 > 0`` and ``depth2 > 0`` — the ray-cheirality test used by
+        :func:`recover_pose` (positive depth *along the bearing ray*, not ``z > 0``: valid for
+        rays past 90° off-axis on a wide-FOV camera).
+
+    Notes
+    -----
+    Near-parallel ray pairs (``|f1 · d2| -> 1``, i.e. almost no parallax) make the 2x2 linear
+    system nearly singular; the denominator is floored at ``1e-12`` rather than raising, so the
+    result degrades gracefully (a poorly-conditioned but finite point) instead of dividing by
+    zero.
     """
     f1 = _as_rays(f1)
     f2 = _as_rays(f2)
@@ -147,9 +276,47 @@ def recover_pose(f1: np.ndarray, f2: np.ndarray, E: Optional[np.ndarray] = None
                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Relative pose ``(R, t)`` and triangulated points from ray correspondences.
 
-    Computes ``E`` (if not supplied), enumerates the four decompositions, and picks the one
-    with the most points in front of **both** cameras (ray cheirality). Returns
-    ``(R, t, X)`` with ``t`` unit-length and ``X`` the triangulated points (camera-1 frame).
+    Computes ``E`` (if not supplied), enumerates the four :func:`decompose_essential`
+    candidates, and via cheirality picks the one with the most :func:`triangulate_rays` points
+    in front of **both** cameras.
+
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2,
+        ``N >= 8`` when ``E`` is not supplied (needed by :func:`essential_from_rays`).
+    E : (3, 3) ndarray, optional
+        A precomputed essential matrix (e.g. re-fit on a RANSAC inlier set by
+        :func:`ransac_relative_pose`). If ``None`` (default), computed from ``f1``, ``f2`` via
+        :func:`essential_from_rays` with ``normalize=False``.
+
+    Returns
+    -------
+    R : (3, 3) ndarray
+        Rotation mapping camera 1 to camera 2 (``X2 = R @ X1 + t``), ``det(R) = +1``.
+    t : (3,) ndarray
+        Unit-length translation direction; its scale is unobservable from two views.
+    X : (N, 3) ndarray
+        Triangulated 3D points, in the **camera-1** frame.
+
+    Examples
+    --------
+    Exact recovery on noise-free rays (see
+    [Chapter 8](../learn/08_two_view_geometry_on_rays.md) for the full walkthrough, including a
+    real Double Sphere camera round-trip asserted to ``< 1e-3`` degrees rotation error):
+
+    >>> import numpy as np
+    >>> from ds_msp.mvg import recover_pose
+    >>> rng = np.random.default_rng(1)
+    >>> R_true = np.eye(3)
+    >>> t_true = np.array([1.0, 0.0, 0.0])
+    >>> X1 = rng.uniform(-2, 2, (40, 3)) + np.array([0, 0, 5])
+    >>> X2 = (R_true @ X1.T).T + t_true
+    >>> f1 = X1 / np.linalg.norm(X1, axis=1, keepdims=True)
+    >>> f2 = X2 / np.linalg.norm(X2, axis=1, keepdims=True)
+    >>> R, t, X = recover_pose(f1, f2)
+    >>> bool(np.allclose(R, R_true, atol=1e-8))
+    True
     """
     f1 = _as_rays(f1)
     f2 = _as_rays(f2)

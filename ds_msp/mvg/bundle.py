@@ -35,8 +35,26 @@ def angular_reprojection_error(f1: np.ndarray, f2: np.ndarray,
                                R: np.ndarray, t: np.ndarray, X: np.ndarray) -> np.ndarray:
     """Per-point reprojection error in **degrees**: max of the two view angles.
 
-    View 1 predicts direction ``X``; view 2 predicts ``R X + t``. Each is compared (as an angle)
-    to the observed ray.
+    View 1 predicts direction ``X``; view 2 predicts ``R @ X + t``. Each predicted direction is
+    compared, as an angle, to the corresponding observed ray — the model-free, FOV-independent
+    error metric :func:`refine_two_view` minimizes (see the tangent-plane construction in
+    :func:`refine_two_view`'s docstring).
+
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Observed unit (or non-unit; renormalized internally) bearing vectors in camera 1 and
+        camera 2.
+    R, t : (3, 3), (3,) ndarray
+        Relative pose, camera 1 to camera 2: ``X2 = R @ X1 + t``.
+    X : (N, 3) ndarray
+        Candidate 3D points in the camera-1 frame (e.g. from :func:`~ds_msp.mvg.triangulate_rays`).
+
+    Returns
+    -------
+    (N,) ndarray
+        Per-point error in degrees: ``max(angle(f1, X), angle(f2, R @ X + t))``. Zero for a
+        perfect fit.
     """
     f1, f2 = _as_rays(f1), _as_rays(f2)
     R = np.asarray(R, float)
@@ -67,9 +85,36 @@ def refine_two_view(f1: np.ndarray, f2: np.ndarray,
     7-DOF similarity gauge (the angular error is scale-invariant). The translation gauge makes the
     ``δt`` block rank-deficient by design; the solver's damped-Cholesky floor absorbs it.
 
-    ``robust_kernel`` / ``robust_scale`` optionally turn on IRLS down-weighting of mismatched
-    correspondences (e.g. ``"cauchy"``, ``"auto"``); the default reproduces plain L2. Returns the
-    refined ``(R, t, X)``.
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Observed unit (or non-unit; renormalized internally) bearing vectors in camera 1 and
+        camera 2.
+    R0, t0 : (3, 3), (3,) ndarray
+        Initial relative pose (e.g. from :func:`~ds_msp.mvg.recover_pose` /
+        :func:`~ds_msp.mvg.ransac_relative_pose`). ``t0`` is renormalized to unit length before
+        optimizing.
+    X0 : (N, 3) ndarray
+        Initial 3D points in the camera-1 frame (e.g. from
+        :func:`~ds_msp.mvg.triangulate_rays`).
+    max_nfev : int, default 100
+        Maximum solver iterations, forwarded to :func:`ds_msp.core.optimize.lm_solve` as
+        ``max_iter``.
+    robust_kernel : str, default "none"
+        IRLS down-weighting kernel for mismatched correspondences (e.g. ``"cauchy"``); see
+        :func:`ds_msp.core.optimize.lm_solve`. ``"none"`` reproduces plain L2.
+    robust_scale : float or str, default 1.0
+        Inlier scale for ``robust_kernel``, or ``"auto"`` to re-estimate it from the residuals
+        each iteration.
+
+    Returns
+    -------
+    R : (3, 3) ndarray
+        Refined rotation, camera 1 to camera 2.
+    t : (3,) ndarray
+        Refined unit-length translation direction.
+    X : (N, 3) ndarray
+        Refined 3D points, in the camera-1 frame.
     """
     f1, f2 = _as_rays(f1), _as_rays(f2)
     n = f1.shape[0]
@@ -81,6 +126,7 @@ def refine_two_view(f1: np.ndarray, f2: np.ndarray,
     X0 = np.asarray(X0, float)
 
     def residual(state):
+        """Tangent-plane residual ``(4N,)`` for ``lm_solve``: view-1 then view-2 (u, v) pairs."""
         R, t, X = state
         d1 = X / np.linalg.norm(X, axis=1, keepdims=True)
         d2 = X @ R.T + t
@@ -90,6 +136,7 @@ def refine_two_view(f1: np.ndarray, f2: np.ndarray,
         return np.concatenate([r1.ravel(), r2.ravel()])
 
     def jacobian(state):
+        """Analytic ``d(residual)/d(δω, δt, δX)``, shape ``(4N, 6 + 3N)``, for ``lm_solve``."""
         R, t, X = state
         # View 1 (camera at identity) sees only X; view 2 sees R·exp(δω)·X + normalize(t+δt).
         J = np.zeros((4 * n, 6 + 3 * n))
@@ -115,6 +162,7 @@ def refine_two_view(f1: np.ndarray, f2: np.ndarray,
         return J
 
     def retract(state, delta):
+        """Manifold update for ``lm_solve``: ``R`` by SO(3) exp, ``t`` re-normalized, ``X`` flat."""
         R, t, X = state
         R = R @ so3_exp(delta[:3])
         t = t + delta[3:6]
@@ -139,10 +187,42 @@ def estimate_relative_pose(f1: np.ndarray, f2: np.ndarray, *,
     single least-squares eight-point on contaminated data, especially at large rotation where one
     bad ray skews the essential matrix); the inliers are triangulated and handed to the
     manifold-correct :func:`refine_two_view` for a final geometric (angular) bundle adjustment.
+    This is the estimator :mod:`ds_msp.vo` composes into a trajectory
+    (:func:`ds_msp.vo.estimate_trajectory`), one consecutive frame pair at a time.
 
-    ``robust_kernel`` lets the refinement *additionally* down-weight any soft mismatches that
-    slipped under the RANSAC threshold. Returns ``(R, t, X, inliers)`` — pose, triangulated points
-    (camera-1 frame, inliers only), and the boolean inlier mask over the input correspondences.
+    Parameters
+    ----------
+    f1, f2 : (N, 3) ndarray
+        Observed unit (or non-unit; renormalized internally) bearing vectors in camera 1 and
+        camera 2, ``N >= 8``.
+    threshold : float, default 0.005
+        RANSAC inlier cutoff on the Sampson angle (radians); forwarded to
+        :func:`~ds_msp.mvg.ransac_relative_pose`.
+    max_iters : int, default 1000
+        RANSAC iteration budget; forwarded to :func:`~ds_msp.mvg.ransac_relative_pose`.
+    seed : int, default 0
+        RNG seed for RANSAC sampling.
+    refine : bool, default True
+        Run :func:`refine_two_view` on the RANSAC inliers after triangulation. If ``False``,
+        returns the closed-form RANSAC pose and triangulation unrefined.
+    robust_kernel : str, default "none"
+        IRLS kernel passed to :func:`refine_two_view` (only used when ``refine=True``); lets the
+        refinement *additionally* down-weight soft mismatches that slipped under the RANSAC
+        threshold.
+    robust_scale : float or str, default "auto"
+        Inlier scale for ``robust_kernel``, or ``"auto"`` to re-estimate it each iteration; only
+        used when ``refine=True``.
+
+    Returns
+    -------
+    R : (3, 3) ndarray
+        Rotation, camera 1 to camera 2.
+    t : (3,) ndarray
+        Unit-length translation direction.
+    X : (N_inliers, 3) ndarray
+        Triangulated 3D points (camera-1 frame), inliers only.
+    inliers : (N,) bool ndarray
+        Boolean inlier mask over the input correspondences.
     """
     f1, f2 = _as_rays(f1), _as_rays(f2)
     R0, t0, inliers = ransac_relative_pose(f1, f2, threshold=threshold,

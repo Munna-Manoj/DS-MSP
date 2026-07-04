@@ -330,6 +330,12 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
     (unlike the model-specific redundancy fixes elsewhere in this module).
     """
     def front_end(obj, obs_by_cam, img_size):
+        """Per-camera intrinsic calibration + pose seeding front-end.
+
+        Matches the ``front_end(obj, obs_by_cam, img_size) -> {cam_id: CameraModel}``
+        signature :func:`calibrate_rig` expects; see :func:`make_bundle_front_end`'s
+        docstring for the seeding/parallelism strategy.
+        """
         model_map = _resolve_model_map(model_spec, list(obs_by_cam))
         seeded = set(init_K) if init_K else set()
         cam_ids = list(obs_by_cam)

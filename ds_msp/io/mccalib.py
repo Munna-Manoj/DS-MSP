@@ -43,6 +43,29 @@ def _flat(node) -> np.ndarray:
 
 @dataclass
 class CameraGT:
+    """One camera's intrinsics + pose as read from an MC-Calib YAML file.
+
+    Used for both the synthetic ground truth (``GroundTruth.yml``) and MC-Calib's
+    own calibration result (``calibrated_cameras_data.yml``); the two files share
+    this shape, differing only in which fields are populated.
+
+    Parameters
+    ----------
+    K : (3, 3) array
+        Pinhole intrinsic matrix.
+    dist : array or None
+        Raw distortion coefficient vector in the file's native order, or ``None``
+        when the source file has none (e.g. ``GroundTruth.yml``).
+    pose : (4, 4) array
+        Camera pose as stored by the source file (group-reference -> camera
+        convention for MC-Calib's own result; see the module docstring).
+    model_name : str or None, default None
+        Canonical DS-MSP model name (e.g. ``"ds"``, ``"kb"``) when the file states
+        it explicitly (``camera_model`` string or MC-Calib's ``distortion_type``
+        int); ``None`` for a plain MC-Calib file where the caller must infer the
+        model from ``len(dist)``.
+    """
+
     K: np.ndarray
     dist: Optional[np.ndarray]
     pose: np.ndarray            # 4x4 (group-ref -> camera convention, as stored)
@@ -53,6 +76,36 @@ class CameraGT:
 
 @dataclass
 class Scenario:
+    """A fully loaded MC-Calib Blender benchmark scenario.
+
+    Bundles everything :func:`load_scenario` reads from one
+    ``Blender_Images/Scenario_*`` directory: the fused calibration object, the
+    2D detections that drive ``ds_msp.rig.calibrate_rig``, and both reference
+    calibrations (synthetic ground truth and MC-Calib's own result) to compare
+    against.
+
+    Parameters
+    ----------
+    name : str
+        Scenario directory name (e.g. ``"Scenario_1"``).
+    object : Object3D
+        Fused multi-board calibration object shared by every camera.
+    object_obs : list of ObjectObs
+        One entry per ``(camera, frame)`` observation of the object.
+    cam_ids : list of int
+        0-based camera ids present in the scenario, sorted.
+    img_size : dict of int to (int, int)
+        Per-camera ``(width, height)`` in pixels.
+    gt : dict of int to CameraGT
+        Synthetic ground-truth intrinsics/pose per camera id, from
+        ``GroundTruth.yml``; empty if the file is absent.
+    mccalib : dict of int to CameraGT
+        MC-Calib's own calibrated intrinsics/pose per camera id.
+    mccalib_rms : dict of int to float
+        Per-camera RMS reprojection error reported by MC-Calib, pixels; empty
+        unless populated by the caller (:func:`load_scenario` leaves it empty).
+    """
+
     name: str
     object: Object3D
     object_obs: List[ObjectObs]                 # one per (camera, frame)

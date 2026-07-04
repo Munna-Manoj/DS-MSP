@@ -45,10 +45,13 @@ class BoardSpec:
 
     @property
     def n_corners(self) -> int:
+        """Interior chessboard corner count, ``(n_x - 1) * (n_y - 1)``."""
         return (self.n_x - 1) * (self.n_y - 1)
 
     @property
     def n_markers(self) -> int:
+        """ArUco marker count on this board, ``floor(n_x * n_y / 2)`` (markers fill the
+        non-chessboard cells of the checker pattern)."""
         # DICT markers fill the non-chessboard cells: floor(n_x*n_y / 2).
         return (self.n_x * self.n_y) // 2
 

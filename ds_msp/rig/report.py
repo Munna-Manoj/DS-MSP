@@ -102,11 +102,24 @@ class BrailleCanvas:
         self._color = [[None] * cols for _ in range(rows)]
 
     def clear(self) -> None:
+        """Clear every dot in the canvas (colors are left in place, unused until re-set)."""
         for row in self._bits:
             for i in range(len(row)):
                 row[i] = 0
 
     def set(self, x: float, y: float, color: Optional[Tuple[int, int, int]] = None) -> None:
+        """Light one dot at sub-character resolution.
+
+        Parameters
+        ----------
+        x, y : float
+            Dot coordinates in the canvas's ``(w, h) = (cols*2, rows*4)`` dot grid;
+            rounded to the nearest integer dot. Out-of-bounds coordinates are
+            silently ignored (no-op).
+        color : tuple of int, optional
+            ``(r, g, b)`` in ``0-255``, applied to the dot's whole character cell.
+            If omitted, the cell's existing color (if any) is left unchanged.
+        """
         xi, yi = int(round(x)), int(round(y))
         if not (0 <= xi < self.w and 0 <= yi < self.h):
             return
@@ -117,12 +130,29 @@ class BrailleCanvas:
 
     def line(self, x0: float, y0: float, x1: float, y1: float,
             color: Optional[Tuple[int, int, int]] = None) -> None:
+        """Draw a straight line from ``(x0, y0)`` to ``(x1, y1)`` in dot coordinates.
+
+        Parameters
+        ----------
+        x0, y0, x1, y1 : float
+            Endpoints in the canvas's dot grid (see :meth:`set`).
+        color : tuple of int, optional
+            ``(r, g, b)`` applied to every dot's cell along the line.
+        """
         n = max(2, int(max(abs(x1 - x0), abs(y1 - y0))))
         for i in range(n + 1):
             t = i / n
             self.set(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, color)
 
     def render_lines(self) -> List[str]:
+        """Render the canvas to printable text.
+
+        Returns
+        -------
+        list of str
+            One string per row (``self.rows`` entries), each row's braille
+            characters ANSI-colored per non-empty cell.
+        """
         lines = []
         for r in range(self.rows):
             parts = []
@@ -294,6 +324,8 @@ class Live3DAnimator:
         eye, right, up, fwd = _orbit_basis(center, radius, self._az, self._el)
 
         def proj(p):
+            """Perspective-project a world-frame point ``p`` (3,) into canvas dot
+            coordinates, or ``None`` if it is behind the orbit camera (``vz <= 1e-3``)."""
             rel = p - eye
             vx, vy, vz = rel @ right, rel @ up, rel @ fwd
             if vz <= 1e-3:
@@ -375,6 +407,24 @@ class Live3DAnimator:
 
 @dataclass
 class ErrorStats:
+    """Distribution of reprojection errors (pixels), not just a single RMS number.
+
+    See ``docs/learn/robust_losses_and_evaluation.md`` for why a single RMS value
+    is misleading on a robust fit — this reports the shape of the error
+    distribution instead. Built by :func:`camera_and_overall_stats` /
+    :func:`_stats` from per-observation errors.
+
+    Parameters
+    ----------
+    n : int
+        Number of error samples (0 if none were available; other fields are NaN).
+    mean, median, p95, max, rms : float
+        Mean, median, 95th percentile, maximum, and RMS reprojection error, pixels.
+    inlier_frac : float
+        Fraction of errors below the ``inlier_px`` threshold used to compute this
+        instance (see :func:`camera_and_overall_stats`).
+    """
+
     n: int
     mean: float
     median: float
@@ -384,6 +434,7 @@ class ErrorStats:
     inlier_frac: float
 
     def to_dict(self) -> Dict[str, float]:
+        """Return the stats as a plain ``{field: value}`` dict (for JSON/HTML export)."""
         return {"n": self.n, "mean": self.mean, "median": self.median, "p95": self.p95,
                 "max": self.max, "rms": self.rms, "inlier_frac": self.inlier_frac}
 
@@ -481,6 +532,21 @@ def render_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overal
 
 def print_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overall: ErrorStats,
                  level: str, message: str) -> None:
+    """Print the per-camera stats table + verdict to stdout.
+
+    Parameters
+    ----------
+    models : dict of int to str
+        Camera id -> model name, for the table's "model" column.
+    per_cam : dict of int to ErrorStats
+        Per-camera reprojection error distribution.
+    overall : ErrorStats
+        Rig-wide reprojection error distribution.
+    level : str
+        Verdict level, e.g. ``"PASS"``, ``"WARN"``, ``"FAIL"``.
+    message : str
+        Human-readable verdict explanation.
+    """
     print(render_report(models, per_cam, overall, level, message))
 
 

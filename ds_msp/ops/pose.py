@@ -28,7 +28,11 @@ def solve_pnp(model: CameraModel, object_points: np.ndarray, image_points: np.nd
     object_points : (N, 3) world points.
     image_points : (N, 2) distorted pixels.
 
-    Returns ``(success, rvec, tvec)`` with squeezed vectors, or ``(False, None, None)``.
+    Returns
+    -------
+    tuple
+        ``(success, rvec, tvec)`` with squeezed ``(3,)`` vectors, or ``(False, None, None)``
+        if fewer than 4 points survive the front-facing filter or the solve fails.
     """
     object_points = np.asarray(object_points, dtype=np.float64)
     image_points = np.asarray(image_points, dtype=np.float64)
@@ -69,9 +73,12 @@ def solve_pnp_ransac(model: CameraModel, object_points: np.ndarray, image_points
     image_points : (N, 2) distorted pixels.
     thresh_px : inlier reprojection gate in pixels.
 
-    Returns ``(success, rvec, tvec, inliers)`` where ``inliers`` is an ``(N,)`` boolean mask over
-    ``image_points`` (``False`` for points dropped as outliers or as non-front-facing rays).
-    Like any plane-based PnP it uses front-facing (z > 0) correspondences only.
+    Returns
+    -------
+    tuple
+        ``(success, rvec, tvec, inliers)`` where ``inliers`` is an ``(N,)`` boolean mask over
+        ``image_points`` (``False`` for points dropped as outliers or as non-front-facing
+        rays). Like any plane-based PnP it uses front-facing (``z > 0``) correspondences only.
     """
     from ..geometry.resection import ransac_pnp_normalized          # NC robust engine
 

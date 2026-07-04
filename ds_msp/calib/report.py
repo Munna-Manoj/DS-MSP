@@ -95,6 +95,12 @@ def make_detect_progress(*, verbose: bool = True, stream=None):
 
 @dataclass
 class ErrorStats:
+    """Reprojection-error distribution summary, in pixels.
+
+    ``n`` is the number of residual observations the other five statistics are computed
+    over (not the number of images) — see :meth:`from_result`.
+    """
+
     n: int
     mean: float
     median: float
@@ -103,6 +109,7 @@ class ErrorStats:
     rms: float
 
     def to_dict(self) -> Dict[str, float]:
+        """Return ``{"n", "mean", "median", "p95", "max", "rms"}`` as a plain dict."""
         return {"n": self.n, "mean": self.mean, "median": self.median, "p95": self.p95,
                 "max": self.max, "rms": self.rms}
 
@@ -179,4 +186,5 @@ def render_report(board_type: str, model_name: str, n_detected: int, n_total: in
 
 def print_report(board_type: str, model_name: str, n_detected: int, n_total: int,
                  overall: ErrorStats, level: str, message: str) -> None:
+    """Print :func:`render_report`'s output to stdout. Arguments are forwarded verbatim."""
     print(render_report(board_type, model_name, n_detected, n_total, overall, level, message))

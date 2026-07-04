@@ -86,6 +86,25 @@ class Object3D:
     pts_board_2_obj: Dict[Tuple[int, int], int]         # (board_id, corner_id) -> row
 
     def row_of(self, board_id: int, corner_id: int) -> int:
+        """Look up the row into :attr:`pts_3d` for a ``(board_id, corner_id)`` pair.
+
+        Parameters
+        ----------
+        board_id : int
+            One of :attr:`board_ids`.
+        corner_id : int
+            Board-local corner id (as detected by the board's own numbering).
+
+        Returns
+        -------
+        int
+            Row index into :attr:`pts_3d` / :attr:`pts_obj_2_board`.
+
+        Raises
+        ------
+        KeyError
+            If ``(board_id, corner_id)`` was never fused into this object.
+        """
         return self.pts_board_2_obj[(int(board_id), int(corner_id))]
 
 

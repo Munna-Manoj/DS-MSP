@@ -146,6 +146,11 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r, d, nrm[:, 0]
 
     def residual(state):
+        """Stacked reprojection (or angular) residual vector ``(total_rows,)`` for ``state``.
+
+        Part of the :func:`core.optimize.lm_solve` callback contract; see
+        :func:`build_problem`'s docstring for the state layout.
+        """
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         r = np.zeros(total_rows)
         row = 0
@@ -161,6 +166,12 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r
 
     def jacobian(state):
+        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
+
+        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
+        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
+        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
+        """
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         J = np.zeros((total_rows, K))
         row = 0
@@ -205,6 +216,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return J
 
     def retract(state, d):
+        """Apply a tangent-space update ``d`` (K,) to ``state``: SO(3) retraction
+        ``R <- R @ so3_exp(δω)`` for every pose block, additive for translations and
+        (bounds-clipped) intrinsics. Returns a new state dict; does not mutate ``state``.
+        """
         s = {k: (v.copy() if isinstance(v, np.ndarray) else dict(v)) for k, v in state.items()}
         s["cam_R"], s["cam_t"] = dict(state["cam_R"]), dict(state["cam_t"])
         s["obj_R"], s["obj_t"] = dict(state["obj_R"]), dict(state["obj_t"])
@@ -297,6 +312,7 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return Xg, Xc
 
     def residual(state):
+        """Stacked reprojection residual, grouped by object pose (frame), for :func:`core.optimize.schur_lm`."""
         mc = _models(state)
         out = []
         for k in groups:
@@ -309,6 +325,13 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return np.concatenate(out) if out else np.zeros(0)
 
     def linearize(state):
+        """Per-group ``(r, A, B)`` blocks for :func:`core.optimize.schur_lm`.
+
+        Returns three lists (one entry per object-pose group): ``r_list[i]`` the
+        group's stacked residual, ``A_list[i]`` its Jacobian w.r.t. the shared block
+        (camera extrinsics/intrinsics), ``B_list[i]`` its Jacobian w.r.t. that
+        group's own 6-DoF local (object-pose) block.
+        """
         mc = _models(state)
         r_list, A_list, B_list = [], [], []
         for k in groups:
@@ -341,6 +364,10 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r_list, A_list, B_list
 
     def retract(state, d_shared, d_local):
+        """Apply the shared-block update ``d_shared`` (shared_dim,) and per-group local
+        updates ``d_local`` (n_groups, 6) to ``state`` via SO(3) retraction on rotations
+        and additive updates on translations/intrinsics. Returns a new state dict.
+        """
         s = dict(state)
         s["cam_R"], s["cam_t"] = dict(state["cam_R"]), dict(state["cam_t"])
         s["obj_R"], s["obj_t"] = dict(state["obj_R"]), dict(state["obj_t"])

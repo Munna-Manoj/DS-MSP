@@ -176,6 +176,7 @@ class WebLive3DAnimator:
 
         class _QuietHandler(http.server.SimpleHTTPRequestHandler):
             def log_message(self, fmt, *args):      # noqa: A002 - stdlib signature
+                """Suppress ``BaseHTTPRequestHandler``'s default per-request stderr logging."""
                 pass
 
         handler = functools.partial(_QuietHandler, directory=self._dir)

@@ -285,6 +285,7 @@ class RigConfig:
 
     @property
     def number_board(self) -> int:
+        """Number of calibration boards, i.e. ``len(self.boards)``."""
         return len(self.boards)
 
 
@@ -337,6 +338,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
     ov = overrides or {}
 
     def path_key(name, default=None):
+        """Resolve config field ``name`` to an absolute path, preferring ``overrides``."""
         if name in ov:
             return _resolve(base, ov[name])
         return _resolve(base, _scalar(fs, name, default))
@@ -401,6 +403,7 @@ def _detect_progress_printer():
     from .report import live_line
 
     def cb(cam_id: int, i: int, n: int, path: str) -> None:
+        """``detect_rig`` progress callback: overwrite one live terminal line."""
         live_line(f"[detect] cam {cam_id}: {i}/{n}  {os.path.basename(path)}")
     return cb
 
@@ -420,6 +423,7 @@ def _compose_progress(cfg: RigConfig, animator):
         return cbs[0]
 
     def cb(cam_id: int, i: int, n: int, path: str) -> None:
+        """``detect_rig`` progress callback: fan out to every combined callback."""
         for c in cbs:
             c(cam_id, i, n, path)
     return cb

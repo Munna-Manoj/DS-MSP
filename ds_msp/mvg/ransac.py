@@ -20,7 +20,24 @@ def sampson_residual(E: np.ndarray, f1: np.ndarray, f2: np.ndarray) -> np.ndarra
 
     First-order (Sampson) approximation of how far each ray pair is from satisfying
     ``f2ᵀ E f1 = 0``, with the gradient taken in the **tangent planes** of the unit rays so the
-    result is an angle, not an algebraic residual.
+    result is an **angle in radians**, not the unitless algebraic residual of
+    :func:`~ds_msp.mvg.epipolar_residual`. This is the FOV-independent scoring function
+    :func:`ransac_relative_pose` thresholds against — a fixed radian cutoff means the same
+    angular tolerance at the image centre and at the rim of a wide-FOV lens, unlike a pixel
+    threshold.
+
+    Parameters
+    ----------
+    E : (3, 3) ndarray
+        Essential matrix candidate.
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2.
+
+    Returns
+    -------
+    (N,) ndarray
+        Non-negative Sampson angle (radians) per correspondence; small for a correct ``E`` and
+        a genuine correspondence, large (up to ``~pi``) for a mismatch.
     """
     E = np.asarray(E, float)
     f1 = _as_rays(f1)
@@ -41,20 +58,73 @@ def ransac_relative_pose(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Robust ``(R, t)`` from ray correspondences via RANSAC over the eight-point.
 
+    Repeatedly samples 8 correspondences, fits :func:`~ds_msp.mvg.essential_from_rays`, and
+    scores every correspondence with :func:`sampson_residual`; keeps the largest inlier
+    consensus and (optionally) re-fits on it. The iteration budget is adaptive: once the best
+    inlier fraction seen implies an all-inlier 8-sample has probably already been drawn (at
+    the given ``confidence``), remaining iterations are skipped.
+
     Parameters
     ----------
-    threshold : float
-        Inlier cutoff on the Sampson **angle** (radians); ~0.005 ≈ 0.3°.
-    max_iters, confidence :
-        RANSAC budget; iterations are cut short once `confidence` that an all-inlier sample was
-        drawn is reached (adaptive).
-    refine : bool
-        Re-fit the essential matrix on all inliers (with spherical normalization) before pose
-        recovery.
+    f1, f2 : (N, 3) ndarray
+        Unit (or non-unit; renormalized internally) bearing vectors in camera 1 and camera 2,
+        ``N >= 8``.
+    threshold : float, default 0.005
+        Inlier cutoff on the Sampson **angle** (radians); ``0.005 rad ~ 0.3 deg``.
+    max_iters : int, default 1000
+        Maximum RANSAC iterations (upper bound; adaptive stopping usually exits sooner).
+    confidence : float, default 0.999
+        Target probability of having drawn at least one all-inlier 8-sample; controls the
+        adaptive early stop.
+    seed : int, default 0
+        Seed for the internal ``numpy.random.default_rng`` (deterministic sampling).
+    refine : bool, default True
+        Re-fit the essential matrix on all inliers, with spherical whitening
+        (``essential_from_rays(..., normalize=True)``), before the final pose recovery.
 
     Returns
     -------
-    (R, t, inliers) : the pose and a boolean inlier mask over the input correspondences.
+    R : (3, 3) ndarray
+        Rotation mapping camera 1 to camera 2 (``X2 = R @ X1 + t``), ``det(R) = +1``.
+    t : (3,) ndarray
+        Unit-length translation direction.
+    inliers : (N,) bool ndarray
+        Consensus inlier mask over the input correspondences.
+
+    Raises
+    ------
+    ValueError
+        If fewer than 8 correspondences are given.
+    RuntimeError
+        If no 8-point sample ever reaches an 8-correspondence consensus (degenerate or
+        all-outlier data).
+
+    Examples
+    --------
+    Recovering rotation to ``~0.11 deg`` from 30%-corrupted ray matches (full walkthrough with
+    the naive-vs-RANSAC comparison table: [Chapter 8, §5](../learn/08_two_view_geometry_on_rays.md#5-make-it-robust-ransac-against-wrong-matches)):
+
+    >>> import numpy as np
+    >>> from ds_msp.mvg import ransac_relative_pose
+    >>> def rot_err_deg(A, B):
+    ...     return np.degrees(np.arccos(np.clip((np.trace(A.T @ B) - 1) / 2, -1, 1)))
+    >>> rng = np.random.default_rng(3)
+    >>> R_true = np.eye(3)  # no rotation, for a self-contained deterministic example
+    >>> t_true = np.array([0.1, 0.0, 0.0])
+    >>> X1 = np.column_stack([rng.uniform(-2, 2, 120), rng.uniform(-2, 2, 120),
+    ...                       rng.uniform(2, 8, 120)])
+    >>> X2 = (R_true @ X1.T).T + t_true
+    >>> f1 = X1 / np.linalg.norm(X1, axis=1, keepdims=True)
+    >>> f2 = X2 / np.linalg.norm(X2, axis=1, keepdims=True)
+    >>> rng2 = np.random.default_rng(4)
+    >>> outlier = rng2.random(120) < 0.30
+    >>> f2[outlier] = rng2.standard_normal((int(outlier.sum()), 3))
+    >>> f2 /= np.linalg.norm(f2, axis=1, keepdims=True)
+    >>> R, t, inliers = ransac_relative_pose(f1, f2, threshold=0.005, seed=0)
+    >>> bool(rot_err_deg(R_true, R) < 1.0)
+    True
+    >>> int(inliers.sum()) >= 80
+    True
     """
     f1 = _as_rays(f1)
     f2 = _as_rays(f2)

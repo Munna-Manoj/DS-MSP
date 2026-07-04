@@ -234,15 +234,21 @@ def calibrate(init_model: CameraModel,
     force_multistart : bool
         Kept for API stability (default ``True``, matching the always-disperse default above);
         see :func:`_shape_seeds`.
+    loss : str, optional
+        SciPy-style loss name (``"linear"``, ``"huber"``, ``"soft_l1"``, ``"cauchy"``) for
+        backward compatibility. Passing this (with or without ``f_scale``) reproduces the
+        pre-robust-default behaviour: fixed scale, GNC off.
+    f_scale : float, optional
+        Fixed inlier scale (px) for the legacy ``loss``-based path, in place of the modern
+        ``robust``/``robust_scale`` auto-scaling.
 
-    Backward compatibility: passing the SciPy-style ``loss`` (``"linear"``/``"huber"``/
-    ``"soft_l1"``/``"cauchy"``) and/or ``f_scale`` reproduces the pre-robust-default
-    behaviour (fixed scale, GNC off) so existing callers stay stable.
-
-    Returns a dict with the refined ``model``, per-image ``poses`` as ``(rvec, tvec)``,
-    ``success``, ``n_obs``, and reprojection statistics over valid observations:
-    ``rms_px``, ``mean_px``, ``median_px``, ``p95_px``, ``max_px`` (all in pixels and
-    independent of the kernel, so they stay comparable across configurations).
+    Returns
+    -------
+    dict
+        The refined ``model``, per-image ``poses`` as ``(rvec, tvec)``, ``success``, ``n_obs``,
+        and reprojection statistics over valid observations — ``rms_px``, ``mean_px``,
+        ``median_px``, ``p95_px``, ``max_px`` (all in pixels, independent of the robust kernel
+        so they stay comparable across configurations).
     """
     # Back-compat: an explicit loss/f_scale pins the legacy fixed-scale, no-GNC path.
     legacy = loss is not None or f_scale is not None

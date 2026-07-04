@@ -149,11 +149,20 @@ def convert(source: CameraModel, target_cls: Type[CameraModel], *,
 
     # 3. nonlinear refine, NaN-safe so out-of-domain rays never poison the solve.
     def residual(p):
+        """``scipy.optimize.least_squares`` residual vector for ``p``: flattened pixel
+        error ``(target.project(rays) - pixels).ravel()``, shape ``(2*len(rays),)``. Rays
+        that fall outside ``target``'s projectable domain produce a non-finite pixel,
+        replaced with a large constant (``1e6``) so the solver is pushed away from
+        out-of-domain parameter regions instead of being poisoned by NaN."""
         uv, _ = target_cls.from_params(p).project(rays)
         r = uv - pixels
         return np.where(np.isfinite(r), r, 1e6).ravel()
 
     def jac(p):
+        """Analytic Jacobian of :func:`residual` w.r.t. ``p``, shape
+        ``(2*len(rays), len(p))``, from ``target_cls.project_jacobian``. Non-finite
+        entries (same out-of-domain rays as :func:`residual`) are zeroed rather than left
+        as NaN, so they contribute no gradient instead of poisoning the normal equations."""
         _, _, j_param, _ = target_cls.from_params(p).project_jacobian(rays)
         j = j_param.reshape(-1, p.size)
         return np.where(np.isfinite(j), j, 0.0)

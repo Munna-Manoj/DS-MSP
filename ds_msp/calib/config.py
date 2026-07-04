@@ -33,6 +33,14 @@ _BOARD_TYPES = ("checkerboard", "charuco", "aprilgrid")
 
 @dataclass
 class BoardConfig:
+    """Board geometry, one dataclass covering all three board types.
+
+    Only the fields relevant to ``type`` need to be set; the rest keep their defaults and
+    are ignored by :func:`build_board`. ``rows``/``cols`` are always **interior corner**
+    counts (see the module docstring) for ``"checkerboard"``/``"charuco"``; ``"aprilgrid"``
+    uses the separate ``tag_rows``/``tag_cols``/``tag_size``/``tag_spacing`` fields instead.
+    """
+
     type: str = "checkerboard"                  # "checkerboard" | "charuco" | "aprilgrid"
 
     # checkerboard / charuco (single-board) shared geometry -- interior corner counts
@@ -64,6 +72,15 @@ class BoardConfig:
 
 @dataclass
 class CalibConfig:
+    """Top-level ``calib_config.yml`` schema for ``ds-msp-calibrate``.
+
+    Produced by :func:`load_config` (from a YAML file) or built directly from CLI flags.
+    ``robust``/``robust_scale``/``gnc``/``multi_start``/``n_restarts``/``seed``/``max_nfev``
+    are forwarded verbatim to :func:`ds_msp.calib.bundle.calibrate` — see that function's
+    docstring for their meaning. ``raw`` carries bookkeeping (e.g. the source config path)
+    set by :func:`load_config`, not user-facing configuration.
+    """
+
     board: BoardConfig = field(default_factory=BoardConfig)
     camera_model: str = "ds"                     # ds_msp.models.registry.model_class(name)
     images_path: Optional[str] = None
@@ -137,6 +154,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> CalibConf
     cfg.raw = {"path": config_path}
 
     def resolve(p):
+        """Resolve a possibly-relative path against the config file's own directory."""
         if p is None or str(p).strip() in ("", "None"):
             return None
         return p if os.path.isabs(p) else os.path.normpath(os.path.join(base, p))

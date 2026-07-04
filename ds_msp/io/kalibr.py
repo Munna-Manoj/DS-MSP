@@ -175,6 +175,25 @@ def load_kalibr(path: str, cam: str = "cam0"):
 
 
 def load_kalibr_with_resolution(path: str, cam: str = "cam0") -> Tuple[object, Tuple[int, int]]:
+    """Read a model and its image resolution from a Kalibr camchain YAML file.
+
+    Parameters
+    ----------
+    path : str
+        Path to a Kalibr camchain YAML file.
+    cam : str, default "cam0"
+        Stanza key to read (e.g. ``"cam0"``, ``"cam1"``). If ``cam`` is not present
+        in the file, falls back to the alphabetically first ``camN`` key found.
+
+    Returns
+    -------
+    model : CameraModel
+        The reconstructed DS-MSP camera model (see the module docstring for the
+        camera-model mapping table).
+    resolution : tuple of int
+        ``(width, height)`` in pixels, read from the stanza's ``resolution`` field;
+        ``(0, 0)`` if absent.
+    """
     with open(path, "r") as f:
         data = yaml.safe_load(f)
     if cam not in data:
