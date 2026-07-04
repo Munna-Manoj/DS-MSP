@@ -51,30 +51,33 @@ Issues = "https://github.com/Munna-Manoj/DS-MSP/issues"
 calib = ["aprilgrid"]
 webviewer = []
 
-# `ds-msp-calibrate-rig` is a real console command right after `pip install ds-msp` -- no
-# repo clone needed. Its logic lives in ds_msp.rig.cli (NOT scripts/calibrate_rig.py, which
-# is excluded from the wheel/sdist -- see the packages.find comment below); that file is now
-# just a thin wrapper kept for git-clone convenience. calibrate.py/validate.py/visualize.py
-# (single-camera workflows) don't have an equivalent console command yet -- they still require
-# a repo clone.
+# `ds-msp-calibrate-rig`/`ds-msp-calibrate` are real console commands right after
+# `pip install ds-msp` -- no repo clone needed. Their logic lives in ds_msp.rig.cli /
+# ds_msp.calib.cli (NOT scripts/calibrate_rig.py / scripts/calibrate.py, which are excluded
+# from the wheel/sdist -- see the packages.find comment below); those files are now just thin
+# wrappers kept for git-clone convenience. validate.py/visualize.py (ad-hoc single-camera
+# scripts) don't have an equivalent console command yet -- they still require a repo clone.
 [project.scripts]
 ds-msp-calibrate-rig = "ds_msp.rig.cli:main"
+ds-msp-calibrate = "ds_msp.calib.cli:main"
 
-# Package only the importable library; most top-level scripts (calibrate.py, validate.py,
-# visualize.py, …) are still CLI entry points that require a repo clone, not part of the
-# package. Without this, setuptools flat-layout auto-discovery is ambiguous and the build
-# fails ("Multiple top-level packages discovered").
+# Package only the importable library; some top-level scripts (validate.py, visualize.py, …)
+# are still ad-hoc CLI entry points that require a repo clone, not part of the package.
+# Without this, setuptools flat-layout auto-discovery is ambiguous and the build fails
+# ("Multiple top-level packages discovered").
 [tool.setuptools.packages.find]
 include = ["ds_msp*"]
 # The multi-camera rig pipeline (ds_msp.rig) now ships in the wheel: its real-data
 # validation gate is met (8-camera real rig + the MC-Calib Blender datasets — extrinsics
 # within ~0.16% of ground truth at sub-pixel reprojection, matching MC-Calib's own RMS).
 
-# calib_param.yml templates that `ds-msp-calibrate-rig --init-config`/`--init-intrinsics`
-# copy from (see ds_msp/rig/cli.py) -- setuptools does not include non-.py package data by
-# default, so this must be declared explicitly or the wheel silently ships without them.
+# calib_param.yml / calib_config.yml templates that `ds-msp-calibrate-rig`'s and
+# `ds-msp-calibrate`'s `--init-config`/`--init-intrinsics` copy from (see ds_msp/rig/cli.py,
+# ds_msp/calib/cli.py) -- setuptools does not include non-.py package data by default, so this
+# must be declared explicitly or the wheel silently ships without them.
 [tool.setuptools.package-data]
 "ds_msp.rig" = ["configs/*.yml"]
+"ds_msp.calib" = ["configs/*.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

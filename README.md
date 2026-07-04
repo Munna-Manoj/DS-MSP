@@ -1,12 +1,12 @@
 # DS-MSP
 
-**Double Sphere & Multi-model Spherical-camera Platform** — every wide-FOV camera model behind one interface.
+**Double Sphere & Multi-model Spherical-camera Platform** — one interface to calibrate, convert, and reason about every wide-FOV camera model, from a single lens to a full rig.
 
 [![PyPI](https://img.shields.io/pypi/v/ds-msp)](https://pypi.org/project/ds-msp/)
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20PolyForm--NC-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)
-![Tests](https://img.shields.io/badge/tests-446%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-567%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/)
 
 A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras. One interface covers calibration, model conversion, 3D geometry, multi-camera rigs, and hardware export — so you can swap camera models in a single line and convert between them without re-shooting images.
@@ -133,6 +133,19 @@ print(result["model"], result["rms_px"])           # calibrated model + reprojec
 
 On the capstone (real TUM-VI fisheye + AprilGrid) this matches the *published* intrinsics to **0.003% focal** at **0.08 px median**. → [Calibration capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md)
 
+**Just have a folder of images, no correspondences yet?** `ds-msp-calibrate` is a real console
+command from `pip install ds-msp` alone — detection (checkerboard / ChArUco / AprilGrid) +
+`calibrate()` above, config-driven, same pattern as the rig CLI below:
+
+```bash
+ds-msp-calibrate --init-config calib_config.yml   # write a starter config
+ds-msp-calibrate --config calib_config.yml        # detect -> bundle-adjust -> report -> save
+```
+
+Prints the full reprojection-error distribution (not just one RMS number) and a PASS/WARN/FAIL
+verdict; `ds_msp.calib.load_camera("camchain.yaml")` loads the result straight back into a
+ready `CameraModel` instance. → [Single-camera calibration guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/CALIBRATE_GUIDE.md)
+
 ### Convert between models (no images, no data)
 
 Translate a calibration between **any** two models with no images and no recalibration: DS-MSP samples the image grid, unprojects through the source model, builds a linear seed for the target, then refines on pixel reprojection. Sub-pixel agreement; design follows Fisheye-Calib-Adapter.
@@ -151,16 +164,17 @@ print(report["rms_px"])            # sub-pixel agreement; no images, no recalibr
 
 ### Multi-camera rig extrinsics (any FOV)
 
-> **Now shipped** in `pip install ds-msp` (`ds_msp.rig`) — validated on a real 8-camera rig and the MC-Calib Blender datasets (extrinsics within ~0.16% of ground truth). The `scripts/calibrate_rig.py` CLI lives in the source tree (clone the repo).
+> **Now shipped** in `pip install ds-msp` (`ds_msp.rig`) — validated on a real 8-camera rig and the MC-Calib Blender datasets (extrinsics within ~0.16% of ground truth). `pip install ds-msp` alone gives you the `ds-msp-calibrate-rig` command, no repo clone needed (a git clone can use `python scripts/calibrate_rig.py` instead — same CLI either way).
 
 A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output files (`calibrated_cameras_data.yml`, `calibrated_objects_data.yml`, …), interoperable both directions. It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images — and adds one extension: a **different camera model per camera**, so one bench can mix `kb` fisheye, `radtan` pinhole, and `dsplus` at any FOV.
 
 ```bash
-python scripts/calibrate_rig.py --init-config calib_param.yml   # write a starter config
-python scripts/calibrate_rig.py --config calib_param.yml        # detect → reconstruct → bundle-adjust → MC-Calib output
+pip install ds-msp
+ds-msp-calibrate-rig --init-config calib_param.yml   # write a starter config
+ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct → bundle-adjust → MC-Calib output
 ```
 
-Point it at a `camera_parameters` YAML to **hold intrinsics fixed** (`fix_intrinsic=1`, extrinsics-only) or refine them — or omit it to calibrate from scratch; if the chosen model differs, the same lens is carried into it via `convert()` + a warning. Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds. On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
+Point it at a `camera_parameters` YAML to **hold intrinsics fixed** (`fix_intrinsic=true`, extrinsics-only) or refine them — or omit it to calibrate from scratch; if the chosen model differs, the same lens is carried into it via `convert()` + a warning. Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds. On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
 
 ### Stereo depth
 
@@ -223,7 +237,7 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 
 ## Verify it
 
-Every claim is backed by a number you can reproduce — **446 tests passing**, CI green.
+Every claim is backed by a number you can reproduce — **567 tests passing**, CI green.
 
 - Inverse projection (all undistort modes): mean error **< 0.00003 px**.
 - 3D reconstruction of checkerboard corners: **1.168 mm** mean; recovered **20.01 cm** square (target 20.00).

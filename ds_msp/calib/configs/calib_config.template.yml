@@ -1,0 +1,82 @@
+# =============================================================================
+# DS-MSP single-camera intrinsics calibration config.
+#
+# Run: `ds-msp-calibrate --config <this file>` (pip install ds-msp -- no repo clone needed)
+# or `python scripts/calibrate.py --config <this file>` (git clone -- same CLI either way).
+# Generate a fresh copy any time with: `ds-msp-calibrate --init-config calib_config.yml`
+#
+# Relative paths (images_path, save_path) resolve against THIS file's directory. Override any
+# value on the CLI: --set board.rows=7 --set save_path=/abs/out
+#
+# Plain YAML (unlike ds_msp[rig]'s MC-Calib-compatible calib_param.yml, this config has no
+# legacy format to stay byte-compatible with) -- true/false are native, no quoting needed.
+# =============================================================================
+
+######################################## Board ################################################
+board:
+  # "checkerboard" | "charuco" | "aprilgrid". All three are just different front ends feeding
+  # the same bundle-adjustment backend -- pick whichever board you actually printed.
+  #
+  # checkerboard: NOT recommended above ~120 degrees FOV (see ds_msp/detect/checkerboard.py's
+  #   module docstring for why -- neither MC-Calib nor Kalibr treat it as fisheye-robust).
+  #   Prefer charuco or aprilgrid for wide-angle/fisheye lenses.
+  type: checkerboard
+
+  # interior corner counts (checkerboard / charuco single-board) -- count the corners where
+  # four squares meet, not the number of squares.
+  rows: 5
+  cols: 6
+  square_size: 0.025          # physical square size, metres (sets the metric scale of the fit)
+
+  # --- charuco-only ---
+  # length_marker: marker-generation inner marker size (metres); if omitted, defaults to
+  #   0.75 * length_square (this repo's own rig templates use the same ratio: 0.04 / 0.03).
+  # legacy: true matches boards generated before OpenCV 4.7's marker-pattern change.
+  # tuned: true recovers more corners at the cost of noisier peripheral ones on wide-FOV
+  #   fisheye rigs (measured on a real 8-camera rig: +24% corners, but RMS 0.61->0.89 px) --
+  #   leave false unless corner coverage, not accuracy, is your binding constraint.
+  # length_marker: 0.0
+  # legacy: true
+  # tuned: false
+  # min_corners: 4
+  #
+  # Multiple simultaneous board definitions (no rigid fusion needed -- each board sighting is
+  # its own independent view; see ADR-0009):
+  # boards:
+  #   - {rows: 5, cols: 6, square_size: 0.192}
+  #   - {rows: 4, cols: 4, square_size: 0.1, length_marker: 0.07}
+
+  # --- checkerboard-only ---
+  # larger: true    # CALIB_CB_LARGER -- the board may exceed the image frame
+  # marker: false   # CALIB_CB_MARKER -- board has an asymmetric marker cell
+
+  # --- aprilgrid-only ---
+  # tag_rows: 6
+  # tag_cols: 6
+  # tag_size: 0.088        # metres
+  # tag_spacing: 0.3       # gap/tag-size ratio (Kalibr convention)
+  # family: t36h11         # AprilTag family (TUM-VI / Kalibr default)
+  # scales: [1, 2, 3]      # multi-scale detection union -- recovers peripheral tags on fisheye
+  # recover: false         # board-guided recovery of still-missing tags after multi-scale
+
+######################################## Camera model ##########################################
+camera_model: ds            # radtan | ds | ucm | eucm | kb | ocam | dsplus | eucmplus
+
+######################################## Images #################################################
+images_path: "../data/Images"   # folder of calibration images (any mix of resolutions is fine)
+pattern: "*"                    # glob pattern selecting image files within images_path
+
+######################################## Output ##################################################
+save_path: "../data/Results"    # "None"/omit to skip writing an output file
+output_format: kalibr           # only "kalibr" (single-camera camchain.yaml) is supported today
+
+######################################## Bundle-adjustment tuning ################################
+# These map 1:1 onto ds_msp.calib.bundle.calibrate's own keyword arguments.
+robust: cauchy               # robust loss kernel
+robust_scale: auto           # "auto" or a fixed float
+gnc: false                   # graduated non-convexity (better under heavy outliers, slower)
+multi_start: true            # try multiple focal-length starting points
+n_restarts: 4
+seed: 0
+max_nfev: 200
+verbose: true
