@@ -105,12 +105,21 @@ nav:
       - "Companion: stereo extrinsics": learn/stereo_extrinsics_calibration.md
       - "Companion: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
       - 8 · Two-view geometry on rays: learn/08_two_view_geometry_on_rays.md
+  - How-to:
+      - how-to/README.md
+      - Calibrate any model: how-to/calibrate_any_model.md
+      - Convert between models: how-to/convert_between_models.md
+      - Read/write Kalibr YAML: how-to/read_write_kalibr.md
+      - Solve PnP on a fisheye: how-to/solve_pnp_on_fisheye.md
+      - Undistort images: how-to/undistort_images.md
+      - Export an LDC mesh: how-to/export_ldc_mesh.md
   - Explanation:
       - explain/README.md
       - Two-view geometry (derivations): explain/two_view_geometry.md
       - Are two models the same camera?: explain/are_two_models_the_same_camera.md
       - Choosing a camera model: explain/choosing_a_camera_model.md
       - "Case study: EUCM+/DS+/KB": explain/case_study_eucmplus_dsplus_kb.md
+      - Projection validity & FOV: explain/projection_validity_and_fov.md
   - Guides:
       - Calibrate a single camera: CALIBRATE_GUIDE.md
       - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md

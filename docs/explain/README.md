@@ -16,7 +16,7 @@ a specific question about *why* the library behaves the way it does.
   notes behind [Learn Chapter 8](../learn/08_two_view_geometry_on_rays.md).
 - **[Are two different camera models the same camera?](are_two_models_the_same_camera.md)** —
   why a Double Sphere and a Kannala-Brandt calibration of the *same* lens report focal lengths
-  that differ by 26%, and the paraxial-focal derivation that proves they're the same optics
+  that differ by 30%, and the paraxial-focal derivation that proves they're the same optics
   where the data reached.
 - **[Is this camera model right for my lens and task?](choosing_a_camera_model.md)** — a
   measurable framework for picking a model: six diagnostics (capacity, identifiability,
@@ -25,6 +25,10 @@ a specific question about *why* the library behaves the way it does.
 - **[A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt](case_study_eucmplus_dsplus_kb.md)** — the
   framework above applied to a real ship/retire decision on three lenses, including a
   hypothesis retracted when the data contradicted it.
+- **[Projection validity & FOV](projection_validity_and_fov.md)** — the closed-form
+  forward/inverse equations behind [Learn Chapter 3](../learn/03_projection_validity.md)'s
+  half-space validity test, plus the explicit valid parameter domain (`α ∈ [0,1]`,
+  `ξ ∈ [-1,1]`) the optimizer enforces.
 
 ## What doesn't live here
 
