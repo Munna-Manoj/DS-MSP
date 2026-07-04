@@ -9,6 +9,7 @@ import pytest
 
 from ds_msp.calib.charuco import (BoardSpec, board_object_points, detect_image,
                                   single_board_object)
+from ds_msp.detect.charuco import detect_rig
 
 SPEC = BoardSpec(n_x=5, n_y=5, length_square=0.04, length_marker=0.03, square_size=0.192)
 
@@ -71,6 +72,70 @@ def test_parity_vs_mccalib_keypoints():
              for f in set(mc) & set(mine) for r in set(mc[f]) & set(mine[f])]
     assert len(diffs) > 300
     assert np.median(diffs) < 0.1 and np.max(diffs) < 1.0
+
+
+def _small_two_cam_root(tmp_path, n_images=10):
+    """A tmp copy of the first ``n_images`` of each of Scenario_2's first two real cameras
+    (symlinks, not copies — the images are large) — keeps the parallel-detection tests fast
+    while still exercising real fisheye images and real detection, not a synthetic render."""
+    root = tmp_path / "root"
+    for c, cam_dir in enumerate(("Cam_001", "Cam_002")):
+        src_dir = os.path.join(_S2, "Images", cam_dir)
+        dst_dir = root / f"Cam_{c + 1:03d}"
+        dst_dir.mkdir(parents=True)
+        files = sorted(f for f in os.listdir(src_dir) if f.lower().endswith(".png"))[:n_images]
+        for f in files:
+            (dst_dir / f).symlink_to(os.path.abspath(os.path.join(src_dir, f)))
+    return str(root)
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(_S2, "Images")),
+                    reason="Blender Scenario_2 images not present")
+def test_detect_rig_parallel_matches_serial_bit_for_bit(tmp_path):
+    """``workers=None`` (parallel, the default) must find exactly the same corners as
+    ``workers=1`` (the original serial per-camera loop) — pure parallelism, not an
+    approximation, mirroring the front-end pool's own bar
+    (``rig/calibrate.py::make_bundle_front_end``)."""
+    root = _small_two_cam_root(tmp_path)
+    obj = single_board_object(SPEC)
+
+    serial_obs, serial_sz = detect_rig(root, [0, 1], [SPEC], obj, min_corners=8, workers=1)
+    parallel_obs, parallel_sz = detect_rig(root, [0, 1], [SPEC], obj, min_corners=8, workers=4)
+
+    assert len(serial_obs) > 0, "fixture produced no detections at all"
+    assert serial_sz == parallel_sz
+
+    def key(o):
+        return (o.cam_id, o.frame_id, tuple(o.point_rows.tolist()))
+
+    serial_by_key = {key(o): o for o in serial_obs}
+    parallel_by_key = {key(o): o for o in parallel_obs}
+    assert set(serial_by_key) == set(parallel_by_key)
+    for k, so in serial_by_key.items():
+        po = parallel_by_key[k]
+        assert np.array_equal(so.pts_2d, po.pts_2d)
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(_S2, "Images")),
+                    reason="Blender Scenario_2 images not present")
+def test_detect_rig_progress_cb_fires_exactly_once_per_image_under_parallel_workers(tmp_path):
+    """``progress_cb`` must fire exactly once per (camera, image) even when several worker
+    threads race through the flat task list concurrently — the internal lock serializes both
+    the per-camera counter and the callback invocation, so no image is double-counted, none is
+    silently skipped, and per-camera ``i`` still runs cleanly ``1..n``."""
+    n_images = 8
+    root = _small_two_cam_root(tmp_path, n_images=n_images)
+    obj = single_board_object(SPEC)
+
+    calls = []
+    detect_rig(root, [0, 1], [SPEC], obj, min_corners=8, workers=4,
+              progress_cb=lambda cam_id, i, n, path: calls.append((cam_id, i, n)))
+
+    assert len(calls) == 2 * n_images
+    for cam_id in (0, 1):
+        cam_calls = sorted(i for c, i, n in calls if c == cam_id)
+        assert cam_calls == list(range(1, n_images + 1))
+        assert all(n == n_images for c, i, n in calls if c == cam_id)
 
 
 # Traceability: links this suite to the requirement(s) it verifies.

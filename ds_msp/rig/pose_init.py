@@ -72,11 +72,13 @@ def robust_pose_irls(
         good = Z > 1e-6
         if good.sum() < 4:
             break
-        proj = Pc[:, :2] / Z[:, None]
+        proj = np.zeros((n, 2))
+        proj[good] = Pc[good, :2] / Z[good, None]
         e = (proj - pn) * foc                            # residual in pixels (n,2)
         # 2x6 Jacobian per point on the normalized plane, scaled to pixels.
         J = np.zeros((n, 2, 6))
-        invZ = np.where(good, 1.0 / Z, 0.0)
+        invZ = np.zeros(n)
+        invZ[good] = 1.0 / Z[good]
         Jp = np.zeros((n, 2, 3))
         Jp[:, 0, 0] = invZ
         Jp[:, 0, 2] = -Pc[:, 0] * invZ * invZ

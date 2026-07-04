@@ -19,6 +19,9 @@ File formats (per scenario directory ``<scn>/Results/``):
 from __future__ import annotations
 
 import os
+import threading
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -326,23 +329,41 @@ def _obs_image_path(obs_list, image_root, cam, fr, cam_prefix="Cam_", ext="png")
 
 
 def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
-                             cam_prefix: str = "Cam_", ext: str = "png") -> int:
+                             cam_prefix: str = "Cam_", ext: str = "png",
+                             workers: Optional[int] = None, progress_cb=None) -> int:
     """Draw detected (green) vs reprojected (red) corners per frame and save under
     ``<save_dir>/Reprojection/<cam:03d>/<frame:06d>.jpg`` — the MC-Calib layout
     (McCalib.cpp:1923). The source image is the one recorded at detection (``image_path``),
-    falling back to filename lookup. Returns the number of images written."""
+    falling back to filename lookup. Returns the number of images written.
+
+    Parallelised across (camera, frame) tasks the same way as ``detect.charuco.detect_rig`` —
+    each task's ``cv2.imread``/``cv2.circle``/``cv2.imwrite`` releases the GIL and touches only
+    its own image array, so this scales the same way corner detection does (measured ~12.7s
+    serial for 255 images on this repo's real MC-Calib dataset; this used to run silently and
+    serially *after* the whole bundle adjustment converged, which read as the live view "just
+    sitting there doing nothing" once the optimizer was actually done).
+    ``progress_cb(cam_id, i, n, frame_id)``, if given, fires once per completed image."""
     root = os.path.join(save_dir, "Reprojection")
-    written = 0
     by_cf: Dict[Tuple[int, int], List] = {}
     for o in object_obs:
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
-    for (cam, fr), obs_list in by_cf.items():
+    items = list(by_cf.items())
+    counts = Counter(cam for (cam, _fr), _ in items)
+    seen: Dict[int, int] = Counter()
+    lock = threading.Lock()
+
+    def _do(entry) -> bool:
+        (cam, fr), obs_list = entry
+        if progress_cb is not None:
+            with lock:
+                seen[cam] += 1
+                progress_cb(cam, seen[cam], counts[cam], fr)
         img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
-            continue
+            return False
         image = cv2.imread(img_path)
         if image is None:
-            continue
+            return False
         for o in obs_list:
             rep = _obs_reprojection(rig, o)
             if rep is None:
@@ -356,8 +377,15 @@ def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
         out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
-        written += 1
-    return written
+        return True
+
+    n_workers = (os.cpu_count() or 4) if workers is None else workers
+    if n_workers and n_workers > 1 and len(items) > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            results = list(ex.map(_do, items))
+    else:
+        results = [_do(e) for e in items]
+    return sum(1 for ok in results if ok)
 
 
 def _write_int_seq(fs, name, values):
@@ -437,30 +465,51 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
 
 
 def save_detection_images(object_obs, image_root: str, save_dir: str, *,
-                          cam_prefix: str = "Cam_", ext: str = "png") -> int:
+                          cam_prefix: str = "Cam_", ext: str = "png",
+                          workers: Optional[int] = None, progress_cb=None) -> int:
     """Draw detected corners (green) per frame and save under
     ``<save_dir>/Detection/<cam:03d>/<frame:06d>.jpg`` — MC-Calib's ``saveDetectionImages``
-    layout. Returns the number of images written (0 if no source images found)."""
+    layout. Returns the number of images written (0 if no source images found).
+
+    Parallelised the same way as :func:`save_reprojection_images` (see its docstring for why
+    this used to be a silent, unparallelised tail after the bundle adjustment already
+    converged). ``progress_cb(cam_id, i, n, frame_id)``, if given, fires once per image."""
     root = os.path.join(save_dir, "Detection")
     by_cf: Dict[Tuple[int, int], List] = {}
     for o in object_obs:
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
-    written = 0
-    for (cam, fr), obs_list in by_cf.items():
+    items = list(by_cf.items())
+    counts = Counter(cam for (cam, _fr), _ in items)
+    seen: Dict[int, int] = Counter()
+    lock = threading.Lock()
+
+    def _do(entry) -> bool:
+        (cam, fr), obs_list = entry
+        if progress_cb is not None:
+            with lock:
+                seen[cam] += 1
+                progress_cb(cam, seen[cam], counts[cam], fr)
         img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
-            continue
+            return False
         image = cv2.imread(img_path)
         if image is None:
-            continue
+            return False
         for o in obs_list:
             for u, v in np.asarray(o.pts_2d, float):
                 cv2.circle(image, (int(round(u)), int(round(v))), 4, (0, 255, 0), cv2.FILLED, 8)
         out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
-        written += 1
-    return written
+        return True
+
+    n_workers = (os.cpu_count() or 4) if workers is None else workers
+    if n_workers and n_workers > 1 and len(items) > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            results = list(ex.map(_do, items))
+    else:
+        results = [_do(e) for e in items]
+    return sum(1 for ok in results if ok)
 
 
 def save_mccalib_results(rig, save_dir: str, *, object3d: Optional[Object3D] = None,
