@@ -7,13 +7,13 @@
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20PolyForm--NC-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)
 ![Tests](https://img.shields.io/badge/tests-567%20passing-brightgreen)
-[![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/)
+[![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/studio/)
 
 A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras. One interface covers calibration, model conversion, 3D geometry, multi-camera rigs, and hardware export — so you can swap camera models in a single line and convert between them without re-shooting images.
 
 ![Double Sphere image formation — 3D points traced through two spheres onto the z=1 plane and the physical sensor](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_pipeline.gif)
 
-> *The namesake **Double Sphere** model in motion: each 3D point is traced through two spheres and projected to the fisheye image. Cross-checked against the library itself (`std = 2e-16`).* **[Drive it live →](https://munna-manoj.github.io/DS-MSP/)**
+> *The namesake **Double Sphere** model in motion: each 3D point is traced through two spheres and projected to the fisheye image. Cross-checked against the library itself (`std = 2e-16`).* **[Drive it live →](https://munna-manoj.github.io/DS-MSP/studio/)**
 
 ---
 

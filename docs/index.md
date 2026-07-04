@@ -8,19 +8,22 @@ Pick a door:
 <div class="grid cards" markdown>
 
 - :material-school: **[Learn](learn/README.md)** — the ordered tutorial path, calibration first.
+- :material-toolbox: **[How-to](how-to/README.md)** — task recipes: calibrate, convert,
+  undistort, solve PnP, export an LDC mesh.
+- :material-book-open-variant: **[Explanation](explain/README.md)** — the math and the *why*
+  behind the library's design choices.
+- :material-api: **[API Reference](reference/index.md)** — complete signatures, generated from
+  the library's own docstrings.
 - :material-camera-iris: **[Calibrate a camera](CALIBRATE_GUIDE.md)** — config-driven,
   `ds-msp-calibrate`.
 - :material-camera-burst: **[Calibrate a rig](RIG_CALIBRATION_GUIDE.md)** — multi-camera,
   `ds-msp-calibrate-rig`.
-- :material-swap-horizontal: **[Convert between models](MULTI_MODEL.md)** — no images, no
-  recalibration.
+- :material-swap-horizontal: **[Multi-model library & conversion](MULTI_MODEL.md)** — calibrate
+  in one model, convert to any other, no re-shooting.
+- :material-cube-scan: **[Interactive studio →](studio/)** — drive the Double Sphere model live
+  in 3D, in your browser.
 
 </div>
 
 New here? Start with **[Learn](learn/README.md)**. Want to use the library right away? See the
 [README quick start](https://github.com/Munna-Manoj/DS-MSP#readme).
-
-!!! note "Documentation in progress"
-    This site is being actively rebuilt into a full Diátaxis structure (tutorial / how-to /
-    reference / explanation). The Learn track and the calibration guides below are current and
-    accurate; a dedicated How-to cookbook and generated API reference are still being written.
