@@ -14,6 +14,9 @@ venv/
 *.egg-info/
 build/
 dist/
+# Local dev-only lockfile; the project isn't otherwise standardized on uv (CI uses plain
+# pip), so this stays a personal convenience rather than a committed toolchain choice.
+uv.lock
 
 # Generated Results
 results/
@@ -21,7 +24,7 @@ results/
 # System
 .DS_Store
 
-# Verification outputs (regenerate via verify_real_samples.py)
+# Verification outputs (local scratch, never committed)
 verification_output/
 
 # Public datasets (downloaded via scripts/download_datasets.sh, not committed)
@@ -38,6 +41,7 @@ CLAUDE.local.md
 
 # Internal R&D, planning, and working notes (kept local, never published).
 docs/research/
+docs/readme-options/
 
 # Local calibration datasets (large; downloaded/produced locally, never committed).
 2026_*_MC-Calib/
