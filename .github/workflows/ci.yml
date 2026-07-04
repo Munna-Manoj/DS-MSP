@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
@@ -47,6 +48,9 @@ jobs:
               - 'pyproject.toml'
               - 'requirements*.txt'
               - '.github/workflows/**'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
 
   # Required check. The JOB always runs so the `lint + types + layering` status always
   # reports (branch protection stays satisfied), but on a docs-only change the heavy
@@ -101,6 +105,37 @@ jobs:
         run: python tools/check_tree_hygiene.py
       - name: packaging (docs match the wheel — no advertised-but-excluded subpackage)
         run: python tools/check_packaging.py
+
+  # Docs-site build check: runs on any docs/** or mkdocs.yml change (a "docs-only" PR is
+  # exactly when this matters, so it is NOT gated off by the code-only fast path above) AND on
+  # any ds_msp/** change (mkdocstrings pulls from source docstrings, so removing/renaming a
+  # documented symbol can break the site too). Gracefully no-ops until mkdocs.yml exists
+  # (Phase 1 of the docs overhaul) so this doesn't fail CI in the interim.
+  docs-build:
+    name: docs site build (mkdocs --strict)
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        uses: actions/checkout@v5
+      - if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: mkdocs build --strict
+        if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        run: |
+          if [ -f mkdocs.yml ]; then
+            pip install -e ".[docs]"
+            mkdocs build --strict
+          else
+            echo "mkdocs.yml doesn't exist yet -- skipping (lands in a later docs-overhaul commit)."
+          fi
+      - name: no docs/code change — nothing to build
+        if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs != 'true'
+        run: echo "No docs or code changes — skipping docs build."
 
   # Fast tier: unit + contract + rig-smoke tests across the support matrix, parallelized.
   # `-m "not slow"` excludes the heavy synthetic suite (nightly). `--timeout` is the
