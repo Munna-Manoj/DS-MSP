@@ -14,6 +14,9 @@ from .charuco import (
     make_detectors,
     single_board_object,
 )
+from .checkerboard import CheckerboardSpec
+from .checkerboard import board_object_points as checkerboard_object_points
+from .checkerboard import detect_corners as detect_checkerboard_corners
 from .detect import detect_aprilgrid
 
 __all__ = [
@@ -25,4 +28,7 @@ __all__ = [
     "detect_folder",
     "detect_rig",
     "detect_aprilgrid",
+    "CheckerboardSpec",
+    "checkerboard_object_points",
+    "detect_checkerboard_corners",
 ]

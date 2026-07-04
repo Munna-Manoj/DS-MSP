@@ -16,6 +16,7 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0006](ADR-0006-synthetic-real-release-gate.md) | Synthetic-then-real-data release gate | Accepted | No public release without real-data validation |
 | [ADR-0007](ADR-0007-deterministic-convert-seeding.md) | Deterministic shape-parameter sweep in model conversion | Accepted | Reproducible, exact self-conversion (no restart lottery) |
 | [ADR-0008](ADR-0008-noncommercial-engine-scope.md) | Noncommercial license covers the robust calibrate/convert engine, not just the Plus models | Accepted | Protect the real IP, not just published math |
+| [ADR-0009](ADR-0009-board-protocol.md) | One `Board` protocol unifies checkerboard / ChArUco / AprilGrid for single-camera calibration | Accepted | Config-driven, board-agnostic single-camera calibration |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the
