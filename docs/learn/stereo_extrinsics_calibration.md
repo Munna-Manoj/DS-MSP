@@ -39,7 +39,7 @@ within ~0.2%**. The whole method rests on one cancellation, which §2 shows you.
 > **Scope.** This is the *calibration* `estimate_relative_pose` — it averages per-frame board
 > poses into a rig transform. There is a second function with the same name in `ds_msp.mvg`
 > that recovers pose from raw feature matches (the essential matrix on bearing vectors); that
-> is [Chapter 8](README.md#part-ii--geometry--3d)'s topic. This chapter anchors only to
+> is [Chapter 8](README.md#part-ii-geometry-3d-library-shipped-tested-chapters-examples-landing)'s topic. This chapter anchors only to
 > `ds_msp.calib`.
 
 ## 1. The minimal working example
@@ -293,7 +293,7 @@ Deepen your understanding by modifying the code. Each of the following exercises
 - **Use the extrinsic for depth.** With `T_cam1_cam0` in hand, the two cameras define their
   epipolar geometry — the constraint that fixes where a point in one image can land in the
   other. That constraint is the basis for stereo depth. See **Part II → [Sphere-sweep stereo
-  depth](README.md#part-ii--geometry--3d)**, which gets dense depth straight on raw fisheye.
+  depth](README.md#part-ii-geometry-3d-library-shipped-tested-chapters-examples-landing)**, which gets dense depth straight on raw fisheye.
 - **Recover pose without a board.** This chapter leaned on a known calibration target. The
   `ds_msp.mvg` two-view geometry recovers relative pose from *feature matches alone* — the
   essential matrix on bearing vectors. See **[Chapter 8 — Two-view geometry on

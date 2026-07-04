@@ -13,7 +13,7 @@ to wrong matches, and finish on a real TUM-VI fisheye pair.
 <div class="ds-stats">
   <div class="ds-stat"><span class="ds-stat__value">&lt;1e-3°</span><span class="ds-stat__label">synthetic round-trip pose error · CI-asserted</span></div>
   <div class="ds-stat"><span class="ds-stat__value">0.107°</span><span class="ds-stat__label">RANSAC rotation error @ 30% outliers</span></div>
-  <div class="ds-stat"><span class="ds-stat__value">71 / 73</span><span class="ds-stat__label">inliers on a real TUM-VI pair</span></div>
+  <div class="ds-stat"><span class="ds-stat__value">20 / 22</span><span class="ds-stat__label">inliers on a real TUM-VI pair</span></div>
 </div>
 
 > **You'll learn**
@@ -165,7 +165,7 @@ max epipolar residual: 5.69e-16
 takes an optional `normalize=True` for spherical pre-conditioning — it helps on noisy,
 narrow-baseline rays and changes nothing in the noise-free limit. You don't call it directly in
 this chapter; the real-data re-fit in
-[`examples/10_two_view_pose_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/10_two_view_pose_tumvi.py) uses it.
+[`examples/11_two_view_pose_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/11_two_view_pose_tumvi.py) uses it.
 
 ---
 
@@ -364,40 +364,46 @@ every one of the ~91 good matches and admitted almost no bad ones. The threshold
 ## 6. On real data: a TUM-VI fisheye pair
 
 Synthetic rays are noise-free; real ones are not. The companion example
-[`examples/10_two_view_pose_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/10_two_view_pose_tumvi.py) runs the
+[`examples/11_two_view_pose_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/11_two_view_pose_tumvi.py) runs the
 exact same pipeline on two real TUM-VI `room1` fisheye frames: it KLT-tracks features between
 them (reusing the tracker from [`examples/09`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/09_monocular_vo_tumvi.py)),
 unprojects both pixel sets through the **loaded** calibrated model to rays, and runs
 `ransac_relative_pose`. Run it with:
 
 ```bash
-python examples/10_two_view_pose_tumvi.py --start 400 --gap 4
+python examples/11_two_view_pose_tumvi.py --start 400 --gap 4
 ```
 
 Expected output:
 
 ```
 camera: KannalaBrandtModel  fx=190.98 cx=254.93
-frames 400 -> 404: 73 KLT matches
-valid bearing pairs: 73 / 73
+frames 400 -> 404: 22 KLT matches
+valid bearing pairs: 22 / 22
 
-RANSAC relative pose (71 inliers / 73 = 97.3%):
-  inlier Sampson residual: median 6.11e-04 rad  max 3.81e-03 rad  (~0.035 deg)
-  recovered |t| direction vs mocap baseline: ~45.4 deg (coarse; camera!=world frame)
+RANSAC relative pose (20 inliers / 22 = 90.9%):
+  inlier Sampson residual: median 2.01e-02 rad  max 2.59e-02 rad  (~1.149 deg)
+  recovered |t| direction vs mocap baseline: ~108.3 deg (coarse; camera != world frame)
 ```
 
 !!! note "End-to-end on real fisheye"
-    The pipeline runs on a real TUM-VI fisheye stream. RANSAC keeps **71 of 73** matches
-    (97.3% inliers) with a median angular residual of **~6e-4 rad (~0.035°)** — the inliers
-    agree on a single consistent pose to a few hundredths of a degree.
+    The pipeline runs on a real TUM-VI fisheye stream. Only 22 KLT matches survive this
+    particular 4-frame gap (low-texture frames; try `--start 700` for ~80), and RANSAC keeps
+    **20 of 22** (90.9% inliers) with a median angular residual of **~0.02 rad (~1.1°)** — an
+    order of magnitude looser than the synthetic exercise's `5.69e-16`, because real KLT
+    corners on a real fisheye carry real subpixel noise. The pipeline still recovers one
+    consistent pose from noisy, real measurements — that consistency, not machine-precision
+    agreement, is the point on real data.
 
 !!! warning "Demonstration, not a guarantee"
     The deterministic correctness claim is the synthetic round-trip in §4 (`< 1e-3°`, asserted
     in CI). On real data the translation *direction* check against the mocap baseline is only
     coarse — the recovered `t` lives in the camera frame, the mocap baseline in the world/body
-    frame, and there's a camera-to-body lever arm — so don't read the `~45°` as pose error.
-    It's a sign-and-sanity check that the motion points somewhere plausible. A rigorous,
-    frame-aligned evaluation is what Chapter 9 builds toward.
+    frame, and there's an unknown camera-to-body rotation on top of the lever arm — so don't
+    read the `~108°` as pose error. With no extrinsic correction applied, this raw angle mixes
+    the real recovered motion with an arbitrary frame offset; it isn't meant to look small, it's
+    a placeholder for the *frame-aligned* check Chapter 9 builds toward, which is where a
+    genuinely tight number belongs.
 
 > **Notice** the camera printed as `KannalaBrandtModel`, not Double Sphere — that's the model
 > TUM-VI ships in its calibration file. The two-view code didn't care: it only ever saw rays.
