@@ -44,7 +44,14 @@ def ucm_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: fl
     s = 1.0 - (2.0 * alpha - 1.0) * r2
     valid = s >= 0
     s = np.maximum(s, 0.0)
-    mz = (1.0 - alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
+    # Denominator is >= (1-alpha) for alpha in [0,1) and only reaches exactly 0 at the legal
+    # optimizer boundary alpha=1 (calib_param.py bounds alpha to [0,1]) combined with a ray
+    # exactly at the sphere-intersection edge (s=0) — a real 0/0 on wide-FOV fits. Unlike the
+    # DS model, there is no downstream check that would catch the resulting NaN: `valid` here
+    # was `s >= 0` only, so a NaN ray could previously be returned tagged `valid=True`.
+    den = alpha * np.sqrt(s) + (1.0 - alpha)
+    valid = valid & (den > 1e-9)
+    mz = (1.0 - alpha*alpha * r2) / np.maximum(den, 1e-9)
 
     ray = np.stack([mx, my, mz], axis=-1)
     norm = np.linalg.norm(ray, axis=-1, keepdims=True)

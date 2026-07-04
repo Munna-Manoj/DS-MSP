@@ -145,15 +145,21 @@ def ds_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: flo
     valid_s = s >= 0
     s = np.maximum(s, 0.0)
 
-    # Closed-form unprojection
-    mz = (1.0 - alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
+    # Closed-form unprojection. The denominator is >= (1-alpha) for alpha in [0,1) and only
+    # reaches exactly 0 at the boundary alpha=1 (a legal optimizer bound, calib_param.py's
+    # alpha in [0,1]) combined with a ray exactly at the sphere-intersection edge (s=0) — a
+    # real, reachable 0/0 on wide-FOV fits, not a hypothetical. Clamp explicitly and gate it
+    # in `valid` instead of relying on the resulting NaN happening to compare False below.
+    den = alpha * np.sqrt(s) + (1.0 - alpha)
+    valid_den = den > 1e-9
+    mz = (1.0 - alpha*alpha * r2) / np.maximum(den, 1e-9)
 
     # Validity check 2: Feasible ray scale check (prevents nan in sqrt)
     sqrt_arg = mz*mz + (1.0 - xi*xi) * r2
     valid_sqrt = sqrt_arg >= 0
 
     # Combined validity mask
-    valid = valid_s & valid_sqrt
+    valid = valid_s & valid_den & valid_sqrt
 
     # Safe square root calculation
     sqrt_safe = np.sqrt(np.maximum(sqrt_arg, 0.0))

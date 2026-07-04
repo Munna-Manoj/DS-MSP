@@ -1,10 +1,12 @@
 """EUCM+ unit tests: agrees with standalone eucmplus_math, reduces to EUCM when the
 extra (division + tilt) DOF are zero, and its sqrt-only inverse round-trips tightly."""
 
+import warnings
+
 import numpy as np
 
 from ds_msp.models.eucmplus import EUCMPlusModel
-from ds_msp.models.eucmplus_math import eucmplus_project
+from ds_msp.models.eucmplus_math import eucmplus_project, eucmplus_unproject
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.testing import sample_forward_points
 
@@ -63,3 +65,18 @@ def test_initialize_seed_is_reasonable():
     lb, ub = EUCMPlusModel.param_bounds()
     assert (seed.params >= lb).all() and (seed.params <= ub).all()
     assert seed.beta == 1.0 and seed.lambda1 == 0.0
+
+
+def test_unproject_alpha_one_boundary_ray_is_finite_and_invalid_not_a_warning():
+    """Regression: same mz-denominator gap as EUCM (identical closed form, EUCM+ adds tilt +
+    division stages ahead of it) — an alpha=1.0 boundary ray previously produced a NaN ray
+    tagged valid=True."""
+    fx = fy = 500.0
+    cx = cy = 320.0
+    pts = np.array([[cx + fx * 1.0, cy]])   # mx=1, my=0 -> r2=1 -> the alpha=1 boundary
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ray, valid = eucmplus_unproject(pts, fx, fy, cx, cy, alpha=1.0, beta=1.0,
+                                        lambda1=0.0, tau_x=0.0, tau_y=0.0)
+    assert not valid[0]
+    assert np.all(np.isfinite(ray))

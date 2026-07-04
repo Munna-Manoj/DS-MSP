@@ -38,7 +38,13 @@ def eucm_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: f
     s = 1.0 - (2.0 * alpha - 1.0) * beta * r2
     valid = s >= 0
     s = np.maximum(s, 0.0)
-    mz = (1.0 - beta * alpha*alpha * r2) / (alpha * np.sqrt(s) + (1.0 - alpha))
+    # Denominator is >= (1-alpha) for alpha in [0,1) and only reaches exactly 0 at the legal
+    # optimizer boundary alpha=1 combined with a ray exactly at the sphere-intersection edge
+    # (s=0) — a real 0/0 on wide-FOV fits (see ds_math.py/ucm_math.py's identical formula for
+    # the derivation). Gate it explicitly rather than let a NaN ray fall through as valid=True.
+    den = alpha * np.sqrt(s) + (1.0 - alpha)
+    valid = valid & (den > 1e-9)
+    mz = (1.0 - beta * alpha*alpha * r2) / np.maximum(den, 1e-9)
 
     ray = np.stack([mx, my, mz], axis=-1)
     norm = np.linalg.norm(ray, axis=-1, keepdims=True)
