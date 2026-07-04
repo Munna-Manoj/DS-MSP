@@ -38,6 +38,27 @@ The run writes MC-Calib's exact result set into `save_path/`:
 The console prints per-camera reprojection RMS and, if a `GroundTruth.yml` / MC-Calib `Results/`
 is found next to the data, the worst baseline error vs those references.
 
+**Loading a camera back into a ready instance.** `calibrated_cameras_data.yml` holds every
+camera in the rig, indexed 0-based (`camera_0`, `camera_1`, …) in write order. Load any one of
+them straight into a [`CameraModel`](../ds_msp/core/contracts.py) — no manual K/distortion-array
+handling:
+
+```python
+import ds_msp.rig as rig
+
+cam0 = rig.load_camera("calibrated_cameras_data.yml", 0)
+print(cam0)                       # e.g. KannalaBrandtModel(fx=..., fy=..., ...)
+uv, valid = cam0.project(points_3d)
+```
+
+This is the MC-Calib-format analogue of `ds_msp.calib.load_camera` (the single-camera
+`ds-msp-calibrate` output loader) — same one-liner ergonomics, different file shape, since
+`calibrated_cameras_data.yml` splits `camera_matrix` (fx/fy/cx/cy) and `distortion_vector`
+(model-specific length and order) into separate fields rather than Kalibr's single combined
+`intrinsics` array. `load_camera` needs the file's `camera_model` (or the legacy
+`distortion_type` int) to know which of the 8 models to reconstruct — always present in
+DS-MSP's own output.
+
 ---
 
 ## 2. Prepare your data (folder & file naming)

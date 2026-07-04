@@ -9,12 +9,18 @@ import pytest
 from ds_msp.models.registry import (canonical_name, model_class, mccalib_name,
                                      PINHOLE_MODELS, FISHEYE_MODELS)
 from ds_msp.models.double_sphere import DoubleSphereModel
+from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.eucm import EUCMModel
+from ds_msp.models.eucmplus import EUCMPlusModel
 from ds_msp.models.kb import KannalaBrandtModel
+from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
+from ds_msp.models.ucm import UCMModel
 from ds_msp.io.mccalib import (save_mccalib_cameras, save_mccalib_objects,
-                               save_mccalib_object_poses, _load_cameras)
+                               save_mccalib_object_poses, _load_cameras, load_camera)
 from ds_msp.rig.calibrate import calibrate_rig, make_bundle_front_end
 from ds_msp.rig.pipeline import random_model_assignment
+from ds_msp.rig.types import RigState
 import cv2
 
 from tests.rig._synth import make_rig
@@ -78,6 +84,58 @@ def test_per_camera_models_and_mccalib_writer_roundtrip(tmp_path):
         assert np.allclose(cams[c].pose, np.linalg.inv(rig.T_c_g[c]), atol=1e-6)
     # distortion_vector length is model-specific (radtan 5, ds 2, ucm 1)
     assert len(cams[0].dist) == 5 and len(cams[1].dist) == 2 and len(cams[2].dist) == 1
+
+
+MODELS = [RadTanModel.sample, DoubleSphereModel.sample, UCMModel.sample, EUCMModel.sample,
+          KannalaBrandtModel.sample, DSPlusModel.sample, EUCMPlusModel.sample, OCamModel.sample]
+
+
+def _single_camera_rig(model):
+    return RigState(cameras={0: model}, T_c_g={0: np.eye(4)}, ref_cam_id=0,
+                    object_poses={}, objects={}, img_size={0: (640, 480)})
+
+
+@pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
+def test_load_camera_roundtrip(factory, tmp_path):
+    """ds_msp.io.mccalib.load_camera is the read-back analogue of load_kalibr -- given
+    calibrated_cameras_data.yml, it must hand back a ready CameraModel, not a raw K +
+    distortion array, for every model MC-Calib format can name."""
+    m = factory()
+    path = tmp_path / "cams.yml"
+    save_mccalib_cameras(_single_camera_rig(m), str(path))
+    m2 = load_camera(str(path), 0)
+    assert type(m2) is type(m)
+    assert np.allclose(m2.params, m.params, atol=1e-6)
+
+
+def test_load_camera_unknown_camera_id_raises(tmp_path):
+    path = tmp_path / "cams.yml"
+    save_mccalib_cameras(_single_camera_rig(RadTanModel.sample()), str(path))
+    with pytest.raises(KeyError, match="camera_5"):
+        load_camera(str(path), 5)
+
+
+def test_rig_reexports_load_camera():
+    """ds_msp.rig.load_camera is the discoverable entry point a ds-msp-calibrate-rig user
+    reaches for -- must be exactly this module's load_camera, not a second implementation."""
+    import ds_msp.rig as rig
+    assert rig.load_camera is load_camera
+
+
+def test_load_camera_no_stated_model_raises(tmp_path):
+    """A plain MC-Calib file with no camera_model string and no recognizable
+    distortion_type -- load_camera must say so clearly rather than guess."""
+    path = tmp_path / "cams.yml"
+    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_WRITE)
+    fs.write("nb_camera", 1)
+    fs.startWriteStruct("camera_0", cv2.FileNode_MAP)
+    fs.write("camera_matrix", np.eye(3))
+    fs.write("distortion_vector", np.zeros((1, 5)))
+    fs.endWriteStruct()
+    fs.release()
+    with pytest.raises(ValueError, match="cannot tell which model"):
+        load_camera(str(path), 0)
+
 
 # Traceability: links this suite to the requirement(s) it verifies.
 pytestmark = pytest.mark.req("FR-IO-004")

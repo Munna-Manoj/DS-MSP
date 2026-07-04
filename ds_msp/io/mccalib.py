@@ -230,6 +230,57 @@ def save_mccalib_cameras(rig, path: str, *, cam_groups: Optional[Dict[int, int]]
     fs.release()
 
 
+#: Per-model ``distortion_vector`` field order -- the exact inverse of each model's own
+#: ``.distortion`` property (see e.g. ``ds_msp/models/dsplus.py``), needed to reconstruct a
+#: real ``CameraModel`` instance from ``calibrated_cameras_data.yml``'s raw arrays.
+_DISTORTION_LAYOUT: Dict[str, Tuple[str, ...]] = {
+    "ds": ("xi", "alpha"),
+    "dsplus": ("alpha", "lambda1", "lambda2", "tau_x", "tau_y"),
+    "kb": ("k1", "k2", "k3", "k4"),
+    "radtan": ("k1", "k2", "p1", "p2", "k3"),
+    "ucm": ("alpha",),
+    "eucm": ("alpha", "beta"),
+    "eucmplus": ("alpha", "beta", "lambda1", "tau_x", "tau_y"),
+    "ocam": ("c", "d", "e", "a0", "a1", "a2", "a3", "a4"),
+}
+
+
+def load_camera(path: str, cam_id: int):
+    """Read one camera's calibrated intrinsics back into a ready ``CameraModel`` instance --
+    the ``ds_msp.io.mccalib`` analogue of :func:`ds_msp.io.kalibr.load_kalibr`.
+
+    Needs ``camera_model`` (or the legacy ``distortion_type``/``disto_type`` int) to be
+    present in the file to know which model to reconstruct -- see :func:`_camera_model_field`.
+    Unlike Kalibr's single-camera camchain, one MC-Calib file holds every camera in the rig,
+    so this takes the 0-based ``cam_id`` (matching ``camera_<cam_id>`` in the file, the same
+    indexing :func:`save_mccalib_cameras` writes)."""
+    from ..models.registry import model_class
+    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    cn = fs.getNode(f"camera_{cam_id}")
+    if cn.empty():
+        fs.release()
+        raise KeyError(f"no camera_{cam_id} in {path}")
+    name = _camera_model_field(cn)
+    K = cn.getNode("camera_matrix").mat()
+    dist_node = cn.getNode("distortion_vector")
+    dist = dist_node.mat() if not dist_node.empty() else None
+    fs.release()
+    if name is None:
+        raise ValueError(f"camera_{cam_id} in {path} states no camera_model/distortion_type "
+                         f"-- cannot tell which model to reconstruct")
+    layout = _DISTORTION_LAYOUT[name]
+    dist = np.asarray(dist, dtype=float).ravel() if dist is not None else np.zeros(0)
+    if len(dist) != len(layout):
+        raise ValueError(f"camera_{cam_id}: model {name!r} expects {len(layout)} distortion "
+                         f"values {layout}, file has {len(dist)}")
+    kwargs = dict(zip(layout, dist.tolist()))
+    if name == "ocam":
+        kwargs["cx"], kwargs["cy"] = float(K[0, 2]), float(K[1, 2])
+    else:
+        kwargs.update(fx=float(K[0, 0]), fy=float(K[1, 1]), cx=float(K[0, 2]), cy=float(K[1, 2]))
+    return model_class(name)(**kwargs)
+
+
 def save_mccalib_objects(obj: Object3D, path: str) -> None:
     """Write ``calibrated_objects_data.yml`` (McCalib.cpp:427): per ``object_<j>`` a
     ``points`` matrix of shape ``(5, N)`` whose rows are ``[x, y, z, board_id, corner_id]``."""
