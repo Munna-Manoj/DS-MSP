@@ -13,8 +13,8 @@ in front of a 195° fisheye — and check our result against the Kannala-Brandt 
 the dataset authors published.
 
 <div class="ds-stats">
-  <div class="ds-stat"><span class="ds-stat__value">0.081 px</span><span class="ds-stat__label">median reprojection, all 14,460 corners</span></div>
-  <div class="ds-stat"><span class="ds-stat__value">0.003%</span><span class="ds-stat__label">focal-length agreement vs. published KB</span></div>
+  <div class="ds-stat"><span class="ds-stat__value">0.080 px</span><span class="ds-stat__label">median reprojection, all 14,460 corners</span></div>
+  <div class="ds-stat"><span class="ds-stat__value">~0.02%</span><span class="ds-stat__label">focal-length agreement vs. published KB</span></div>
   <div class="ds-stat"><span class="ds-stat__value">14,460</span><span class="ds-stat__label">self-detected corners, none discarded</span></div>
 </div>
 
@@ -22,12 +22,13 @@ the dataset authors published.
 - Calibrate a Kannala-Brandt camera from scratch — detect real AprilGrid corners,
   bundle-adjust intrinsics and a per-frame pose with `ds_msp.calib.calibrate`, and compare
   the result to TUM-VI's published reference number-for-number.
-- Land on **0.081 px median reprojection** (0.159 px inlier RMS) over all 14,460
-  self-detected corners, with focal length matching the published value to **0.003%**.
+- Land on **0.080 px median reprojection** (0.160 px inlier RMS) over all 14,460
+  self-detected corners, with focal length matching the published value to **~0.02%**.
 - Diagnose a real "detector returns 0 tags on every frame" bug — a 2-cell vs. 1-cell
   AprilTag border mismatch between Kalibr-style boards and stock AprilTag-3 — and fix it.
 - See why the Double Sphere model fits the very same corners just as tightly (~0.08 px)
-  even though its raw focal number (`fx≈157`) looks nothing like KB's (`fx≈191`).
+  even though its raw focal number (`fx≈249`) looks nothing like KB's (`fx≈191`) — until you
+  correct for DS's own focal gauge.
 
 **Prerequisites**
 - Finish [Chapter 2](02_double_sphere_model.md) — the capstone is runnable right after it;
@@ -66,15 +67,53 @@ graph LR
 We calibrate a **Kannala-Brandt** model precisely because TUM-VI's published reference is
 KB — so the comparison is number-for-number, not hand-waving.
 
+Here are those four steps as real, runnable code — the actual pipeline
+[`examples/03_calibrate_tumvi_aprilgrid.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/03_calibrate_tumvi_aprilgrid.py)
+runs, trimmed of argument parsing and print formatting:
+
+```python
+import glob, os
+from ds_msp.calib import AprilGridTarget, calibrate, detect_aprilgrid
+from ds_msp.io.kalibr import load_kalibr_with_resolution
+from ds_msp.models import KannalaBrandtModel
+
+CALIB_DIR = "datasets/tumvi/dataset-calib-cam1_512_16/mav0/cam0/data"
+CAMCHAIN = "datasets/tumvi/dataset-room1_512_16/dso/camchain.yaml"
+
+# 1. detect -- multi-scale by default (scales=(1, 2, 3)), so peripheral tags the
+#    fisheye shrinks below a single-scale detector's size gate are still recovered.
+paths = sorted(glob.glob(os.path.join(CALIB_DIR, "*.png")))
+detections = detect_aprilgrid(paths, family="t36h11", min_tags=6, refine=True)
+
+# 2. correspond -- board geometry -> (X,Y,Z world) <-> (u,v pixel) pairs.
+target = AprilGridTarget(tag_rows=6, tag_cols=6, tag_size=0.088, tag_spacing=0.3)
+Xs, UVs, VIs = target.build_correspondences(detections, min_corners=8)
+
+# 3. calibrate -- a generic seed, NOT the published answer; Cauchy keeps every
+#    corner but down-weights outliers instead of discarding them.
+seed = KannalaBrandtModel(fx=180.0, fy=180.0, cx=256.0, cy=256.0)
+result = calibrate(seed, Xs, UVs, VIs, loss="cauchy", f_scale=0.5)
+model = result["model"]
+
+# 4. compare -- against TUM-VI's own published Kalibr camchain for this camera.
+published, (w, h) = load_kalibr_with_resolution(CAMCHAIN, cam="cam0")
+print(model)                    # KannalaBrandtModel(fx=191.007, fy=190.994, ...)
+print(published)                # KannalaBrandtModel(fx=190.978, fy=190.973, ...)
+print(f"median reprojection: {result['median_px']:.3f} px")   # 0.080 px
+```
+
+Every number quoted in this chapter comes straight from running this (the full script also
+prints the per-parameter delta table and repeats the fit with Double Sphere — see below).
+
 ## The result
 
 ```
             fx        fy        cx        cy        k1        k2        k3        k4
 published  190.978   190.973   254.932   256.897   0.00348   0.00072  -0.00205   0.00020
-mine       190.983   190.970   254.954   256.871   0.00637  -0.00485   0.00172  -0.00060
-|Δ|          0.005     0.003     0.022     0.027
+mine       191.019   191.006   254.949   256.860   0.00641  -0.00491   0.00171  -0.00059
+|Δ|          0.041     0.033     0.018     0.037
 
-median reprojection 0.081 px, inlier RMS 0.159 px — over all 14460 corners we
+median reprojection 0.080 px, inlier RMS 0.160 px — over all 14460 corners we
 detected ourselves, none discarded.
 ```
 
@@ -84,12 +123,12 @@ detected ourselves, none discarded.
 model predicts** they should be. They sit on top of each other in every frame — the model
 reproduces the measurements to a tenth of a pixel.*
 
-- **Principal point to ~0.03 px.** `cx` lands within 0.022 px; `cy` within 0.027 px.
-- **Focal length to 0.003%.** `fx` agrees to 0.005 px — from a single camera, against a
+- **Principal point to ~0.04 px.** `cx` lands within 0.018 px; `cy` within 0.037 px.
+- **Focal length to ~0.02%.** `fx` agrees to 0.041 px — from a single camera, against a
   reference fit with the full Basalt/Kalibr pipeline (both cameras + IMU). The higher-order
   `k`'s differ more — they're weakly constrained and trade off against each other, which is
   why we judge the camera by reprojection error, not by staring at `k4`.
-- **0.081 px median reprojection** is Kalibr-grade. That number is the proof the
+- **0.080 px median reprojection** is Kalibr-grade. That number is the proof the
   calibration is real. (We report median + inlier RMS rather than a single RMS: under a
   robust loss the plain all-corner RMS is inflated by the few outliers the loss correctly
   *ignored*, so it would understate the fit.)
@@ -100,10 +139,13 @@ reproduces the measurements to a tenth of a pixel.*
 > detection the focal agreed only to ~0.7%; the periphery is where the constraint lives.
 
 The library's flagship **Double Sphere** model fits the very same corners just as tightly
-(≈0.08 px median). Its focal lands elsewhere (≈157) — not a bug: `fx` is model-relative
-(the true paraxial focal is `fx_DS/(1+ξ) ≈ 191`, matching KB to 0.1%), and on a *planar*
-target DS additionally has a focal↔(`xi`,`alpha`) gauge freedom. A full proof that the DS
-and KB calibrations are the *same camera* — and where they stop being — is in
+(0.080 px median — run the snippet above with `DoubleSphereModel(fx=180, fy=180, cx=256,
+cy=256, xi=0.0, alpha=0.5)` as the seed to see it yourself). Its focal lands elsewhere
+(`fx≈249.1, ξ≈0.30`) — not a bug: `fx` is model-relative (the true paraxial focal is
+`fx_DS/(1+ξ) ≈ 191.1`, matching KB to 0.02%), and on a *planar* target DS additionally has a
+focal↔(`xi`,`alpha`) gauge freedom — a different seed can land on a different `(fx, ξ)` pair
+that computes to the *same* paraxial focal. A full proof that the DS and KB calibrations are
+the *same camera* — and where they stop being — is in
 **[are two models the same camera?](../explain/are_two_models_the_same_camera.md)**. Judge a model by
 reprojection error, not by its raw focal.
 
