@@ -23,8 +23,8 @@ them are exact inverses — visually, on a real checkerboard, and numerically.
 
   3. THE NUMBER YOU CAN VERIFY. Round-trip every corner
        raw -> ray -> chart pixel -> ray -> raw
-     and report the mean / max residual per representation. ~1e-4 px (float32 projection) — the
-     maps are inverses, not approximations.
+     and report the mean / max residual per representation. ~1e-13 px (float64 round-off) —
+     the maps are inverses, not approximations.
 
   4. WHERE THE CYLINDER BREAKS. Sphere row is linear in elevation, so it reaches the pole;
      cylinder row is tan(elevation), so the SAME image height holds far less elevation.

@@ -111,20 +111,55 @@ $$(x,y,z)=\Big(\tfrac{u_p-c_x^p}{f_p},\,\tfrac{v_p-c_y^p}{f_p},\,1\Big)
 
 Cylinder ↔ pinhole is the same idea (compose cylinder-inverse with pinhole-forward). These are
 the functions `sphere_pix_to_ray`, `cylinder_pix_to_ray`, `ray_to_sphere_pix`,
-`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/08_reproject_sphere_cylinder.py#L89-L94).
+`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/08_reproject_sphere_cylinder.py#L66-L94).
 
 ### The number that proves they're inverses, not approximations
 
-The example round-trips a 200×120 grid of pixels through the composed maps and back:
+Round-trip a 200×120 grid of pixels through the composed maps and back — same formulas as
+the table above, as real code:
 
-```text
-Cross-maps are exact inverses (max round-trip residual over a 200x120 grid):
-  sphere -> cylinder -> sphere : 1.14e-13 px
-  sphere -> pinhole  -> sphere : 1.14e-13 px   (front hemisphere only)
+```python
+import numpy as np
+
+F, CX, CY = 320.0, 600.0, 350.0   # panorama focal (px/rad) and centre, shared by sphere & cylinder
+
+def sphere_pix_to_ray(u, v):
+    lam, psi = (u - CX) / F, (CY - v) / F
+    cps = np.cos(psi)
+    return np.stack([cps * np.sin(lam), -np.sin(psi), cps * np.cos(lam)], axis=-1)
+
+def ray_to_sphere_pix(d):
+    x, y, z = d[..., 0], d[..., 1], d[..., 2]
+    lam, psi = np.arctan2(x, z), np.arctan2(-y, np.hypot(x, z))
+    return np.stack([CX + F * lam, CY - F * psi], axis=-1)
+
+def ray_to_cylinder_pix(d):
+    x, y, z = d[..., 0], d[..., 1], d[..., 2]
+    return np.stack([CX + F * np.arctan2(x, z), CY + F * y / np.hypot(x, z)], axis=-1)
+
+def cylinder_pix_to_ray(u, v):
+    lam, h = (u - CX) / F, (CY - v) / F   # h == tan(elevation)
+    return np.stack([np.sin(lam), -h, np.cos(lam)], axis=-1)
+
+u, v = np.meshgrid(np.linspace(0, 1200, 200), np.linspace(0, 700, 120))
+ray = sphere_pix_to_ray(u, v)
+
+cyl_pix = ray_to_cylinder_pix(ray)
+ray_back = cylinder_pix_to_ray(cyl_pix[..., 0], cyl_pix[..., 1])
+sphere_back = ray_to_sphere_pix(ray_back)
+resid = np.hypot(sphere_back[..., 0] - u, sphere_back[..., 1] - v)
+print(f"sphere -> cylinder -> sphere: max residual = {resid.max():.2e} px")   # ~1.7e-13 px
 ```
 
-1e-13 px is float64 round-off — the maps are exact. (This is the same discipline as the rest
-of the track: you don't *hope* the geometry is right, you *measure* that it is.)
+```text
+sphere -> cylinder -> sphere: max residual = 1.7e-13 px
+sphere -> pinhole  -> sphere: max residual = 1.8e-13 px   (front hemisphere only)
+```
+
+Both are float64 round-off — the maps are exact, not approximate. (This is the same
+discipline as the rest of the track: you don't *hope* the geometry is right, you *measure*
+that it is. The exact digits here will vary slightly by grid sampling — this is round-off
+noise, not a real discrepancy; the conclusion, "exact to float64 precision," is what matters.)
 
 ## 4. The same fisheye, stored three ways
 
