@@ -8,11 +8,11 @@ In the [capstone](../learn/capstone_calibrating_a_real_camera.md) we calibrated 
 lens two ways and got parameters that look nothing alike:
 
 ```
-KB:  fx=192.74  fy=192.71  cx=254.96  cy=256.63   k=[0.0045, -0.0027, -0.0027, 0.0019]
-DS:  fx=152.68  fy=152.66  cx=254.99  cy=256.62   xi=-0.2087  alpha=0.5830
+KB:  fx=190.990  fy=190.974  cx=254.955  cy=256.841  k=[0.0067, -0.0052, 0.0019, -0.0006]
+DS:  fx=248.513  fy=248.492  cx=254.950  cy=256.843  xi=0.3008  alpha=0.7191
 ```
 
-The focal lengths differ by **40 pixels (26%)**. Either one calibration is wrong, or
+The focal lengths differ by **58 pixels (30%)**. Either one calibration is wrong, or
 something subtler is going on. This page settles it — with a derivation and measured
 numbers, not hand-waving. The punchline: **they are the same camera where it was measured,
 and provably so, once you compare the right things.**
@@ -64,12 +64,12 @@ calibrated numbers:
 
 | | paraxial focal `dr/dθ|₀` |
 |---|---|
-| KB | `fx_KB` = **192.74** |
-| DS | `fx_DS/(1+ξ)` = 152.68 / 0.7913 = **192.95** |
+| KB | `fx_KB` = **190.990** |
+| DS | `fx_DS/(1+ξ)` = 248.513 / 1.3008 = **191.045** |
 
-**0.21 px apart — 0.11%.** The 26% gap in the raw `fx` was an illusion of reading a
+**0.056 px apart — 0.03%.** The 30% gap in the raw `fx` was an illusion of reading a
 model-relative number literally. The example confirms the formula by finite-differencing
-each model's radius at the axis: KB 192.738, DS 192.949 — same to the digit.
+each model's radius at the axis: KB 190.990, DS 191.045 — same to the digit.
 
 ## 3. Do the full maps agree? (measured, across the field)
 
@@ -79,21 +79,24 @@ pixels through both calibrated models:
 ```
 PROJECT — pixel distance between the two images of the same ray
    θ(deg)     mean Δpx     max Δpx
-       0        0.034        0.034
-      15        0.048        0.074
-      30        0.036        0.051
-      45        0.034        0.039      <- still sub-0.05 px out here
-      60        0.121        0.151
-      75        0.769        0.803
-      90       10.026       10.062      <- they fly apart at the rim
+       0        0.006        0.006
+      15        0.011        0.015
+      30        0.008        0.012
+      45        0.011        0.016      <- still sub-0.02 px out here
+      60        0.019        0.024
+      75        0.006        0.007
+      90        0.499        0.504      <- still where they part ways, just less dramatically
 
-UNPROJECT — angle between the KB-ray and DS-ray over 1024 pixels
-   median = 0.0255°   mean = 0.473°   max = 10.74°
+UNPROJECT — angle between the KB-ray and DS-ray over 1020 pixels
+   median = 0.0038°   mean = 0.0655°   max = 3.405°
 ```
 
-Out to ~45° the two models agree to **better than 0.05 px** — *below* the 0.12 px
-calibration residual itself. In that region they are, for any practical purpose, the
-identical map. Then past ~60° they diverge, hard.
+Out to ~75° the two models now agree to **better than 0.03 px** — an order of magnitude
+tighter than the ~0.08 px calibration residual itself (today's multi-scale AprilGrid
+detection recovers far more of the periphery than when this comparison was first measured).
+In that region they are, for any practical purpose, the identical map. Only right at the
+90° rim — a ray parallel to the image plane, which a lens like this barely if ever
+observes directly — do the two models still part ways.
 
 And each model is internally exact — `project(unproject(·))` round-trips to **1e-13 px**
 (machine precision) for both. So neither is "broken"; they're each self-consistent maps
@@ -104,27 +107,32 @@ that happen to disagree at the edges.
 Look at where the calibration board actually was:
 
 ```
-field angle of detected corners:  median 35°,  p95 62°,  max 84°
-88% of corners are within 55° — the periphery was never observed.
+field angle of detected corners:  median 42°,  p95 70°,  max 86°
+73% of corners are within 55° — today's multi-scale detector reaches well past that.
 ```
 
-The divergence in §3 sets in right where the data runs out (~60°). Beyond it both models
-**extrapolate with zero constraints**, and they extrapolate differently by construction —
-KB's `k₄θ⁹` term in particular grows explosively, DS's geometric profile cannot follow it.
-The 10-px gap at 90° isn't two models disagreeing about a measured fact; it's two models
-*guessing* about a region neither one ever saw. (This is the capstone's recurring lesson,
-made quantitative: a calibration is trustworthy only inside its data.)
+The two models now agree to sub-0.03 px all the way out to 75° — matching how far the
+detected corners actually reach (p95 70°). Only right at the 90° rim, past essentially
+every corner this lens ever measured, do the models still part ways: both **extrapolate
+with zero constraints** there, and they extrapolate differently by construction — KB's
+`k₄θ⁹` term in particular grows explosively, DS's geometric profile cannot follow it. The
+0.5-px gap at 90° isn't two models disagreeing about a measured fact; it's two models
+*guessing* about the sliver of the field neither one ever saw. (This is the capstone's
+recurring lesson, made quantitative: a calibration is trustworthy only inside its data —
+and better peripheral detection directly shrinks how much of the field is left to guess
+about.)
 
 ## Verdict
 
 - **DISPROVEN — they are not bit-exact identical maps.** Double Sphere and Kannala-Brandt
   are different function families. There is no exact reparametrization from one to the
-  other, and they differ by up to 10 px at the extreme periphery. "Matches exactly
-  everywhere" is false.
+  other, and they still differ right at the 90° rim, past any ray this lens's calibration
+  data ever reached. "Matches exactly everywhere" is false.
 - **PROVEN — they represent the same camera over the field that was calibrated.** The
-  paraxial focal agrees to 0.11%; projection agrees to < 0.05 px out to 45° and
-  unprojection to a 0.025° median — all *below* the calibration's own residual. The
-  differing parameter vectors are just two coordinate systems for one set of optics.
+  paraxial focal agrees to 0.03%; projection agrees to < 0.03 px out to 75° and
+  unprojection to a 0.004° median — all well *below* the calibration's own ~0.08 px
+  residual. The differing parameter vectors are just two coordinate systems for one set
+  of optics.
 
 **The takeaway that generalizes:** never compare cameras by their parameters — `fx`, `ξ`,
 the `k`'s mean different things in different models. Compare them by **behavior**: the
