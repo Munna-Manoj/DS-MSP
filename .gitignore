@@ -14,6 +14,8 @@ venv/
 *.egg-info/
 build/
 dist/
+# Generated MkDocs Material site (mkdocs build's default output dir).
+site/
 # Local dev-only lockfile; the project isn't otherwise standardized on uv (CI uses plain
 # pip), so this stays a personal convenience rather than a committed toolchain choice.
 uv.lock

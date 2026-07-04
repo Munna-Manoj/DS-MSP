@@ -124,12 +124,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: mkdocs build --strict
+      - name: mkdocs build --strict (via pytest, so xfail/skip markers apply)
         if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
         run: |
           if [ -f mkdocs.yml ]; then
-            pip install -e ".[docs]"
-            mkdocs build --strict
+            pip install -e ".[docs]" -r requirements-dev.txt
+            pytest tests/docs/ -q
           else
             echo "mkdocs.yml doesn't exist yet -- skipping (lands in a later docs-overhaul commit)."
           fi

@@ -1,0 +1,119 @@
+site_name: DS-MSP
+site_description: Double Sphere & multi-model fisheye camera library — and a guided course in the geometry behind SLAM/SfM.
+site_url: https://munna-manoj.github.io/DS-MSP/
+repo_url: https://github.com/Munna-Manoj/DS-MSP
+repo_name: Munna-Manoj/DS-MSP
+docs_dir: docs
+edit_uri: edit/main/docs/
+
+# Internal governance/planning/authoring content lives under docs/ but is NOT part of the
+# published site. readme-options/ and research/ are also gitignored (never reach a CI
+# checkout at all); process/ and WRITING_GUIDE.md are tracked but contributor-facing, not
+# reader-facing, so they're excluded here too.
+exclude_docs: |
+  process/
+  research/
+  readme-options/
+  WRITING_GUIDE.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - glightbox:
+      effect: zoom
+      zoomable: true
+      draggable: true
+      auto_caption: true
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+            separate_signature: true
+            show_root_heading: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+# Provisional nav using CURRENT files only -- gets replaced/expanded phase by phase as
+# docs/learn/ is reorganized (a dedicated Explanation section), a How-to cookbook is authored,
+# and a real generated API Reference lands. "Guides" is a placeholder Diátaxis-mixed bucket
+# until those sections exist for real.
+nav:
+  - Home: index.md
+  - Learn:
+      - learn/README.md
+      - 1 · Fisheye & camera models: learn/01_fisheye_and_camera_models.md
+      - 2 · The Double Sphere model: learn/02_double_sphere_model.md
+      - 3 · Projection validity & the >180° cone: learn/03_projection_validity.md
+      - Capstone — calibrate a real camera: learn/capstone_calibrating_a_real_camera.md
+      - "Deep-dive: AprilGrid detection": learn/robust_aprilgrid_detection.md
+      - "Deep-dive: robust losses & evaluation": learn/robust_losses_and_evaluation.md
+      - "Deep-dive: are two models the same camera?": learn/are_two_models_the_same_camera.md
+      - "Deep-dive: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
+      - "Deep-dive: stereo extrinsics": learn/stereo_extrinsics_calibration.md
+      - "Deep-dive: choosing a camera model": learn/choosing_a_camera_model.md
+      - "Deep-dive: EUCM+/DS+/KB case study": learn/case_study_eucmplus_dsplus_kb.md
+      - "Deep-dive: two-view geometry": learn/two_view_geometry.md
+  - Guides:
+      - Calibrate a single camera: CALIBRATE_GUIDE.md
+      - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md
+      - Rig Blender evaluation: RIG_BLENDER_EVALUATION.md
+      - Rig evaluation table: RIG_EVALUATION_TABLE.md
+      - Rig outlier benchmark: RIG_OUTLIER_BENCHMARK.md
+      - Multi-model library & conversion: MULTI_MODEL.md
+  - Project:
+      - Roadmap: ROADMAP.md
