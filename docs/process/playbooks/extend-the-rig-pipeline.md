@@ -43,13 +43,17 @@ rig requirement, release-gated on real-data validation).
    *"pipelines compose capabilities but stay independent of each other"* enforces this.
 3. **Keep MC-Calib parity.** Any new config key must either be a real MC-Calib key (honoured) or a
    clearly-marked **DS-MSP extension** (like `camera_models` / `object_path`). Document it in
-   [`configs/calib_param.template.yml`](../../../configs/calib_param.template.yml) — the template is
-   CI-guaranteed to exist and parse (`test_base_template_exists_and_parses`). Output stays in
-   MC-Calib's schema so files round-trip both directions (`FR-IO-004`).
+   [`ds_msp/rig/configs/calib_param.template.yml`](../../../ds_msp/rig/configs/calib_param.template.yml)
+   — the template is CI-guaranteed to exist and parse (`test_base_template_exists_and_parses`), and
+   ships as real package data (`ds-msp-calibrate-rig --init-config` works from `pip install ds-msp`
+   alone, no repo clone — `check_packaging.py` guards this). Output stays in MC-Calib's schema so
+   files round-trip both directions (`FR-IO-004`).
 4. **Templates are part of the contract.** If you touch config or intrinsics handling, update the
-   matching template (`calib_param.template.yml`, `calib_param.keypoints.template.yml`,
-   `camera_intrinsics.template.yml`) and its `--init-*` CLI flag in
-   [`scripts/calibrate_rig.py`](../../../scripts/calibrate_rig.py). A shipped, parseable template per
+   matching template (`ds_msp/rig/configs/calib_param.template.yml`,
+   `ds_msp/rig/configs/calib_param.keypoints.template.yml`,
+   `ds_msp/rig/configs/camera_intrinsics.template.yml`) and its `--init-*` CLI flag in
+   [`ds_msp/rig/cli.py`](../../../ds_msp/rig/cli.py) (`scripts/calibrate_rig.py` is now just a
+   thin wrapper around it, kept for git-clone convenience). A shipped, parseable template per
    capability is a tested guarantee, not a courtesy.
 5. **Tests.** Add `integration`-level tests in `tests/rig/test_calib_param.py` (or the closest rig
    test module) and mark each with `@pytest.mark.req("FR-RIG-...")`. The marker *is* the

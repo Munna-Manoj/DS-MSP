@@ -2,13 +2,21 @@
 # =============================================================================
 # DS-MSP[rig] calibration config — MC-Calib-compatible `calib_param.yml`.
 #
-# Drop-in with MC-Calib: run `python scripts/calibrate_rig.py --config <this file>`.
+# Drop-in with MC-Calib: run `ds-msp-calibrate-rig --config <this file>` (pip install ds-msp)
+# or `python scripts/calibrate_rig.py --config <this file>` (git clone -- same CLI either way).
 # Every key below is MC-Calib's own (so an existing MC-Calib config works unchanged),
 # EXCEPT the two clearly-marked DS-MSP extensions: `camera_models` and `object_path`.
-# Generate a fresh copy any time with: `python scripts/calibrate_rig.py --init-config calib_param.yml`
+# Generate a fresh copy any time with: `ds-msp-calibrate-rig --init-config calib_param.yml`
 #
 # Relative paths resolve against THIS file's directory. Override any value on the CLI:
 #   --set root_path=/abs/Images --set save_path=/abs/out --set camera_models=kb,kb,radtan
+#
+# Boolean fields (fix_intrinsic, save_detection, save_reprojection, verbose, webviewer) are
+# true/false, and MUST be quoted ("true"/"false") -- the underlying YAML parser has no native
+# boolean type and misreads an *unquoted* true/false as a nested mapping if its trailing comment
+# happens to contain a ":" (a real, verified parser quirk, not a style preference). Quoting is
+# always safe regardless of the comment; keep it when editing these fields. 0/1 is still accepted
+# for backward compatibility with older config files, but true/false is the documented form.
 # =============================================================================
 
 ######################################## Boards Parameters ###################################################
@@ -43,10 +51,10 @@ min_perc_pts: 0.5          # [IGNORED by DS-MSP — uses a fixed min_corners=8 p
 # initial intrinsics yml, or "None" to estimate from scratch. Schema = MC-Calib
 # calibrated_cameras_data, extended with a per-camera `camera_model` so any DS-MSP model can be
 # stated (see configs/camera_intrinsics.template.yml; emit one with --init-intrinsics PATH).
-# When given: the model stated for each camera must match (fix_intrinsic=1) or is converted with a
-# warning into (fix_intrinsic=0) the model chosen above (camera_models / distortion_model).
+# When given: the model stated for each camera must match (fix_intrinsic=true) or is converted
+# with a warning into (fix_intrinsic=false) the model chosen above (camera_models / distortion_model).
 cam_params_path: "None"
-fix_intrinsic: 0           # 0: estimate+refine intrinsics  //  1: hold intrinsics fixed (needs cam_params_path)
+fix_intrinsic: "false"      # false => estimate+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
 
 ######################################## Images Parameters ###################################################
 root_path: "../data/Images"   # folder of per-camera subfolders <cam_prefix><camID+1:03d>/ (e.g. Cam_001/)
@@ -63,12 +71,15 @@ he_approach: 0             # 0: bootstrapped hand-eye  //  1: traditional hand-e
 
 ######################################## Output Parameters ###################################################
 save_path: "../data/Results"        # results dir (yml files + Detection/ + Reprojection/)
-save_detection: 0                   # 1 => write Detection/<cam_prefix><id>/<frame>.jpg (green detected corners)
-save_reprojection: 0                # 1 => write Reprojection/<cam_prefix><id>/<frame>.jpg (green detected + red reprojected)
+save_detection: "false"             # true => write Detection/<cam_prefix><id>/<frame>.jpg (green detected corners)
+save_reprojection: "false"          # true => write Reprojection/<cam_prefix><id>/<frame>.jpg (green detected + red reprojected)
 camera_params_file_name: ""         # output cameras filename; "" => calibrated_cameras_data.yml
 
 # --- DS-MSP EXTENSION ---
 # object_path: "None"      # pre-built fused 3D object (calibrated_objects_data.yml); "None"/absent => reconstruct from detections
+# verbose: "true"           # print per-stage progress as calibration runs (default true) // false => silent
+# webviewer: "true"         # launch the live browser 3D view (default true); independent of `verbose`,
+                             # e.g. a headless/CI run wants webviewer: false but often still wants verbose: true
 
 ######################################## Accepted-but-ignored MC-Calib keys (for drop-in compatibility) ######
 # These newer MC-Calib keys parse without error but DS-MSP does not act on them yet:

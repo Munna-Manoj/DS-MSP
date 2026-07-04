@@ -10,14 +10,14 @@
 #   * The model each camera is stored in is read from `camera_model` (preferred — names every
 #     model) or, for a plain MC-Calib file, from `distortion_type` (0=radtan, 1=kb, 2=double_sphere),
 #     or, failing both, inferred from the distortion-vector length (4 coeffs -> kb, else radtan).
-#   * fix_intrinsic=1 (hold intrinsics): the stored model MUST match the model chosen in
+#   * fix_intrinsic=true (hold intrinsics): the stored model MUST match the model chosen in
 #     calib_param.yml for that camera, and intrinsics MUST be present — otherwise it is an error.
-#   * fix_intrinsic=0 (refine intrinsics): if the chosen model differs from the stored one, a
+#   * fix_intrinsic=false (refine intrinsics): if the chosen model differs from the stored one, a
 #     WARNING is printed and convert() carries the SAME physical lens into the chosen model
 #     (unproject a pixel grid through the stored model, fit the chosen model to the identical
 #     ray<->pixel pairs) before the bundle adjustment refines it.
 #   * No `cam_params_path` at all: every camera initializes from scratch (front-end estimate),
-#     except fix_intrinsic=1 which then errors (nothing to hold fixed).
+#     except fix_intrinsic=true which then errors (nothing to hold fixed).
 #
 # distortion_vector layout PER MODEL (camera_matrix is the usual [[fx,0,cx],[0,fy,cy],[0,0,1]],
 # except ocam where fx=fy=|a0| and only cx,cy are meaningful):

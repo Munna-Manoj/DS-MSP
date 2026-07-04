@@ -10,19 +10,24 @@
 #
 # ----------------------------------------------------------------------------------------------
 # STEP 1 — detect from images and save the keypoints (run this once):
-#   Use configs/calib_param.template.yml (root_path -> your images, save_path -> an output dir).
-#   It writes <save_path>/detected_keypoints_data.yml and <save_path>/calibrated_objects_data.yml
-#   alongside the calibration result.
+#   Use a base config from `ds-msp-calibrate-rig --init-config calib_param.yml` (root_path ->
+#   your images, save_path -> an output dir). It writes <save_path>/detected_keypoints_data.yml
+#   and <save_path>/calibrated_objects_data.yml alongside the calibration result.
 #
 # STEP 2 — reuse the saved keypoints (this file): point keypoints_path at the saved file and set
 #   root_path to "None". No image detection happens; only the rig math runs.
-#     python scripts/calibrate_rig.py --config configs/calib_param.keypoints.template.yml \
+#     ds-msp-calibrate-rig --config calib_param.keypoints.template.yml \
 #         --set keypoints_path=/abs/out/detected_keypoints_data.yml \
 #         --set object_path=/abs/out/calibrated_objects_data.yml \
 #         --set save_path=/abs/out_run2 --set camera_models=ds,ds,ds,ds,radtan,radtan,ds,ds
+#   (git-clone checkouts can use `python scripts/calibrate_rig.py` instead -- same CLI either way)
 # ----------------------------------------------------------------------------------------------
 # The keypoints file is MC-Calib's exact `detected_keypoints_data.yml` schema, so a file produced
 # by MC-Calib itself is also accepted here (and vice-versa).
+#
+# Boolean fields (fix_intrinsic, save_detection, save_reprojection, verbose, webviewer) are
+# true/false, and MUST be quoted ("true"/"false") -- see calib_param.template.yml's header
+# for why (a real cv2.FileStorage parser quirk, not a style preference).
 # =============================================================================
 
 ######################################## Boards Parameters ###################################################
@@ -51,7 +56,7 @@ number_camera: 8
 # pass a previous run's calibrated_cameras_data.yml to seed/hold intrinsics. See
 # configs/camera_intrinsics.template.yml for the per-model schema and the matching/convert rules.
 cam_params_path: "None"
-fix_intrinsic: 0           # 0: estimate+refine intrinsics  //  1: hold intrinsics fixed (needs cam_params_path)
+fix_intrinsic: "false"      # false => estimate+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
 
 ######################################## Images Parameters ###################################################
 # REUSE MODE: keypoints_path is set, root_path is "None" -> no image detection.
@@ -72,6 +77,9 @@ he_approach: 0             # 0: bootstrapped hand-eye  //  1: traditional hand-e
 
 ######################################## Output Parameters ###################################################
 save_path: "/abs/out_run2"          # results dir for THIS reuse run (keeps runs side by side)
-save_detection: 0                   # overlays need raw images (root_path); off in pure reuse mode
-save_reprojection: 0                # overlays need raw images (root_path); off in pure reuse mode
+save_detection: "false"             # overlays need raw images (root_path); off in pure reuse mode
+save_reprojection: "false"          # overlays need raw images (root_path); off in pure reuse mode
 camera_params_file_name: ""         # "" => calibrated_cameras_data.yml
+
+# --- DS-MSP EXTENSION ---
+# webviewer: "true"         # launch the live browser 3D view (default true); independent of `verbose`
