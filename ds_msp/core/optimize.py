@@ -145,6 +145,7 @@ def lm_solve(
     gnc_iters: int = 0,
     weights: Optional[np.ndarray] = None,
     linear_solve: Optional[Callable[[np.ndarray, np.ndarray, float, np.ndarray], np.ndarray]] = None,
+    on_iter: Optional[Callable[[int, int, float, float, Any], None]] = None,
 ) -> OptResult:
     r"""Minimize ``Σ_i w_i ρ(‖r_i‖²)`` on a manifold by re-basing Levenberg–Marquardt.
 
@@ -176,6 +177,14 @@ def lm_solve(
     linear_solve(H, g, lam, D) -> δ
         Optional custom linear solver (e.g. a Schur-complement BA solve). Defaults to
         dense damped Cholesky :func:`_solve_damped`.
+    on_iter(it, max_iter, rms, cost, state)
+        Optional callback fired once per outer iteration with the *current best* (plain,
+        non-robust) RMS and cost — i.e. after this iteration's step is applied if accepted,
+        unchanged if rejected (a flat reading is a real plateau, not a stall in reporting) —
+        plus the current opaque ``state`` object itself, so a caller in a layer that
+        understands ``state``'s shape (e.g. ``rig/bundle.py``) can render the actual live
+        geometry, not just the scalar trace. This solver never inspects `state`'s contents,
+        so passing it adds no coupling here. Side-effect only; does not affect the solve.
 
     Returns
     -------
@@ -262,6 +271,12 @@ def lm_solve(
                                  actual=f - f_try, lam_min=lam_min, lam_max=lam_max)
         if accepted:
             state, r, f = state_try, r_try, f_try
+        if on_iter is not None:
+            bn_now = block_norms(r)
+            on_iter(it, max_iter,
+                   float(np.sqrt((bn_now ** 2).mean())) if bn_now.size else float("nan"), f,
+                   state)
+        if accepted:
             if float(np.max(np.abs(delta))) < tol:
                 converged = True
                 break
@@ -446,6 +461,7 @@ def schur_lm(
     gnc_start: float = 0.0,
     gnc_iters: int = 0,
     weights: Optional[np.ndarray] = None,
+    on_iter: Optional[Callable[[int, int, float, float, Any], None]] = None,
 ) -> OptResult:
     r"""Levenberg–Marquardt for **separable** problems: a small block of *shared*
     parameters (``shared_dim``) coupled to ``n_groups`` *independent* per-group local
@@ -481,6 +497,8 @@ def schur_lm(
         ``linearize`` groups concatenate (group 0's blocks first, then group 1's, …). Folded
         into the IRLS row weights — this is the hook :func:`gnc_tls_solve` uses to drive a
         graduated solve through the sparse separable solver.
+    on_iter(it, max_iter, rms, cost, state)
+        Optional per-iteration progress callback — see :func:`lm_solve`.
     """
     if robust_kernel not in VALID_KERNELS:
         raise ValueError(f"robust_kernel must be one of {VALID_KERNELS!r}")
@@ -587,6 +605,12 @@ def schur_lm(
                                  actual=f - f_try, lam_min=lam_min, lam_max=lam_max)
         if accepted:
             state, r_full, f = state_try, r_try, f_try
+        if on_iter is not None:
+            bn_now = np.linalg.norm(r_full.reshape(-1, block), axis=1)
+            on_iter(it, max_iter,
+                   float(np.sqrt((bn_now ** 2).mean())) if bn_now.size else float("nan"), f,
+                   state)
+        if accepted:
             if dmax < tol:
                 converged = True
                 break
