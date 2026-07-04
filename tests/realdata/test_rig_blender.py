@@ -3,7 +3,7 @@
 This is the real-data sign-off behind shipping ``ds_msp.rig``: it drives the full
 config-based rig calibration on the MC-Calib Blender scenarios and asserts the recovered
 extrinsics land within 1% of ground truth at sub-pixel reprojection, both with the authors'
-intrinsics held fixed (``fix_intrinsic=1``) and with DS+ estimated from scratch.
+intrinsics held fixed (``fix_intrinsic=true``) and with DS+ estimated from scratch.
 
 Dataset-gated: set ``DSMSP_BLENDER_DIR`` to a ``Blender_Images`` directory, or place one at
 the repo root. Skipped (not failed) when the imagery/keypoints are absent, like the other
@@ -30,7 +30,7 @@ number_board: {nb}
 square_size: 0.192
 number_camera: {ncam}
 camera_models: ["{model}"]
-fix_intrinsic: {fix}
+fix_intrinsic: "{fix}"
 cam_params_path: "{cam_params}"
 root_path: "None"
 cam_prefix: "Cam_"
@@ -72,7 +72,7 @@ def test_rig_extrinsics_within_1pct_of_gt(scn, mode, tmp_path):
     cfg_text = _CFG.format(
         nb=meta["nb"], ncam=meta["ncam"],
         model="radtan" if given else "dsplus",
-        fix=1 if given else 0,
+        fix="true" if given else "false",
         cam_params=os.path.join(res_dir, "calibrated_cameras_data.yml") if given else "None",
         kp=kp)
     cfg_path = tmp_path / f"{scn}.{mode}.yml"
