@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Dict, Type
 
+import numpy as np
+
 from ..core.contracts import CameraModel
 from .double_sphere import DoubleSphereModel
 from .dsplus import DSPlusModel
@@ -85,3 +87,34 @@ def model_class(name) -> Type[CameraModel]:
 def mccalib_name(name) -> str:
     """The string MC-Calib uses for this model (``ds`` -> ``double_sphere``)."""
     return _TO_MCCALIB[canonical_name(name)]
+
+
+# Neutral seed values per intrinsic parameter name — a generic, GT-free starting point for
+# from-scratch calibration of any model. Distortion/shape params not listed here seed to 0.0
+# (see seed_from_K), so any model — including DS+/EUCM+ whose extra terms (lambda1/lambda2
+# division-distortion, tau_x/tau_y tilt) are neutral at 0 — is supported without enumerating
+# every parameter name. Moved here (from ds_msp.rig.calibrate, its original home) rather than
+# ds_msp.geometry.resection: this is trivial, mechanical plumbing (instantiate model_cls with
+# neutral defaults, no cv2/scipy), and resection.py is one of the three files
+# ADR-0008-noncommercial-engine-scope.md places under PolyForm-Noncommercial-1.0.0 — moving a
+# plain-MIT helper there would silently relicense it by file placement alone. `models` is
+# explicitly enumerated as staying MIT in that same ADR.
+_NEUTRAL = {"alpha": 0.5, "xi": 0.0, "beta": 1.0, "k1": 0.0, "k2": 0.0, "k3": 0.0,
+            "k4": 0.0, "p1": 0.0, "p2": 0.0,
+            "lambda1": 0.0, "lambda2": 0.0, "tau_x": 0.0, "tau_y": 0.0}
+
+
+def seed_from_K(model_cls: Type[CameraModel], K: np.ndarray) -> CameraModel:
+    """Build a seed instance of ``model_cls`` from a pinhole ``K`` (focal + principal point)
+    with neutral distortion — the from-scratch starting point for any model. Shared by
+    ``ds_msp.rig`` (per-camera intrinsics front-end) and ``ds_msp.calib`` (single-camera
+    calibration)."""
+    if not set(model_cls.param_names) >= {"fx", "fy"}:
+        # Non-pinhole-parameterized model (e.g. OCam: cx,cy + projection polynomial). It
+        # has no fx/fy; seed cx,cy + a focal-scaled leading polynomial term and let
+        # `initialize_from_correspondences` fit the rest from rays.
+        return model_cls(K[0, 2], K[1, 2])
+    vals = {"fx": K[0, 0], "fy": K[1, 1], "cx": K[0, 2], "cy": K[1, 2], **_NEUTRAL}
+    # Unknown shape/distortion params seed to 0.0 (neutral) so any model is supported.
+    vec = np.array([vals.get(n, 0.0) for n in model_cls.param_names], float)
+    return model_cls.from_params(vec)
