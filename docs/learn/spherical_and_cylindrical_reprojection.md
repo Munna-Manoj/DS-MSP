@@ -111,7 +111,7 @@ $$(x,y,z)=\Big(\tfrac{u_p-c_x^p}{f_p},\,\tfrac{v_p-c_y^p}{f_p},\,1\Big)
 
 Cylinder ↔ pinhole is the same idea (compose cylinder-inverse with pinhole-forward). These are
 the functions `sphere_pix_to_ray`, `cylinder_pix_to_ray`, `ray_to_sphere_pix`,
-`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](../../examples/08_reproject_sphere_cylinder.py).
+`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/08_reproject_sphere_cylinder.py#L89-L94).
 
 ### The number that proves they're inverses, not approximations
 
@@ -133,13 +133,13 @@ Resampling the bundled fisheye through each chart (every sample taken from the r
 
 | Sphere (equirectangular) | Cylinder | Pinhole (gnomonic) |
 |---|---|---|
-| ![sphere](../../assets/learn/reproj_sphere.png) | ![cylinder](../../assets/learn/reproj_cylinder.png) | ![pinhole](../../assets/learn/reproj_pinhole.png) |
+| ![sphere](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_sphere.png) | ![cylinder](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_cylinder.png) | ![pinhole](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_pinhole.png) |
 | widest; world verticals bow | verticals stay straight; height compressed | lines stay straight; periphery blows up, poles fall off the frame |
 
 And the morph — *moving from one to another* by blending the per-pixel ray and re-projecting,
 so the endpoints are the exact charts above (asserted to float precision in the render):
 
-![sphere → cylinder → pinhole morph](../../assets/learn/sphere_cylinder_pinhole_morph.gif)
+![sphere → cylinder → pinhole morph](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/sphere_cylinder_pinhole_morph.gif)
 
 Watch the **azimuth (horizontal) stay fixed** from sphere to cylinder — only the rows slide as
 elevation re-spaces through $\tan$. Then both axes bend through $\tan$ into the pinhole, and the
@@ -158,9 +158,9 @@ stay put:
 
 | Raw fisheye | Pinhole (gnomonic) |
 |---|---|
-| ![raw corners](../../assets/learn/corners_raw.png) | ![pinhole corners](../../assets/learn/corners_pinhole.png) |
+| ![raw corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_raw.png) | ![pinhole corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_pinhole.png) |
 | **Sphere (equirectangular)** | **Cylinder** |
-| ![sphere corners](../../assets/learn/corners_sphere.png) | ![cylinder corners](../../assets/learn/corners_cylinder.png) |
+| ![sphere corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_sphere.png) | ![cylinder corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_cylinder.png) |
 
 The board bows in the sphere, straightens to a perfect rectilinear grid in the pinhole, and
 keeps its verticals straight in the cylinder — yet **not one corner leaves its checkerboard

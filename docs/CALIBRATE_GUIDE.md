@@ -84,7 +84,7 @@ Generate a fully-commented starter and edit it:
 ds-msp-calibrate --init-config calib_config.yml
 ```
 
-This copies [`ds_msp/calib/configs/calib_config.template.yml`](../ds_msp/calib/configs/calib_config.template.yml).
+This copies [`ds_msp/calib/configs/calib_config.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/configs/calib_config.template.yml).
 Below is every field that matters.
 
 ### Board geometry — *must match your printed board*
@@ -103,7 +103,7 @@ Below is every field that matters.
 |-----|---------|
 | `camera_model` | `radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`, or `eucmplus` |
 
-See [Choosing a model](../README.md#choosing-a-model) for how to pick one for your lens's FOV.
+See [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick one for your lens's FOV.
 
 ### Inputs / outputs
 | Key | Meaning |
@@ -157,7 +157,7 @@ thresholds with `--pass-px`/`--warn-px` (defaults: 1.0 / 3.0 px median).
 ## 5. Load the result back into a camera instance
 
 `camchain.yaml` is meant to be loaded straight back into a ready, usable
-[`CameraModel`](../ds_msp/core/contracts.py) — not just inspected as a file:
+[`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) — not just inspected as a file:
 
 ```python
 import ds_msp.calib as calib
@@ -244,7 +244,7 @@ Takeaways (measured, not asserted):
 ---
 
 ### See also
-- [`ds_msp/calib/configs/calib_config.template.yml`](../ds_msp/calib/configs/calib_config.template.yml) — annotated base config
+- [`ds_msp/calib/configs/calib_config.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/configs/calib_config.template.yml) — annotated base config
 - [ADR-0009](process/architecture/decisions/ADR-0009-board-protocol.md) — the `Board` protocol design
 - [`RIG_CALIBRATION_GUIDE.md`](RIG_CALIBRATION_GUIDE.md) — the multi-camera rig analogue (extrinsics + intrinsics, ChArUco only)
 - [`docs/learn/`](learn/README.md) — the geometry curriculum (camera models, robust detection, evaluation)

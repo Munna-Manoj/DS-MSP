@@ -128,7 +128,7 @@ earlier — on the rays themselves — and the same estimator works for a 195° 
 everything in `ds_msp.mvg` takes `(N, 3)` rays.
 
 <figure markdown="span">
-  ![Epipolar geometry on bearing rays](../../assets/learn/two_view_epipolar.png){ loading=lazy }
+  ![Epipolar geometry on bearing rays](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/two_view_epipolar.png){ loading=lazy }
   <figcaption>Two cameras see the same points as unit bearing rays **f₁** (blue) and **f₂** (red). For the highlighted point, the two rays and the baseline **t** are coplanar — exactly the constraint **f₂ᵀ E f₁ = 0**. Verified residual ≤ 3.5×10⁻¹⁶ on these rays, computed from `ds_msp.mvg.essential_from_rays`.</figcaption>
 </figure>
 
@@ -252,7 +252,7 @@ round-trip; the two-view geometry adds no error of its own. Notice that `mvg` ne
 was looking at a fisheye: it only ever saw rays. That is the payoff of working on bearings.
 
 <figure markdown="span">
-  ![Double Sphere round-trip accuracy](../../assets/learn/two_view_roundtrip.png){ loading=lazy }
+  ![Double Sphere round-trip accuracy](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/two_view_roundtrip.png){ loading=lazy }
   <figcaption>Recovered rotation error (1.21×10⁻⁶°) against the CI-asserted bound (&lt; 1×10⁻³°) — an 828× margin. Points are projected through a `DoubleSphereModel` to fisheye pixels, unprojected back to rays, then handed to `recover_pose`. The pose is exact to the camera's project/unproject round-trip.</figcaption>
 </figure>
 
@@ -350,7 +350,7 @@ every one of the ~91 good matches and admitted almost no bad ones. The threshold
 `> 0.95`, recall `> 0.9` — all met with margin.
 
 <figure markdown="span">
-  ![RANSAC robustness: sorted angular Sampson residual](../../assets/learn/two_view_ransac.png){ loading=lazy }
+  ![RANSAC robustness: sorted angular Sampson residual](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/two_view_ransac.png){ loading=lazy }
   <figcaption>Per-correspondence angular Sampson residual against the RANSAC consensus, sorted ascending. Blue: the 92 inliers, all below the 0.005 rad threshold. Red: the 28 corrupted matches, reaching ~1.8 rad. The naïve eight-point on all 120 contaminated rays gives 26.78° rotation error; RANSAC recovers 0.107°. From `ds_msp.mvg.ransac_relative_pose`.</figcaption>
 </figure>
 

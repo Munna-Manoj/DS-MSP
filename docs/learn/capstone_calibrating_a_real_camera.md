@@ -39,7 +39,7 @@ the dataset authors published.
   ```
   (see the [project setup](README.md#setup-once) for details).
 
-![AprilGrid detection on real TUM-VI frames](../../assets/learn/aprilgrid_detection.gif)
+![AprilGrid detection on real TUM-VI frames](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/aprilgrid_detection.gif)
 
 *Step one, on real data: the AprilGrid detector finds the board's tags (here ~35 of 36) and
 their corners in each fisheye frame. Those corners are the measurements we calibrate from.*
@@ -78,7 +78,7 @@ median reprojection 0.081 px, inlier RMS 0.159 px — over all 14460 corners we
 detected ourselves, none discarded.
 ```
 
-![Reprojected corners vs detected corners](../../assets/learn/calibration_reprojection.gif)
+![Reprojected corners vs detected corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/calibration_reprojection.gif)
 
 *What "0.1 px" looks like: green = the corners we **detected**, red = where the **calibrated
 model predicts** they should be. They sit on top of each other in every frame — the model
@@ -162,9 +162,9 @@ heavy dependencies isolated at the edge:
 
 | Module | Depends on | Role |
 |---|---|---|
-| [`ds_msp/calib/targets.py`](../../ds_msp/calib/targets.py) | numpy only | `AprilGridTarget`: board geometry + correspondence assembly. Pure, unit-tested without any image. |
-| [`ds_msp/calib/detect.py`](../../ds_msp/calib/detect.py) | OpenCV + `aprilgrid` (optional) | the *only* place that touches a tag backend; lazily imported so `import ds_msp` never needs it. |
-| [`ds_msp/calib/bundle.py`](../../ds_msp/calib/bundle.py) | scipy + the model contract | the model-agnostic LM optimizer; calibrates *any* `CameraModel`, with `loss=`/`f_scale=` for robust kernels. |
+| [`ds_msp/calib/targets.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/targets.py) | numpy only | `AprilGridTarget`: board geometry + correspondence assembly. Pure, unit-tested without any image. |
+| [`ds_msp/calib/detect.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/detect.py) | OpenCV + `aprilgrid` (optional) | the *only* place that touches a tag backend; lazily imported so `import ds_msp` never needs it. |
+| [`ds_msp/calib/bundle.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/bundle.py) | scipy + the model contract | the model-agnostic LM optimizer; calibrates *any* `CameraModel`, with `loss=`/`f_scale=` for robust kernels. |
 
 `detect_aprilgrid` is exposed through a lazy `__getattr__`, and `aprilgrid` lives in the
 `[calib]` optional extra. Install the core lean; opt into the detector only when you
@@ -186,7 +186,7 @@ A rig has a second number that matters just as much as the intrinsics — the ri
 **between** the two cameras. Because TUM-VI's `cam0` and `cam1` are hardware-synced, each
 instant sees the *same* board from both:
 
-![Synchronized stereo views of the AprilGrid](../../assets/learn/stereo_pair.gif)
+![Synchronized stereo views of the AprilGrid](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/stereo_pair.gif)
 
 Calibrate each camera, compose the per-frame board poses, and you recover the stereo extrinsic
 `T_cam1_cam0` — matching TUM-VI's published transform to **0.062° rotation and 0.25 mm

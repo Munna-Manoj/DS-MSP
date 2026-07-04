@@ -32,7 +32,7 @@ The images here come from the original Double Sphere calibration this library gr
 Here is the camera's world from directly above — the `XZ` plane, camera at the origin
 looking along `+Z`:
 
-![Top-down Double Sphere FOV analysis](../../assets/fov_cone_diagram.jpg)
+![Top-down Double Sphere FOV analysis](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/fov_cone_diagram.jpg)
 
 The **green** region is where the model can project a ray to a pixel; the **blue** region
 below is the *invalid cone* it cannot. The black stars are real calibration keypoints — and
@@ -48,7 +48,7 @@ fisheye that is **wrong**, and it's the single most common implementation bug �
 throws away every ray past 90°, capping a >180° lens at exactly 180°.
 
 The correct test (Usenko et al. 2018, Eq. 43–45), implemented in
-[`ds_msp/models/ds_math.py`](../../ds_msp/models/ds_math.py), is a tilted half-space:
+[`ds_msp/models/ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L33-L45), is a tilted half-space:
 
 $$z > -w_2\, d_1, \qquad d_1 = \sqrt{x^2 + y^2 + z^2}$$
 
@@ -75,7 +75,7 @@ matches a brute-force sweep of 4000 rays to the first decimal, so the formula is
 The top-down diagram is the geometry; here is the *same* valid region mapped back onto a
 real fisheye image:
 
-![FOV zones on a real fisheye frame](../../assets/fov_zones_augmented.jpg)
+![FOV zones on a real fisheye frame](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/fov_zones_augmented.jpg)
 
 - **Green — frontal (`θ < 90°`):** ordinary forward rays; a pinhole could handle these.
 - **Yellow — side/back (`90° ≤ θ < θ_max`):** valid in Double Sphere (`z ≤ 0`!), but
@@ -103,7 +103,7 @@ balance   rectified hFOV   frame filled (non-black)
  1.00       118.7 deg        100.0 %
 ```
 
-![Fisheye rectification sweeping the balance knob](../../assets/undistort_demo.gif)
+![Fisheye rectification sweeping the balance knob](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/undistort_demo.gif)
 
 - **`balance = 0`** keeps the widest view (147° here) but leaves a **black border** — the
   corners of the output map to rays the source frame never captured.
@@ -115,7 +115,7 @@ circle is the lens's actual image footprint, and *everything outside it* (the da
 is sensor with no light, which is why a flat rectification can never fill those corners
 without zooming in:
 
-![Original fisheye with its valid image circle](../../assets/coverage_vis.jpg)
+![Original fisheye with its valid image circle](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/coverage_vis.jpg)
 
 ## 5. What you can now reason about
 

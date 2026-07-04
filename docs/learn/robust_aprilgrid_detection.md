@@ -8,7 +8,7 @@ A calibration is only as good as the corners you feed it — and on a fisheye, t
 matter most are the hardest to detect. The wide-angle tags near the image edge are exactly the
 ones that pin down the distortion, and a naïve detector drops them. This page is the story of
 finding that out on real data and fixing it, with a number at every step. The fix lives in
-[`ds_msp/calib/detect.py`](../../ds_msp/calib/detect.py).
+[`ds_msp/calib/detect.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/detect.py).
 
 **You'll learn**
 - Why a fisheye detector can miss most of a fully-visible, sharp AprilGrid board (down to

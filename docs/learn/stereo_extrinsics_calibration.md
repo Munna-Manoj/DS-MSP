@@ -22,7 +22,7 @@ within ~0.2%**. The whole method rests on one cancellation, which §2 shows you.
 - The mental model: why two synced cameras watching the *same* board hand you their relative
   pose for free, even though the board is moving and its pose is unknown.
 - How to turn per-frame board poses into a single rig transform with
-  [`estimate_relative_pose`](../../ds_msp/calib/stereo.py).
+  [`estimate_relative_pose`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/stereo.py#L29-L78).
 - How to score the result against a published reference with `relative_pose_error`, and what
   "rotation is scale-free, translation is not" means in practice.
 
@@ -111,7 +111,7 @@ Every frame gives one estimate of `T_cam1_cam0`. With 55 frames you get 55 estim
 same fixed quantity — so you **average** them, and the spread across frames tells you how much
 to trust the result. That averaging is the next step.
 
-![AprilGrid board sweeping through diverse poses while the two camera frusta and the T_cam1_cam0 rig arrow stay fixed (top-down view).](../../assets/learn/stereo_extrinsics_invariance.gif)
+![AprilGrid board sweeping through diverse poses while the two camera frusta and the T_cam1_cam0 rig arrow stay fixed (top-down view).](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/stereo_extrinsics_invariance.gif)
 *Two cameras (blue = cam0, orange = cam1) are bolted in place. An AprilGrid board moves to ten
 different positions and orientations across the loop. Each frame independently recovers
 `T_cam1_cam0 = T_cam1_board ∘ (T_cam0_board)⁻¹` via `estimate_relative_pose`; the rig arrow
@@ -299,5 +299,5 @@ Deepen your understanding by modifying the code. Each of the following exercises
   essential matrix on bearing vectors. See **[Chapter 8 — Two-view geometry on
   rays](08_two_view_geometry_on_rays.md)**.
 - **Reference:** the two functions used here live in
-  [`ds_msp/calib/stereo.py`](../../ds_msp/calib/stereo.py); the camchain I/O in
-  [`ds_msp/io/kalibr.py`](../../ds_msp/io/kalibr.py).
+  [`ds_msp/calib/stereo.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/stereo.py); the camchain I/O in
+  [`ds_msp/io/kalibr.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/io/kalibr.py).

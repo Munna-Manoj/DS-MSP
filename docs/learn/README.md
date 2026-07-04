@@ -7,7 +7,7 @@ part is the whole point: in 3D vision you don't *hope* your math is right, you
 *measure* that it is (a good unprojection inverts projection to ~1e-14 px, not "looks
 about right").
 
-![Calibration reprojection on real TUM-VI data](../../assets/learn/calibration_reprojection.gif)
+![Calibration reprojection on real TUM-VI data](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/calibration_reprojection.gif)
 
 *Where this leads — the [capstone](capstone_calibrating_a_real_camera.md): calibrate a real
 fisheye from scratch until the model (red) predicts every detected corner (green) to a tenth
@@ -34,7 +34,7 @@ uv pip install -e ".[calib]"   # + AprilGrid detector, for the calibration capst
 # 2. Data — small, free, ~3 GB for the fisheye track
 bash scripts/download_datasets.sh tumvi
 ```
-See [`datasets/README.md`](../../datasets/README.md) for what each dataset contains.
+See [`datasets/README.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/datasets/README.md) for what each dataset contains.
 
 ## The path
 

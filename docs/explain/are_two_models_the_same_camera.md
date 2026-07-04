@@ -43,7 +43,7 @@ r(θ) = fx_KB · (θ + k₁θ³ + k₂θ⁵ + k₃θ⁷ + k₄θ⁹)
 Here `fx` *is* the paraxial focal. Easy.
 
 **Double Sphere** builds the profile geometrically (see [Chapter 2](../learn/02_double_sphere_model.md)).
-For a unit ray `(sinθ, 0, cosθ)` the projection in [`ds_math.py`](../../ds_msp/models/ds_math.py)
+For a unit ray `(sinθ, 0, cosθ)` the projection in [`ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L20-L51)
 gives, with `d1 = 1`:
 ```
 z₁  = cosθ + ξ

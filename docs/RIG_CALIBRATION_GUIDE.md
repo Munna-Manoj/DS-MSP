@@ -40,7 +40,7 @@ is found next to the data, the worst baseline error vs those references.
 
 **Loading a camera back into a ready instance.** `calibrated_cameras_data.yml` holds every
 camera in the rig, indexed 0-based (`camera_0`, `camera_1`, …) in write order. Load any one of
-them straight into a [`CameraModel`](../ds_msp/core/contracts.py) — no manual K/distortion-array
+them straight into a [`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) — no manual K/distortion-array
 handling:
 
 ```python
@@ -115,7 +115,7 @@ Generate a fully-commented starter and edit it:
 ds-msp-calibrate-rig --init-config calib_param.yml
 ```
 
-This copies [`ds_msp/rig/configs/calib_param.template.yml`](../ds_msp/rig/configs/calib_param.template.yml). Below is
+This copies [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml). Below is
 every field that matters.
 
 ### Board geometry — *must match your printed board*
@@ -138,13 +138,13 @@ every field that matters.
 
 > **Which model?** Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default;
 > `ds`/`ucm`/`eucm` are compact sphere models; **`dsplus` (DS+)** is the most expressive for very
-> wide (≳170°) lenses. See [Choosing a model by FOV](../README.md#choosing-a-model-by-fov-from-experience)
+> wide (≳170°) lenses. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
 > and the real-data comparison in §7.
 
 ### Intrinsics (optional prior)
 | Key | Meaning |
 |-----|---------|
-| `cam_params_path` | path to an initial-intrinsics yml, or `"None"` to estimate from scratch. Schema = MC-Calib `calibrated_cameras_data`, extended with a per-camera `camera_model`. See [`ds_msp/rig/configs/camera_intrinsics.template.yml`](../ds_msp/rig/configs/camera_intrinsics.template.yml). |
+| `cam_params_path` | path to an initial-intrinsics yml, or `"None"` to estimate from scratch. Schema = MC-Calib `calibrated_cameras_data`, extended with a per-camera `camera_model`. See [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml). |
 | `fix_intrinsic` | `false` = estimate & refine intrinsics; `true` = **hold intrinsics fixed**, solve extrinsics only (requires `cam_params_path`) |
 
 Behaviour (verified on real data, §7):
@@ -210,7 +210,7 @@ The extrinsics you want are the `camera_pose_matrix` per camera in
 If you already have trusted intrinsics (from a prior per-camera calibration), hold them fixed and
 solve only the rig geometry:
 
-1. Put the intrinsics in a yml (see [`ds_msp/rig/configs/camera_intrinsics.template.yml`](../ds_msp/rig/configs/camera_intrinsics.template.yml)
+1. Put the intrinsics in a yml (see [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml)
    — one entry per model is documented; `camera_model` per camera must match what you set in
    `camera_models`).
 2. In the config: `cam_params_path: /abs/intrinsics.yml`, `fix_intrinsic: true`, and `camera_models`
@@ -235,7 +235,7 @@ seconds with different models / intrinsics / options on the *same* detections.
   detection runs — only the rig math. For multi-board rigs also pass `object_path` so the fused
   object geometry is identical across runs.
 
-A ready-made reuse config: [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](../ds_msp/rig/configs/calib_param.keypoints.template.yml)
+A ready-made reuse config: [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml)
 (save a local copy — e.g. `reuse.yml` — from that link, or copy it out of your installed
 package with `python -c "import importlib.resources,shutil; shutil.copyfile(importlib.resources.files('ds_msp.rig')/'configs/calib_param.keypoints.template.yml', 'reuse.yml')"`).
 
@@ -280,7 +280,7 @@ Takeaways (these are *measured*, not asserted):
   `kb`+`radtan` baseline. When a model under-fits, the residual shows it honestly rather than
   hiding the limitation.
 
-See [Choosing a model by FOV](../README.md#choosing-a-model-by-fov-from-experience) for how to pick a
+See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick a
 model for *your* lens before you calibrate.
 
 ---
@@ -301,7 +301,7 @@ model for *your* lens before you calibrate.
 ---
 
 ### See also
-- [`ds_msp/rig/configs/calib_param.template.yml`](../ds_msp/rig/configs/calib_param.template.yml) — annotated base config
-- [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](../ds_msp/rig/configs/calib_param.keypoints.template.yml) — keypoints-reuse config
-- [`ds_msp/rig/configs/camera_intrinsics.template.yml`](../ds_msp/rig/configs/camera_intrinsics.template.yml) — initial-intrinsics schema (all models)
+- [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml) — annotated base config
+- [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml) — keypoints-reuse config
+- [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml) — initial-intrinsics schema (all models)
 - [`docs/learn/`](learn/README.md) — the geometry curriculum (camera models, robust detection, evaluation)
