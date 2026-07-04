@@ -27,6 +27,23 @@ construction with both image planes labelled:
 matching the paper's figure; the z = 1 plane in front carries the equivalent upright image. The
 sections below dissect each step.*
 
+**You'll learn**
+- Derive Double Sphere's projection as two sequential unit-sphere projections — shifted by
+  `ξ` and blended by `α` — and read it directly in
+  [`ds_math.py`](../../ds_msp/models/ds_math.py).
+- Why Double Sphere unprojects in **closed form** (one square root, no iteration), unlike
+  Kannala-Brandt's polynomial, which needs Newton's method.
+- Verify projection and its closed-form inverse are exact to machine precision
+  (round-trip mean 2.17e-14 px, max 1.17e-13 px over 1600 real pixels).
+- Use [`convert()`](../../ds_msp/adapt/convert.py) to re-express TUM-VI's published
+  Kannala-Brandt calibration as Double Sphere, matching it to **0.025 px** max reprojection
+  error over 179.8° of field of view.
+
+**Prerequisites**
+- Finish [Chapter 1](01_fisheye_and_camera_models.md) — this chapter assumes `project`/
+  `unproject` and the `CameraModel` contract are already familiar.
+- Same [setup](README.md#setup-once) as Chapter 1; no new installs.
+
 ## 1. Why another model after Kannala-Brandt?
 
 Kannala-Brandt (Chapter 1's model) describes the lens by a polynomial in the incidence

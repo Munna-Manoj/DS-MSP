@@ -10,6 +10,25 @@ ones that pin down the distortion, and a naïve detector drops them. This page i
 finding that out on real data and fixing it, with a number at every step. The fix lives in
 [`ds_msp/calib/detect.py`](../../ds_msp/calib/detect.py).
 
+**You'll learn**
+- Why a fisheye detector can miss most of a fully-visible, sharp AprilGrid board (down to
+  4/36 tags) — peripheral tags shrink below the detector's minimum-size gate — and prove it
+  by upscaling alone (4 → 26 of 36 tags).
+- Apply multi-scale detection (`detect_aprilgrid(..., scales=(1, 2, 3))`) and watch recall
+  jump **36% → 94%** across a 12-frame spread.
+- Avoid the two pitfalls that make multi-scale detection *hurt* a calibration if done
+  carelessly: refining at the wrong scale (0.105 px vs. 0.87 px median reprojection) and
+  mismapping upscaled corners back without the pixel-centre convention (0.03 px vs. 0.83 px
+  principal-point error).
+- See the payoff on the full capstone calibration: corners 5,180 → 14,460 and focal-length
+  agreement 0.7% → 0.003%.
+
+**Prerequisites**
+- Finish the [capstone](capstone_calibrating_a_real_camera.md) — this deep-dive puts its
+  detection step under a microscope; the [learn README](README.md) lists it as a companion
+  to read after the capstone.
+- Same `[calib]` install and TUM-VI dataset as the capstone.
+
 ## 1. The symptom: most of the board goes undetected
 
 Point the detector at TUM-VI's calib footage and count tags per frame (the board has 36):

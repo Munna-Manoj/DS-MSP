@@ -3,6 +3,26 @@
 > **Run alongside this:** `python examples/01_realdata_fisheye_tumvi.py`
 > (after the [setup](README.md#setup-once)). Read this, then read the printed numbers.
 
+**You'll learn**
+- Why a pinhole model breaks for fisheye lenses (`X/Z` blows up past 90°), and what a
+  "camera model" actually is: a `project`/`unproject` pair sharing one
+  [`CameraModel`](../../ds_msp/core/contracts.py) contract.
+- How to load a real published calibration — TUM-VI's Kannala-Brandt intrinsics, straight
+  from their Kalibr YAML — instead of calibrating one from scratch.
+- How to verify `project` and `unproject` are true inverses on real pixels, to **machine
+  precision** (mean round-trip 1.55e-14 px, max 9.10e-14 px over a 1600-pixel grid).
+- How fisheye undistortion works, and why the `balance` knob trades field of view against
+  black border in the rectified output.
+
+**Prerequisites**
+- None — this is the first chapter.
+- Install the core library and the TUM-VI dataset:
+  ```bash
+  uv pip install -e .
+  bash scripts/download_datasets.sh tumvi
+  ```
+  (see the [project setup](README.md#setup-once) for details).
+
 ## 1. The problem with straight lines
 
 A **pinhole** camera has one defining property: straight lines in the world stay

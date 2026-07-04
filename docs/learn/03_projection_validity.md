@@ -11,6 +11,22 @@ always has a black border.
 
 The images here come from the original Double Sphere calibration this library grew from.
 
+**You'll learn**
+- Why `z > 0` is the classic fisheye validity bug, and the correct test: a tilted
+  half-space `z > -w₂·d₁` (Usenko et al. 2018, Eq. 43–45).
+- Measure the actual valid cone of a real Double Sphere calibration:
+  **θ_max = 113.4°**, i.e. a **227°** total field of view — not the 180° a `z > 0` test
+  would give you.
+- Why a rectified pinhole view can never keep that whole cone, and how the `balance` knob
+  trades field of view against black border (147.0° / 92.5% filled at `balance=0` vs.
+  118.7° / 100% filled at `balance=1`).
+
+**Prerequisites**
+- Finish [Chapter 1](01_fisheye_and_camera_models.md) (undistortion and the `balance`
+  knob) and [Chapter 2](02_double_sphere_model.md) (the `ξ`, `α` parameters this
+  chapter's half-space test is built from).
+- Same [setup](README.md#setup-once) as Chapters 1–2; no new installs.
+
 ## 1. The boundary nobody draws
 
 Here is the camera's world from directly above — the `XZ` plane, camera at the origin

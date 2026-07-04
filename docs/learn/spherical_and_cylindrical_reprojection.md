@@ -13,6 +13,28 @@ you started with. This deep-dive shows why, gives you the exact pixel↔pixel fo
 between **sphere ↔ cylinder ↔ pinhole**, and proves they round-trip to ~1e-13 px on the
 bundled real fisheye.
 
+**You'll learn**
+- Why a central camera is fully described by a bijection between unit-sphere rays and
+  pixels, and how sphere, cylinder, and pinhole are three different "chart" formulas for
+  that same bijection.
+- The exact pixel↔pixel conversion formulas between sphere, cylinder, and pinhole charts,
+  verified to round-trip to **~1e-13 px** (float64 round-off) on a 200×120 grid and on
+  30 real checkerboard corners.
+- Why the cylinder chart silently drops the polar cone — it reaches only 47.6° elevation
+  vs. the sphere's 62.7° at the same image row — while the sphere has no such hole.
+- Why ray-based geometry (epipolar constraints, triangulation, PnP) transfers unchanged
+  across all three charts, because they're relabelings of the same underlying rays.
+
+**Prerequisites**
+- Finish [Chapter 2](02_double_sphere_model.md) (the Double Sphere `project`/`unproject`
+  this chapter reprojects through) and [Chapter 3](03_projection_validity.md) (the >90°
+  validity cone this chapter revisits from the chart side).
+- Per the [learn README](README.md), this is also a capstone companion — reading the
+  [capstone](capstone_calibrating_a_real_camera.md) first is recommended, though this
+  example uses the bundled fisheye image and its own corner annotations, not
+  capstone-detected corners.
+- Same [setup](README.md#setup-once) as Chapters 1–3; no `[calib]` extra needed.
+
 ## 1. A camera is a bijection between rays and pixels
 
 A *central* camera is one where every light ray passes through a single point (the optical

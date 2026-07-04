@@ -9,6 +9,24 @@ part of the lens where `cornerSubPix` latches onto the wrong edge, a near-miss d
 question this page answers: **what do you do with them, and how do you then measure how
 well you did?** Both halves trip people up.
 
+**You'll learn**
+- Why plain least-squares (L2) lets a single bad corner drag the whole calibration's focal
+  length off by ~5 px — the square in "sum of squared residuals" is the culprit.
+- Fight back with robust M-estimation / IRLS instead of two-pass hard rejection, and read
+  the weight function `w(r) = ρ'(r)/r` for L2, Huber, and Cauchy losses.
+- Run the Cauchy loss (`calibrate(..., loss="cauchy", f_scale=0.5)`) and see it beat both
+  L2 and hard rejection on focal accuracy (Δfx 1.29 vs. 4.94 vs. 2.12 px) while keeping
+  all 5,180 corners.
+- Avoid the evaluation trap: why all-corner RMS makes a *better* robust fit look worse
+  (naiveRMS 3.608 px for Cauchy), and score with median (0.115 px) or inlier RMS (0.247 px)
+  instead.
+
+**Prerequisites**
+- Finish the [capstone](capstone_calibrating_a_real_camera.md) — the [learn README](README.md)
+  lists this as a companion to read after it; it puts the capstone's Cauchy-loss step under
+  a microscope.
+- Same `[calib]` install and TUM-VI dataset as the capstone.
+
 ## 1. Why one bad corner wrecks a least-squares fit
 
 Calibration minimizes reprojection error. Plain least squares (L2) minimizes the **sum of

@@ -12,6 +12,33 @@ We use TUM-VI's `cam0` calibration sequence — 436 frames of someone waving a 6
 in front of a 195° fisheye — and check our result against the Kannala-Brandt calibration
 the dataset authors published.
 
+<div class="ds-stats">
+  <div class="ds-stat"><span class="ds-stat__value">0.081 px</span><span class="ds-stat__label">median reprojection, all 14,460 corners</span></div>
+  <div class="ds-stat"><span class="ds-stat__value">0.003%</span><span class="ds-stat__label">focal-length agreement vs. published KB</span></div>
+  <div class="ds-stat"><span class="ds-stat__value">14,460</span><span class="ds-stat__label">self-detected corners, none discarded</span></div>
+</div>
+
+**You'll learn**
+- Calibrate a Kannala-Brandt camera from scratch — detect real AprilGrid corners,
+  bundle-adjust intrinsics and a per-frame pose with `ds_msp.calib.calibrate`, and compare
+  the result to TUM-VI's published reference number-for-number.
+- Land on **0.081 px median reprojection** (0.159 px inlier RMS) over all 14,460
+  self-detected corners, with focal length matching the published value to **0.003%**.
+- Diagnose a real "detector returns 0 tags on every frame" bug — a 2-cell vs. 1-cell
+  AprilTag border mismatch between Kalibr-style boards and stock AprilTag-3 — and fix it.
+- See why the Double Sphere model fits the very same corners just as tightly (~0.08 px)
+  even though its raw focal number (`fx≈157`) looks nothing like KB's (`fx≈191`).
+
+**Prerequisites**
+- Finish [Chapter 2](02_double_sphere_model.md) — the capstone is runnable right after it;
+  Chapters 3+ are optional theory, not required.
+- Install the calibration extra and the dataset:
+  ```bash
+  uv pip install -e ".[calib]"
+  bash scripts/download_datasets.sh tumvi
+  ```
+  (see the [project setup](README.md#setup-once) for details).
+
 ![AprilGrid detection on real TUM-VI frames](../../assets/learn/aprilgrid_detection.gif)
 
 *Step one, on real data: the AprilGrid detector finds the board's tags (here ~35 of 36) and
