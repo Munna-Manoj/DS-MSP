@@ -58,7 +58,32 @@ i.e. every ray out to
 
 $$\theta_{\max} = \arccos(-w_2)$$
 
-is valid. The example computes this for the original calibration (`ξ=0.183, α=0.809`):
+is valid. Here's that computed directly, plus a numeric check that sweeps 4000 rays and asks
+the model itself which ones it accepts — for the original calibration (`ξ=0.183, α=0.809`):
+
+```python
+import json
+import numpy as np
+from ds_msp import DoubleSphereCamera
+
+intr = json.load(open("test_config.json"))["intrinsics"]   # the bundled real calibration
+cam = DoubleSphereCamera(intr["fx"], intr["fy"], intr["cx"], intr["cy"],
+                         intr["xi"], intr["alpha"],
+                         width=intr["width"], height=intr["height"])
+xi, alpha = cam.xi, cam.alpha   # full precision: xi=0.1832, alpha=0.8086
+
+# analytic: for a unit ray (d1=1) the half-space test z > -w2*d1 becomes cos(theta) > -w2
+w1 = (1 - alpha) / alpha if alpha > 0.5 else alpha / (1 - alpha)
+w2 = (w1 + xi) / np.sqrt(2 * w1 * xi + xi * xi + 1.0)
+theta_max = np.degrees(np.arccos(-w2))
+print(f"w2 = {w2:.4f}, theta_max = {theta_max:.1f} deg")   # w2 = 0.3967, theta_max = 113.4 deg
+
+# numeric check: sweep rays from 0 to 180 deg, ask the model which ones it accepts
+thetas = np.linspace(0, np.pi, 4000)
+rays = np.stack([np.sin(thetas), np.zeros_like(thetas), np.cos(thetas)], axis=1)
+_, valid = cam.project(rays)
+print(f"numeric check: {np.degrees(thetas[valid].max()):.1f} deg")   # 113.3 deg
+```
 
 ```
 w2 (half-space coefficient) = 0.3967
@@ -93,8 +118,25 @@ Because a **pinhole image plane is infinite at 90°**: a ray at exactly 90° pro
 `x/z → ∞`. There is no finite image that holds the yellow zone. Those pixels aren't lost to
 a bug — they are *geometrically un-pinhole-able*.
 
-So rectification forces a trade, controlled by the `balance` knob. The example measures both
-sides of it:
+So rectification forces a trade, controlled by the `balance` knob:
+
+```python
+import cv2
+import numpy as np
+
+img = cv2.imread("assets/test_image.jpg")   # the bundled real fisheye frame
+for b in [0.0, 0.5, 1.0]:
+    K_new = cam.compute_K_new(balance=b)
+    rect, _ = cam.undistort_image(img, K_new)
+    hfov = np.degrees(2 * np.arctan((cam.width / 2) / K_new[0, 0]))
+    filled = float((cv2.cvtColor(rect, cv2.COLOR_BGR2GRAY) > 0).mean()) * 100
+    print(f"balance={b:.2f}  hfov={hfov:.1f} deg  filled={filled:.1f}%")
+# balance=0.00  hfov=147.0 deg  filled=92.5%
+# balance=0.50  hfov=132.1 deg  filled=99.9%
+# balance=1.00  hfov=118.7 deg  filled=100.0%
+```
+
+The full sweep (the example also checks `0.25`/`0.75`):
 
 ```
 balance   rectified hFOV   frame filled (non-black)
