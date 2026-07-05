@@ -6,10 +6,12 @@
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20PolyForm--NC-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)
-![Tests](https://img.shields.io/badge/tests-567%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-645%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/studio/)
 
-A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras. One interface covers calibration, model conversion, 3D geometry, multi-camera rigs, and hardware export — so you can swap camera models in a single line and convert between them without re-shooting images.
+A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras.
+
+One interface covers calibration, model conversion, 3D geometry, multi-camera rigs, and hardware export — so you can swap camera models in a single line and convert between them without re-shooting images.
 
 ![Double Sphere image formation — 3D points traced through two spheres onto the z=1 plane and the physical sensor](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_pipeline.gif)
 
@@ -49,7 +51,9 @@ Every recipe below is a copy-paste starting point. Each links to a fuller guide;
 
 ### Project & unproject
 
-Build any model from its intrinsics, then `project` 3D points to pixels and `unproject` pixels back to unit bearing rays — exact inverses. Every model also exposes analytic point and parameter Jacobians (no autodiff, no finite differences), so these drop straight into bundle adjustment.
+Build any model from its intrinsics, then `project` 3D points to pixels and `unproject` pixels back to unit bearing rays — exact inverses.
+
+Every model also exposes analytic point and parameter Jacobians (no autodiff, no finite differences), so these drop straight into bundle adjustment.
 
 ```python
 import numpy as np
@@ -67,7 +71,11 @@ Round-trips to ~1e-13 px. *The recipes below reuse this `cam`.* → [Multi-model
 
 ### Pinhole image & new K
 
-Rectify a raw fisheye frame to an undistorted **pinhole image** and get the **new pinhole intrinsics** `K_new` for it. The `balance` knob trades field of view against crop — `0.0` keeps the widest FOV (more black border), `1.0` is the tightest crop (no border).
+Rectify a raw fisheye frame to an undistorted **pinhole image** and get the **new pinhole intrinsics** `K_new` for it.
+
+The `balance` knob trades field of view against crop:
+- `0.0` keeps the widest FOV (more black border).
+- `1.0` is the tightest crop (no border).
 
 ```python
 import cv2, ds_msp.cv as ds_cv
@@ -88,7 +96,17 @@ Inverse-projection error across all undistort modes is < 0.00003 px. → [Multi-
 
 ### 2D/3D pose
 
-`cam.solve_pnp` is a **model-agnostic convenience, not a new algorithm**: it unprojects your pixels through whichever of the 8 models you use, then calls the standard `cv2.solvePnP` on the undistorted points — literally `unproject → cv2.solvePnP(K=I, dist=None)`. `cv2.solvePnP` is correct; it only goes wrong if you hand it **raw** fisheye pixels with a pinhole `K` (the wrong distortion model). OpenCV already ships `cv2.fisheye.solvePnP` for **Kannala-Brandt** lenses — the value here is that the *same one call* also covers DS / UCM / EUCM / OCam / DS+. For noisy matches, `cam.solve_pnp_ransac` adds RANSAC outlier rejection and returns an inlier mask. All paths use front-facing (<90°) correspondences — fine for calibration boards; the two-view snippet below works on bearing rays.
+`cam.solve_pnp` is a **model-agnostic convenience, not a new algorithm**: it unprojects your pixels through whichever of the 8 models you use, then calls the standard `cv2.solvePnP` on the undistorted points — literally `unproject → cv2.solvePnP(K=I, dist=None)`.
+
+`cv2.solvePnP` itself is correct here. OpenCV already ships `cv2.fisheye.solvePnP` for **Kannala-Brandt** lenses — the value of `cam.solve_pnp` is that the *same one call* also covers DS / UCM / EUCM / OCam / DS+.
+
+> **Warning**
+> `cv2.solvePnP` only goes wrong if you hand it **raw** fisheye pixels with a pinhole `K` — the wrong distortion model for a wide-FOV lens. `cam.solve_pnp` avoids that by unprojecting first.
+
+For noisy matches, `cam.solve_pnp_ransac` adds RANSAC outlier rejection and returns an inlier mask.
+
+> **Note**
+> `solve_pnp` and `solve_pnp_ransac` keep only front-facing (<90°) correspondences — fine for calibration boards. The two-view snippet below has no such limit: it works directly on bearing rays.
 
 ```python
 from ds_msp import relative_pose, triangulate_rays
@@ -114,7 +132,9 @@ Measured PnP + reprojection RMS on bundled real images: 0.43 px / 0.85 px. → [
 
 ### Calibrate from scratch
 
-`calibrate()` is **model-agnostic** — the *same* call fits any of the 8 models from a generic seed; only the seed class changes. It runs manifold Levenberg–Marquardt with analytic Jacobians and an optional robust loss (`huber` / `cauchy`); per-view poses are re-seeded internally, so a rough focal is fine.
+`calibrate()` is **model-agnostic** — the *same* call fits any of the 8 models from a generic seed; only the seed class changes.
+
+It runs manifold Levenberg–Marquardt with analytic Jacobians and an optional robust loss (`huber` / `cauchy`); per-view poses are re-seeded internally, so a rough focal is fine.
 
 ```python
 from ds_msp.calib import calibrate
@@ -148,7 +168,9 @@ ready `CameraModel` instance. → [Single-camera calibration guide](https://gith
 
 ### Convert between models (no images, no data)
 
-Translate a calibration between **any** two models with no images and no recalibration: DS-MSP samples the image grid, unprojects through the source model, builds a linear seed for the target, then refines on pixel reprojection. Sub-pixel agreement; design follows Fisheye-Calib-Adapter.
+Translate a calibration between **any** two models with no images and no recalibration: DS-MSP samples the image grid, unprojects through the source model, builds a linear seed for the target, then refines on pixel reprojection.
+
+The result agrees to sub-pixel accuracy; the design follows Fisheye-Calib-Adapter (see [Credits](#credits)).
 
 ```python
 from ds_msp import convert
@@ -164,9 +186,16 @@ print(report["rms_px"])            # sub-pixel agreement; no images, no recalibr
 
 ### Multi-camera rig extrinsics (any FOV)
 
-> **Now shipped** in `pip install ds-msp` (`ds_msp.rig`) — validated on a real 8-camera rig and the MC-Calib Blender datasets (extrinsics within ~0.16% of ground truth). `pip install ds-msp` alone gives you the `ds-msp-calibrate-rig` command, no repo clone needed (a git clone can use `python scripts/calibrate_rig.py` instead — same CLI either way).
+> **Note**
+> Shipped in `pip install ds-msp` (`ds_msp.rig`) — validated on a real 8-camera rig and the MC-Calib Blender datasets (extrinsics within ~0.16% of ground truth).
+>
+> `pip install ds-msp` alone gives you the `ds-msp-calibrate-rig` command; no repo clone needed. A git clone can use `python scripts/calibrate_rig.py` instead — same CLI either way.
 
-A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output files (`calibrated_cameras_data.yml`, `calibrated_objects_data.yml`, …), interoperable both directions. It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images — and adds one extension: a **different camera model per camera**, so one bench can mix `kb` fisheye, `radtan` pinhole, and `dsplus` at any FOV.
+A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output files (`calibrated_cameras_data.yml`, `calibrated_objects_data.yml`, …), interoperable both directions.
+
+It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images.
+
+It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye, `radtan` pinhole, and `dsplus` at any FOV.
 
 ```bash
 pip install ds-msp
@@ -174,11 +203,24 @@ ds-msp-calibrate-rig --init-config calib_param.yml   # write a starter config
 ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct → bundle-adjust → MC-Calib output
 ```
 
-Point it at a `camera_parameters` YAML to **hold intrinsics fixed** (`fix_intrinsic=true`, extrinsics-only) or refine them — or omit it to calibrate from scratch; if the chosen model differs, the same lens is carried into it via `convert()` + a warning. Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds. On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
+#### Config options
+
+- Point it at a `camera_parameters` YAML with `fix_intrinsic=true` to **hold intrinsics fixed** and solve extrinsics only.
+- Point it at the same YAML without that flag to refine intrinsics too.
+- Omit the YAML to calibrate everything from scratch.
+- If the chosen model differs from the one in the YAML, the same lens is carried into it via `convert()` plus a warning.
+
+Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds.
+
+#### Measured accuracy
+
+On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
 
 ### Stereo depth
 
-Estimate metric depth directly on raw fisheye with a sphere sweep — no rectification to pinhole, so the full wide FOV is kept. Give the reference camera + image and the source views (each as `(camera, image, R, t)`), sweep a set of inverse-depth planes, and back-project to a point cloud.
+Estimate metric depth directly on raw fisheye with a sphere sweep — no rectification to pinhole, so the full wide FOV is kept.
+
+Give the reference camera + image and the source views (each as `(camera, image, R, t)`), sweep a set of inverse-depth planes, and back-project to a point cloud.
 
 ```python
 from ds_msp.stereo import sphere_sweep, sweep_to_points, inverse_depth_samples
@@ -221,15 +263,19 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 | `eucmplus` | 9 | EUCM+ — evaluated and **deprecated as a default** (see below) |
 | `ocam` | 10 | OCamCalib (Scaramuzza) |
 
-**Rule of thumb (directional, not a guarantee):**
-- **≥170° FOV** → start with **Double Sphere** (the cheapest closed form that fits).
-- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use **KB**, or **DS+/EUCM+** when you need a closed-form inverse.
+#### Rule of thumb (directional, not a guarantee)
+
+- **≥170° FOV** → start with Double Sphere (the cheapest closed form that fits).
+- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB, or DS+/EUCM+ when you need a closed-form inverse.
 - **Always confirm with the median reprojection error**, not the model class.
 
-**About DS+ and EUCM+:**
-- **DS+** is the best-accuracy model tested and the only closed-form-invertible model that matches KB on hard lenses (~21% win on a demanding 158° full-FOV lens: 0.224 vs KB 0.285 px). The trade-off: its unproject is **~2× slower than KB** (Ferrari quartic). Pick it when you need a differentiable / closed-form unproject with deterministic latency — not for raw throughput.
-- **KB** stays the right default when unproject throughput rules and an iterative inverse is acceptable.
-- **EUCM+** is Pareto-dominated by DS+ at equal parameter count and is deprecated as a default. Use EUCM when 2 distortion DOF suffice; reach for DS+ when they don't.
+#### About DS+ and EUCM+
+
+- DS+ is the best-accuracy model tested and the only closed-form-invertible model that matches KB on hard lenses (~21% win on a demanding 158° full-FOV lens: 0.224 vs KB 0.285 px). The trade-off: its unproject is **~2× slower than KB** (Ferrari quartic). Pick it when you need a differentiable / closed-form unproject with deterministic latency — not for raw throughput.
+- KB stays the right default when unproject throughput rules and an iterative inverse is acceptable.
+- EUCM+ is Pareto-dominated by DS+ at equal parameter count and is deprecated as a default:
+  - Use EUCM when 2 distortion DOF suffice.
+  - Reach for DS+ when they don't.
 
 → [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
@@ -237,13 +283,16 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 
 ## Verify it
 
-Every claim is backed by a number you can reproduce — **567 tests passing**, CI green.
+Every claim is backed by a number you can reproduce — **645 tests passing**, CI green.
 
 - Inverse projection (all undistort modes): mean error **< 0.00003 px**.
 - 3D reconstruction of checkerboard corners: **0.835 mm** mean; recovered **20.00 cm** square (target 20.00).
 - PnP + reprojection RMS on real test images: **0.43 px / 0.85 px**.
 - KB / RadTan vs OpenCV: agree to **~1e-13**.
-- Bundled DS calibration (both test views) converges to fx≈733.9, fy≈733.0, cx≈951.7, cy≈517.9, xi≈0.230, alpha≈0.817 at **0.57 px** RMS — the reference intrinsics for this bundled data are fx≈711.6, xi≈0.183; a single-view or two-view planar fit doesn't fully pin the DS focal/xi/alpha gauge (see [are two models the same camera?](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/are_two_models_the_same_camera.md)), so judge this by reprojection RMS, not raw parameter recovery.
+- Bundled DS calibration (both test views) converges to fx≈733.9, fy≈733.0, cx≈951.7, cy≈517.9, xi≈0.230, alpha≈0.817 at **0.57 px** RMS. The reference intrinsics for this bundled data are fx≈711.6, xi≈0.183.
+
+> **Note**
+> A single-view or two-view planar fit doesn't fully pin the DS focal/xi/alpha gauge (see [are two models the same camera?](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/are_two_models_the_same_camera.md)). Judge the fit above by reprojection RMS, not by how closely the raw parameters match the reference.
 
 ```bash
 pytest
@@ -255,7 +304,9 @@ python benchmarks/benchmark.py
 
 ## Learn
 
-DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the DS+/EUCM+/KB case study (which openly documents a hypothesis the authors had to retract). Start at the [Learn index](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md).
+DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the DS+/EUCM+/KB case study.
+
+That case study openly documents a hypothesis the authors had to retract. Start at the [Learn index](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md).
 
 ---
 

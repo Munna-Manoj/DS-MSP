@@ -1,9 +1,9 @@
 # Multi-Model Camera Library & Model Conversion
 
 DS-MSP is not only a Double Sphere implementation — it is a small, uniform
-multi-model camera library. You can **calibrate in one model and convert the
-parameters to any other**, then run **every feature** (project, unproject,
-undistort, PnP, calibrate, Kalibr I/O) on any model interchangeably.
+multi-model camera library. **Calibrate in one model and convert the parameters to
+any other**, then run every feature (project, unproject, undistort, PnP, calibrate,
+Kalibr I/O) on any model interchangeably.
 
 This capability is directly inspired by **Fisheye-Calib-Adapter** (Sangjun Lee,
 2024); see [Credits](#credits). Everything here is pure Python (NumPy/SciPy/OpenCV)
@@ -19,9 +19,11 @@ value-object class.
 
 | Model | Class | Params | Notes |
 | :--- | :--- | :--- | :--- |
-| Double Sphere | `DoubleSphereModel` | `fx, fy, cx, cy, xi, alpha` | wide FOV, closed-form unprojection |
+| Double Sphere | `DoubleSphereModel` | `fx, fy, cx, cy, xi, alpha` | wide <abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>, closed-form unprojection |
 | UCM | `UCMModel` | `fx, fy, cx, cy, alpha` | unified (single sphere) = DS with ξ=0 |
 | EUCM | `EUCMModel` | `fx, fy, cx, cy, alpha, beta` | enhanced UCM |
+| DS+ | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt |
+| EUCM+ | `EUCMPlusModel` | `fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y` | EUCM core + division radial + 2-axis tilt, sqrt-only closed form |
 | Kannala-Brandt | `KannalaBrandtModel` | `fx, fy, cx, cy, k1..k4` | **= OpenCV `cv2.fisheye`** |
 | RadTan / pinhole | `RadTanModel` | `fx, fy, cx, cy, k1, k2, p1, p2, k3` | **= OpenCV `cv2.projectPoints`** (narrow FOV) |
 | OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial |
@@ -29,6 +31,13 @@ value-object class.
 
 KB project matches `cv2.fisheye` and RadTan matches `cv2.projectPoints` to ~1e-13.
 Every model's analytic Jacobian is gradient-checked against finite differences.
+
+/// note
+DS+ and EUCM+ are DS-MSP's own extensions, not part of any external calibration
+toolchain's convention. See
+[A fair fight — EUCM⁺ vs DS⁺ vs Kannala-Brandt](explain/case_study_eucmplus_dsplus_kb.md)
+for where each one earns its extra parameters.
+///
 
 ### How each model's 2D↔3D geometry works
 
@@ -40,6 +49,8 @@ distortion they apply along the way:
   shift, `alpha` = blend). Handles >180° FOV with a closed-form unprojection.
 - **UCM** — a single sphere (DS with `xi=0`); one `alpha` controls curvature.
 - **EUCM** — UCM with a `beta` that stretches the radial term, fitting more lenses.
+- **DS+ / EUCM+** — a UCM/EUCM core plus a division-model radial layer and a
+  2-axis tilt homography, for lenses the plain sphere models can't bend to fit.
 - **Kannala-Brandt** — equidistant: distorts the *angle* `θ` from the axis by an odd
   polynomial `θ + k1θ³ + k2θ⁵ + k3θ⁷ + k4θ⁹`. This is OpenCV's `cv2.fisheye`.
 - **RadTan** — classic pinhole: perspective-divides, then applies Brown radial
@@ -53,21 +64,29 @@ You don't need these details to use them — the API below is identical for all.
 
 ## 2. Converting between models (no images, no recalibration)
 
-```python
-import json
-from ds_msp import DoubleSphereModel, KannalaBrandtModel, EUCMModel, convert
+`convert(source, target_class, width=..., height=...)` fits `target_class` to
+reproduce `source`'s geometry — no images, no recalibration required. Any model in
+the library is a valid source or target.
 
-ds = DoubleSphereModel.from_dict(json.load(open("results/calibration_params.json")))
+#### How the fit works
 
-kb,  report = convert(ds, KannalaBrandtModel, width=1920, height=1080)
-print(report)   # {'rms_px': 2e-4, 'max_px': 1e-3, 'fov_covered_deg': 192, 'converged': True, ...}
-```
+The pipeline mirrors Fisheye-Calib-Adapter:
 
-How it works (mirrors Fisheye-Calib-Adapter): sample a pixel grid → unproject with
-the **source** model → linear-seed the **target** distortion (intrinsics inherited)
-→ refine with Levenberg-Marquardt using the target's **analytic** parameter
-Jacobian, minimizing pixel reprojection error. The report always includes the
-achieved error and FOV coverage so lossy conversions are visible.
+1. Sample a pixel grid across the image.
+2. Unproject each pixel with the **source** model to a bearing ray.
+3. Linear-seed the **target** model's distortion (intrinsics inherited from the
+   source).
+4. Refine with Levenberg-Marquardt, using the target's **analytic** parameter
+   Jacobian, minimizing pixel reprojection error.
+
+The returned report always includes the achieved error and FOV coverage, so a
+lossy conversion is visible, never silent.
+
+/// tip
+The full API, every report field, and worked step-by-step recipes are in
+[Convert between models](how-to/convert_between_models.md) — this page keeps the
+library-wide picture; that page is the task recipe.
+///
 
 ### Conversion quality (from the bundled DS calibration)
 
@@ -75,169 +94,162 @@ achieved error and FOV coverage so lossy conversions are visible.
 | :--- | :--- | :--- |
 | EUCM | 0.014 | near-exact |
 | KB | 0.0002 | near-exact, OpenCV-ready |
-| OCamCalib | 0.54 | good |
-| UCM | 0.33 | lossy (UCM is less expressive) |
-| RadTan @ 90° FOV | 0.04 | pinhole can't hold wide FOV — restrict & report |
+| OCamCalib | 0.55 | good |
+| UCM | 0.334 | lossy — UCM has 1 shape parameter (`alpha`) vs. DS/EUCM's 2 |
+| RadTan @ 90° FOV | 0.036 | pinhole can't hold wide FOV — restrict & report |
 
-**Lossy conversions:** narrow models (RadTan/pinhole) cannot represent a >180° FOV.
+**Lossy conversions.** Narrow models (RadTan/pinhole) cannot represent a >180° FOV.
 Pass `max_fov_deg=...` to restrict the fit and the report to the representable
-region:
-
-```python
-rt, report = convert(ds, RadTanModel, width=1920, height=1080, max_fov_deg=120)
-# report['rms_px'] ~ 0.76 over the covered 120°, instead of diverging at the edge
-```
+region — see
+[Restrict the FOV for narrow targets](how-to/convert_between_models.md#restrict-the-fov-for-narrow-targets)
+for the full recipe.
 
 ---
 
 ## 3. Camera-geometry cookbook (identical on every model)
 
 Every service depends only on the `CameraModel` contract, so **you swap models by
-changing one line** — pick any model (calibrated directly or `convert`-ed) and the rest of
-your code is unchanged.
+changing one line** — pick any model (calibrated directly or `convert`-ed) and the
+rest of your code is unchanged.
 
-The snippets in this section all continue from this **shared setup**:
-
-```python
-import json
-import numpy as np
-import cv2
-from ds_msp import (DoubleSphereModel, KannalaBrandtModel, RadTanModel,
-                    convert, Undistorter, solve_pnp)
-
-W, H = 1920, 1080
-img = cv2.imread("assets/test_image.jpg")           # a frame from this camera
-
-# `cam` is ANY model — swap this one line and everything below is unchanged
-cam = DoubleSphereModel.from_dict(json.load(open("results/calibration_params.json")))
-# cam, _ = convert(cam, KannalaBrandtModel, width=W, height=H)   # e.g. to OpenCV fisheye
-```
+Every snippet below uses the bundled Double Sphere sample calibration
+(`DoubleSphereModel.sample()`) as `cam`. Swap that one line for `convert(cam,
+KannalaBrandtModel, ...)`, or for any other model class, and nothing else changes.
 
 ### 3.1 Project / unproject (the core 2D↔3D geometry)
-```python
-import numpy as np
-# 3D camera-frame points (N,3) -> pixels (N,2) + per-point validity mask
-pts_3d = np.array([[0.1, 0.0, 2.0], [0.4, -0.2, 3.0]])
-uv, valid = cam.project(pts_3d)
 
-# pixels (N,2) -> unit bearing rays (N,3) + validity
-rays, valid = cam.unproject(uv)              # rays are unit-norm
+{* docs_src/guides/multi_model/project_unproject.py hl[17,22] *}
+
+<!-- termynal -->
 ```
+$ python -m docs_src.guides.multi_model.project_unproject
+[[979.227, 518.81], [1028.735, 479.051]]
+[True, True]
+[[0.049938, 0.0, 0.998752], [0.131876, -0.065938, 0.989071]]
+[1.0, 1.0]
+```
+
 `valid` flags points the model cannot represent (e.g. behind a narrow lens, or
-outside a fisheye's FOV). Always mask by it.
+outside a fisheye's FOV). Always mask by it. Every unprojected ray is unit-norm —
+the last printed line confirms it.
 
 ### 3.2 Undistort an image to a pinhole view
-```python
-und = Undistorter(cam, width=W, height=H)           # stateful map cache lives here
-K_new = und.new_K(balance=0.5)                      # 0.0 widest FOV … 1.0 tightest crop
-img_rect, K_new = und.undistort_image(img, K_new)   # cv2.remap under the hood
+
+{* docs_src/guides/multi_model/undistort_image.py hl[17:19] *}
+
+<!-- termynal -->
 ```
+$ python -m docs_src.guides.multi_model.undistort_image
+(1080, 1920, 3)
+426.84
+```
+
+`balance` slides from `0.0` (widest FOV, black borders) to `1.0` (tightest crop, no
+borders); see [Undistort images](how-to/undistort_images.md) for the full
+trade-off, measured.
 
 ### 3.3 Undistort / distort points (keypoints ↔ rectified frame)
-*(continues from 3.2 — reuses `und` and `K_new`)*
-```python
-distorted_kpts = np.array([[640.0, 480.0], [900.0, 300.0]])   # e.g. detected features (N, 2)
 
-# distorted pixels  ->  rectified pinhole pixels (in the K_new frame)
-kp_rect, valid = und.undistort_points(distorted_kpts, K_new)
+{* docs_src/guides/multi_model/undistort_distort_points.py hl[21,26] *}
 
-# rectified pinhole pixels  ->  distorted pixels (exact inverse)
-kp_dist, valid = und.distort_points(kp_rect, K_new)
+<!-- termynal -->
 ```
+$ python -m docs_src.guides.multi_model.undistort_distort_points
+[[715.819, 509.335], [923.194, 376.167]]
+[True, True]
+[[640.0, 480.0], [900.0, 300.0]]
+round-trip max error: 2.89e-10 px
+```
+
 Use `undistort_points` to move detections into a pinhole frame for classic
 algorithms; use `distort_points` to draw pinhole-space results back onto the
-original fisheye image. Both round-trip to sub-pixel on every model.
+original fisheye image. Both round-trip to sub-pixel — **2.89e-10 px** here — on
+every model.
 
-### 3.4 Pose estimation (PnP)
-```python
-object_points = np.array([[0, 0, 0], [0.1, 0, 0],      # (N, 3) known 3D points, metres
-                          [0, 0.1, 0], [0.1, 0.1, 0]], dtype=float)
-image_points = np.array([[610, 480], [720, 470],       # (N, 2) their pixels in `img`
-                         [600, 590], [715, 580]], dtype=float)
+### 3.4 Pose estimation (<abbr title="Perspective-n-Point — solving for camera pose from n known 3D points and their 2D projections.">PnP</abbr>)
 
-ok, rvec, tvec = solve_pnp(cam, object_points, image_points)
+{* docs_src/guides/multi_model/solve_pnp_cookbook.py hl[20] *}
+
+<!-- termynal -->
 ```
-Works for any fisheye/omni model: it unprojects to bearing rays, keeps the
-front-facing ones, and solves PnP in the normalized plane.
+$ python -m docs_src.guides.multi_model.solve_pnp_cookbook
+ok=True
+rvec=[-0.4809, -0.1674, -0.127]
+tvec=[-0.2892, -0.0329, 0.4515]
+```
+
+`solve_pnp` works for any fisheye/omni model: it unprojects to bearing rays, keeps
+the front-facing ones, and solves PnP in the normalized plane. See
+[Solve PnP on a fisheye](how-to/solve_pnp_on_fisheye.md) for why a plain
+`cv2.solvePnP` gets this wrong on raw fisheye pixels.
 
 ### 3.5 Direct OpenCV interop
-`cam.K` and `cam.distortion` plug straight into OpenCV — convert to KB or RadTan first
-(their distortion is exactly OpenCV's):
-```python
-kb, _ = convert(cam, KannalaBrandtModel, width=W, height=H)              # -> cv2.fisheye
-cv2.fisheye.undistortImage(img, kb.K, kb.distortion, Knew=K_new)
 
-rt, _ = convert(cam, RadTanModel, width=W, height=H, max_fov_deg=120)    # -> cv2 pinhole
-cv2.projectPoints(object_points, rvec, tvec, rt.K, rt.distortion)        # reuses 3.4
+`cam.K` and `cam.distortion` plug straight into OpenCV once you convert to KB or
+RadTan — their distortion convention is exactly OpenCV's:
+
+{* docs_src/guides/multi_model/opencv_interop.py hl[19,23,33,34] *}
+
+<!-- termynal -->
 ```
+$ python -m docs_src.guides.multi_model.opencv_interop
+(1080, 1920, 3)
+[[610.26, 480.33], [719.27, 469.54], [598.67, 589.42], [716.93, 580.87]]
+```
+
+The projected points land within a couple of pixels of the original detections
+(`[610, 480]`, `[720, 470]`, `[600, 590]`, `[715, 580]`) — the round trip through
+`convert` → `solve_pnp` → `cv2.projectPoints` is self-consistent.
 
 ### 3.6 Save to Kalibr YAML
-```python
-from ds_msp.io import save_kalibr
-save_kalibr(cam, "camchain.yaml", W, H)            # any model -> Kalibr camchain
-```
-*(To calibrate a model from correspondences, see [§4](#4-calibrate-any-model).)*
 
-> **Swapping models is a one-line change.** Calibrate once, `convert` to whatever
-> model your downstream tool wants (OpenCV fisheye, a Kalibr pipeline, a pinhole
-> SLAM front-end…), and every call above behaves identically.
+Any model — calibrated directly or converted — writes to a standard Kalibr
+camchain with `ds_msp.io.save_kalibr(cam, path, width, height)`. See
+[Read/write Kalibr YAML](how-to/read_write_kalibr.md) for the exact field
+orderings per model and a verified round-trip.
+
+*(To calibrate a model from correspondences instead of loading one, see
+[§4](#4-calibrate-any-model).)*
+
+/// tip
+**Swapping models is a one-line change.** Calibrate once, `convert` to whatever
+model your downstream tool wants (OpenCV fisheye, a Kalibr pipeline, a pinhole
+SLAM front-end…), and every call above behaves identically.
+///
 
 ---
 
 ## 4. Calibrate any model
 
-`ds_msp.calib.calibrate` runs bundle adjustment for **any** model using its
-analytic Jacobian — the same backend the `ds-msp-calibrate` console command (checkerboard /
-ChArUco / AprilGrid, config-driven, `pip install ds-msp` alone) drives via
-`ds_msp.calib.single_camera.calibrate_camera`:
+`ds_msp.calib.calibrate` bundle-adjusts **any** model using its analytic Jacobian —
+the same backend the `ds-msp-calibrate` console command (checkerboard / ChArUco /
+AprilGrid, config-driven, `pip install ds-msp` alone) drives via
+`ds_msp.calib.single_camera.calibrate_camera`.
 
-The inputs are per-image lists of board points, detected pixels, and visibility masks — you
-build them by detecting corners (see the [calibration capstone](learn/capstone_calibrating_a_real_camera.md)
-for the full AprilGrid → correspondences pipeline):
-
-```python
-import glob
-from ds_msp.calib import calibrate, AprilGridTarget, detect_aprilgrid
-from ds_msp import KannalaBrandtModel
-
-frames = sorted(glob.glob("datasets/tumvi/dataset-calib-cam1_512_16/mav0/cam0/data/*.png"))
-target = AprilGridTarget(tag_rows=6, tag_cols=6, tag_size=0.088, tag_spacing=0.3)
-detections = detect_aprilgrid(frames, family="t36h11")
-X_world_list, keypoints_list, visibility_list = target.build_correspondences(detections)
-
-init = KannalaBrandtModel(900, 900, 960, 540)                     # initial guess
-result = calibrate(init, X_world_list, keypoints_list, visibility_list)
-print(result["rms_px"], result["model"])
-```
+You supply per-image board points, detected pixels, and visibility masks — built
+by detecting corners, or from known board geometry directly. The full recipe, a
+runnable bundled example, and the `ds-msp-calibrate` CLI walkthrough are in
+[Calibrate any model](how-to/calibrate_any_model.md).
 
 ---
 
 ## 5. Kalibr YAML interop
 
-Read/write the standard Kalibr `camchain` format, with the exact (source-verified)
-per-model field orderings:
+`ds_msp.io` reads and writes the standard Kalibr `camchain` format, with the exact
+(source-verified) per-model field orderings — five model families (DS, EUCM, KB,
+RadTan, UCM), plus the DS-MSP-only DS+/EUCM+ extensions.
 
-```python
-from ds_msp.io import save_kalibr, load_kalibr
-
-save_kalibr(kb, "camchain-kb.yaml", 1920, 1080)   # pinhole + equidistant
-model = load_kalibr("camchain-kb.yaml")            # back to a KannalaBrandtModel
-```
-
-| Model | `camera_model` | `intrinsics` order | `distortion_coeffs` |
-| :--- | :--- | :--- | :--- |
-| DS | `ds` | `[xi, alpha, fx, fy, cx, cy]` | `[]` |
-| EUCM | `eucm` | `[alpha, beta, fx, fy, cx, cy]` | `[]` |
-| KB | `pinhole` + `equidistant` | `[fx, fy, cx, cy]` | `[k1, k2, k3, k4]` |
-| RadTan | `pinhole` + `radtan` | `[fx, fy, cx, cy]` | `[k1, k2, p1, p2]` (no k3) |
-| UCM | `omni` | `[xi_mei, fx, fy, cx, cy]` | `[]` (`xi_mei = α/(1-α)`) |
+[Read/write Kalibr YAML](how-to/read_write_kalibr.md) has the full field-ordering
+table, a save/round-trip recipe verified to machine precision, and how to read
+stereo extrinsics from a multi-camera camchain.
 
 ---
 
 ## 6. Architecture & design guarantees
 
-The library is layered so each piece is independently testable. **Every arrow is an allowed
-dependency direction; the reverse is forbidden** (and enforced in CI by import-linter):
+The library is layered so each piece is independently testable. **Every arrow is
+an allowed dependency direction; the reverse is forbidden** (and enforced in CI by
+import-linter):
 
 ```mermaid
 graph TD
@@ -265,11 +277,13 @@ graph TD
     mmath --> numpy["NumPy only"]
 ```
 
-- **`core` imports nothing internal** — it's the foundation everything else rests on.
+- **`core` imports nothing internal** — it's the foundation everything else rests
+  on.
 - **Services depend on the *contract*, not concrete models, and not each other.**
 - **Each `*_math.py` is pure NumPy** — usable with no camera object at all.
 
 Enforced by CI (pure-pytest gates):
+
 - **`core` is dependency-free**; every `*_math` module is pure NumPy and
   self-contained (usable with no camera object).
 - **Services depend on the contract, not concrete models** — proven by testing

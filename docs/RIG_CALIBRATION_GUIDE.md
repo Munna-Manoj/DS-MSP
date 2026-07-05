@@ -1,24 +1,46 @@
-# DS-MSP[rig] — Multi-Camera Rig Calibration Guide
+# Calibrate a multi-camera rig
 
-Calibrate a multi-camera rig (the **extrinsics** — where each camera sits relative to the
-others — plus per-camera **intrinsics**) from a folder of ChArUco images, driven by a single
-MC-Calib-style `calib_param.yml`. This is the DS-MSP analogue of MC-Calib's `./calibrate
-calib_param.yml`: same config schema, same output files, with one extension — you may choose a
-*different camera model per camera* (`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`,
-`eucmplus`).
+Recover a multi-camera rig's **extrinsics** — where each camera sits relative to the others —
+plus per-camera **intrinsics**, from a folder of <abbr title="A chessboard with ArUco markers
+embedded in each square, so corners stay identifiable even partially occluded.">ChArUco</abbr>
+images, driven by a single config.
 
-> **TL;DR**
-> ```bash
-> pip install ds-msp                                       # or: git clone + pip install -e .
-> # 1. write yourself a starter config
-> ds-msp-calibrate-rig --init-config calib_param.yml
-> # 2. edit it (number_camera, board geometry, root_path, save_path, models) — see below
-> # 3. run
-> ds-msp-calibrate-rig --config calib_param.yml
-> ```
-> `ds-msp-calibrate-rig` is a real console command from `pip install ds-msp` alone — no repo
-> clone needed. (A git-clone checkout can equivalently run `python scripts/calibrate_rig.py`;
-> it's the exact same CLI either way.)
+This is the multi-camera analogue of [`ds_msp[calib]`](CALIBRATE_GUIDE.md)'s config-driven
+pattern: the same schema style as MC-Calib's own `./calibrate calib_param.yml`, the same output
+files, with one extension — pick a *different camera model per camera*
+(`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`, `eucmplus`).
+
+**Prerequisites**
+
+- `ds-msp` installed: `pip install ds-msp` (or `git clone` + `pip install -e .`).
+- A folder of ChArUco images, one subfolder per camera — see
+  [§2](#2-prepare-your-data-folder-file-naming) for the exact naming convention.
+- A printed ChArUco board (or a multi-board rigid object) whose geometry you know.
+
+## Quick start
+
+Write yourself a starter config, edit it, and run it:
+
+<!-- termynal -->
+```
+$ pip install ds-msp
+$ ds-msp-calibrate-rig --init-config calib_param.yml
+wrote base calib_param template to: calib_param.yml
+```
+
+Edit the file — `number_camera`, board geometry, `root_path`, `save_path`, `camera_models` —
+see [§3](#3-make-a-config) — then run it:
+
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --config calib_param.yml
+```
+
+/// tip
+`ds-msp-calibrate-rig` is a real console command from `pip install ds-msp` alone — no repo
+clone needed. A git-clone checkout can equivalently run `python scripts/calibrate_rig.py`;
+it's the exact same CLI either way.
+///
 
 ---
 
@@ -28,36 +50,44 @@ The run writes MC-Calib's exact result set into `save_path/`:
 
 | File | Contents |
 |------|----------|
-| `calibrated_cameras_data.yml` | per camera: `camera_matrix` (K), `distortion_vector`, `camera_model`, `camera_pose_matrix` (**the extrinsics**), `img_width/height`, `camera_group` |
+| `calibrated_cameras_data.yml` | per camera: `camera_matrix` (K), `distortion_vector`, `camera_model`, `camera_pose_matrix` (the extrinsics), `img_width/height`, `camera_group` |
 | `calibrated_objects_data.yml` | the fused 3D calibration object (board corners in object frame) |
 | `calibrated_objects_pose_data.yml` | object pose per frame |
 | `reprojection_error_data.yml` | per-camera / per-point reprojection residuals |
-| `detected_keypoints_data.yml` | **the detected 2D corners — save this to skip detection next time** (see §6) |
+| `detected_keypoints_data.yml` | the detected 2D corners — save this to skip detection next time (see [§6](#6-detect-once-calibrate-many-keypoints-reuse)) |
 | `Detection/`, `Reprojection/` | (optional) overlay images per camera/frame |
 
-The console prints per-camera reprojection RMS and, if a `GroundTruth.yml` / MC-Calib `Results/`
-is found next to the data, the worst baseline error vs those references.
+The console prints per-camera reprojection <abbr title="Root Mean Square">RMS</abbr> and, if a
+`GroundTruth.yml` / MC-Calib `Results/` is found next to the data, the worst baseline error vs
+those references.
 
-**Loading a camera back into a ready instance.** `calibrated_cameras_data.yml` holds every
-camera in the rig, indexed 0-based (`camera_0`, `camera_1`, …) in write order. Load any one of
-them straight into a [`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) — no manual K/distortion-array
-handling:
+### Loading a camera back into a ready instance
 
-```python
-import ds_msp.rig as rig
+`calibrated_cameras_data.yml` holds every camera in the rig, indexed 0-based (`camera_0`,
+`camera_1`, …) in write order. Load any one straight into a
+[`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) — no
+manual K/distortion-array handling:
 
-cam0 = rig.load_camera("calibrated_cameras_data.yml", 0)
-print(cam0)                       # e.g. KannalaBrandtModel(fx=..., fy=..., ...)
-uv, valid = cam0.project(points_3d)
+{* docs_src/guides/rig_calibration_guide/load_camera.py hl[36,37,40,41] *}
+
+<!-- termynal -->
+```
+$ python -m docs_src.guides.rig_calibration_guide.load_camera
+KannalaBrandtModel(fx=900.000, fy=900.000, cx=960.000, cy=540.000, k=[0.01000, -0.02000, 0.00000, 0.00000])
+uv[0] = (960.000, 540.000)   valid=True
+uv[1] = (1136.736, 422.176)   valid=True
 ```
 
-This is the MC-Calib-format analogue of `ds_msp.calib.load_camera` (the single-camera
-`ds-msp-calibrate` output loader) — same one-liner ergonomics, different file shape, since
+This is the MC-Calib-format analogue of `ds_msp.calib.load_camera` — the single-camera
+`ds-msp-calibrate` output loader — with the same one-liner ergonomics but a different file
+shape.
+
 `calibrated_cameras_data.yml` splits `camera_matrix` (fx/fy/cx/cy) and `distortion_vector`
-(model-specific length and order) into separate fields rather than Kalibr's single combined
-`intrinsics` array. `load_camera` needs the file's `camera_model` (or the legacy
-`distortion_type` int) to know which of the 8 models to reconstruct — always present in
-DS-MSP's own output.
+(model-specific length and order) into separate fields, rather than Kalibr's single combined
+`intrinsics` array.
+
+`load_camera` needs the file's `camera_model` (or the legacy `distortion_type` int) to know
+which of the 8 models to reconstruct — always present in DS-MSP's own output.
 
 ---
 
@@ -66,7 +96,7 @@ DS-MSP's own output.
 The pipeline discovers images by a **strict folder convention**. Get this right and everything
 else is automatic.
 
-```
+```text
 my_capture/                     <- this path is your root_path
 ├── Cam_001/                    <- camera 0   (folder index = camID + 1, zero-padded to 3 digits)
 │   ├── 00000.png               <- frame 0
@@ -99,11 +129,14 @@ Rules:
 
 ### The calibration target
 
-A printed **ChArUco** board (OpenCV ChArUco). You can use **one board** (enough when all cameras
-overlap on it) or a **multi-board rigid object** (several boards fixed rigidly together — better
-coverage for cameras that rarely see the same board; DS-MSP reconstructs the fused object
-geometry automatically). You must know the board geometry (squares in X/Y, square and marker
-lengths) and put it in the config.
+A printed ChArUco board (OpenCV ChArUco) works for most rigs.
+
+Use a **multi-board rigid object** instead — several boards fixed rigidly together — for
+cameras that rarely share a view of one board; DS-MSP reconstructs the fused object geometry
+automatically.
+
+You must know the board geometry (squares in X/Y, square and marker lengths) and put it in the
+config.
 
 ---
 
@@ -111,8 +144,10 @@ lengths) and put it in the config.
 
 Generate a fully-commented starter and edit it:
 
-```bash
-ds-msp-calibrate-rig --init-config calib_param.yml
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --init-config calib_param.yml
+wrote base calib_param template to: calib_param.yml
 ```
 
 This copies [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml). Below is
@@ -136,10 +171,12 @@ every field that matters.
 | `distortion_per_camera` | per-camera `0/1` list overriding the global, length = `number_camera` |
 | `camera_models` *(DS-MSP extension, highest precedence)* | per-camera model **name** — `[ kb, kb, kb, kb, radtan, radtan, kb, kb ]`. Choose from `radtan, ucm, eucm, ds, kb, ocam, dsplus, eucmplus`. Overrides the two keys above. |
 
-> **Which model?** Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default;
-> `ds`/`ucm`/`eucm` are compact sphere models; **`dsplus` (DS+)** is the most expressive for very
-> wide (≳170°) lenses. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
-> and the real-data comparison in §7.
+/// tip | Which model?
+Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default; `ds`/`ucm`/`eucm`
+are compact sphere models; **`dsplus` (DS+)** is the most expressive for very wide (≳170°)
+lenses. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
+and the real-data comparison in [§7](#7-worked-example-robustness-real-8-camera-rig).
+///
 
 ### Intrinsics (optional prior)
 | Key | Meaning |
@@ -147,7 +184,8 @@ every field that matters.
 | `cam_params_path` | path to an initial-intrinsics yml, or `"None"` to estimate from scratch. Schema = MC-Calib `calibrated_cameras_data`, extended with a per-camera `camera_model`. See [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml). |
 | `fix_intrinsic` | `false` = estimate & refine intrinsics; `true` = **hold intrinsics fixed**, solve extrinsics only (requires `cam_params_path`) |
 
-Behaviour (verified on real data, §7):
+Behaviour (verified on real data, [§7](#7-worked-example-robustness-real-8-camera-rig)):
+
 - **No file** + `fix_intrinsic=false` → every camera initializes from scratch.
 - **File given**, stated model **matches** the chosen model → used natively (held if `fix_intrinsic=true`).
 - **File given**, model **differs** + `fix_intrinsic=false` → a **warning** is printed and `convert()`
@@ -160,7 +198,7 @@ Behaviour (verified on real data, §7):
 |-----|---------|
 | `root_path` | folder containing the `Cam_00N/` subfolders (raw images) |
 | `cam_prefix` | folder prefix (default `Cam_`) |
-| `keypoints_path` | a pre-detected `detected_keypoints_data.yml`; `"None"` ⇒ detect from images. **Set this to skip detection** (§6). |
+| `keypoints_path` | a pre-detected `detected_keypoints_data.yml`; `"None"` ⇒ detect from images. **Set this to skip detection** ([§6](#6-detect-once-calibrate-many-keypoints-reuse)). |
 
 ### Optimization / output
 | Key | Meaning |
@@ -173,11 +211,15 @@ Behaviour (verified on real data, §7):
 | `camera_params_file_name` | output cameras filename (`""` ⇒ `calibrated_cameras_data.yml`) |
 | `webviewer` | `true` (default) to launch the live browser 3D view during the run; `false` to skip it. Independent of `verbose` (terminal progress). Needs the optional `ds-msp[webviewer]` extra. |
 
-Relative paths resolve against the **config file's** directory. Override any value on the CLI
-without editing the file:
+/// note
+Relative paths resolve against the **config file's** directory.
+///
 
-```bash
-ds-msp-calibrate-rig --config calib_param.yml \
+Override any value on the CLI without editing the file:
+
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --config calib_param.yml \
     --set root_path=/abs/my_capture --set save_path=/abs/out \
     --set camera_models=kb,kb,kb,kb,radtan,radtan,kb,kb
 ```
@@ -186,11 +228,13 @@ ds-msp-calibrate-rig --config calib_param.yml \
 
 ## 4. Run it
 
-```bash
-ds-msp-calibrate-rig --config calib_param.yml
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --config calib_param.yml
 ```
 
 What happens internally:
+
 1. **Detect** ChArUco corners in every image (or load `keypoints_path`).
 2. **Reconstruct** the fused multi-board object from the detections (single board: built from
    config). MC-Calib's `calibrate3DObjects` analogue.
@@ -218,8 +262,11 @@ solve only the rig geometry:
 3. Run as usual. The bundle adjustment optimizes extrinsics + object poses only.
 
 Emit a starter intrinsics file with:
-```bash
-ds-msp-calibrate-rig --init-intrinsics camera_intrinsics.yml
+
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --init-intrinsics camera_intrinsics.yml
+wrote camera intrinsics template to: camera_intrinsics.yml
 ```
 
 ---
@@ -239,13 +286,19 @@ A ready-made reuse config: [`ds_msp/rig/configs/calib_param.keypoints.template.y
 (save a local copy — e.g. `reuse.yml` — from that link, or copy it out of your installed
 package with `python -c "import importlib.resources,shutil; shutil.copyfile(importlib.resources.files('ds_msp.rig')/'configs/calib_param.keypoints.template.yml', 'reuse.yml')"`).
 
-```bash
-# run 1 — detect from images, save keypoints (uses the normal template)
-ds-msp-calibrate-rig --config calib_param.yml \
-    --set root_path=/abs/my_capture --set save_path=/abs/out
+Run once from images, saving the keypoints (this uses the normal template):
 
-# run 2+ — reuse the saved keypoints, try a different model, fast
-ds-msp-calibrate-rig --config reuse.yml \
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --config calib_param.yml \
+    --set root_path=/abs/my_capture --set save_path=/abs/out
+```
+
+Then reuse the saved keypoints for a second, much faster run — trying a different model:
+
+<!-- termynal -->
+```
+$ ds-msp-calibrate-rig --config reuse.yml \
     --set keypoints_path=/abs/out/detected_keypoints_data.yml \
     --set object_path=/abs/out/calibrated_objects_data.yml \
     --set save_path=/abs/out_dsplus \
@@ -270,6 +323,7 @@ across intrinsics scenarios — varying **only** how intrinsics are provided —
 | convert `kb`→`dsplus` (warn + convert) | 0.5623 | matches from-scratch dsplus |
 
 Takeaways (these are *measured*, not asserted):
+
 - The pipeline converges to the **same extrinsics and the same reprojection error** whether
   intrinsics are estimated from scratch, provided and refined, or provided and held fixed —
   robust to how you supply intrinsics.
@@ -293,7 +347,7 @@ model for *your* lens before you calibrate.
 | A camera is missing from the output | its folder wasn't found (`<cam_prefix><id+1:03d>`) or it shares no frames with the rest |
 | Frames don't line up across cameras | filenames must encode the **same frame number** for the same instant in every camera |
 | `fix_intrinsic=true` error about a missing/mismatched model | provide intrinsics for every camera with `camera_model` matching `camera_models`, or set `fix_intrinsic=false` to convert+refine |
-| Large reprojection on wide lenses | the model under-fits — try `kb` or `dsplus` for those cameras (§7) |
+| Large reprojection on wide lenses | the model under-fits — try `kb` or `dsplus` for those cameras ([§7](#7-worked-example-robustness-real-8-camera-rig)) |
 | Want overlays | set `save_detection: true` / `save_reprojection: true` **and** keep `root_path` pointing at the images |
 | Browser window keeps popping open | set `webviewer: false` in the config (or `--no-webviewer` on the CLI) |
 | Wrong real-world scale | `square_size` must be the **physically measured** square size |
