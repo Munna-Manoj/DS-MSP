@@ -39,12 +39,16 @@ squared** residuals:
 $$\min \; \sum_i r_i^2, \qquad r_i = \lVert \operatorname{project}(X_i) - u_i \rVert \;\; \text{(pixels)}$$
 
 The square is the problem. A corner at `r = 6 px` contributes `36`; a good corner at
-`0.2 px` contributes `0.04` — **900× less**. A handful of outliers shout down thousands of
-good corners and pull the parameters (here: focal length) toward themselves.
+`0.2 px` contributes `0.04` — **900× less**.
+
+A handful of outliers shout down thousands of good corners and pull the parameters
+(here: focal length) toward themselves.
 
 In the example below, L2's focal is off by 1.65 px for exactly this reason — real AprilGrid
-corners, not synthetic outliers. The effect is large enough to see clearly, but not so
-exaggerated that it stops looking like a real bad calibration.
+corners, not synthetic outliers.
+
+The effect is large enough to see clearly, but not so exaggerated that it stops looking like
+a real bad calibration.
 
 ## 2. Two ways to fight back
 
@@ -206,8 +210,10 @@ Scoring the refit model against a dropped corner's original detected position ca
 *worse*, never better, than scoring a fit that still tries to explain it.
 
 Cauchy, by contrast, never fully lets go: even a down-weighted corner keeps a small, bounded
-pull on the fit. **RMS over all corners is itself an L2 statistic** — it squares every
-residual, so it is dominated by whichever method has the largest leftover residuals.
+pull on the fit.
+
+**RMS over all corners is itself an L2 statistic** — it squares every residual, so it is
+dominated by whichever method has the largest leftover residuals.
 
 Here that's hard rejection, precisely because it's the one method that stopped modeling 503
 of the 5,180 corners entirely.

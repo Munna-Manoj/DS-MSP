@@ -5,8 +5,9 @@ fisheye image, where `cv2.solvePnP` returns a wrong answer.
 
 This is a task recipe. A naive pinhole
 <abbr title="Perspective-n-Point — solving for camera pose from n known 3D points and their 2D projections.">PnP</abbr>
-only ever considers points with `z > 0` — it has no concept of the wider region a fisheye
-actually sees.
+only ever considers points with `z > 0`.
+
+It has no concept of the wider region a fisheye actually sees.
 
 For *why* the fisheye model's real validity boundary is a tilted half-space rather than
 `z > 0`, and how much further it reaches, see

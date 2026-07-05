@@ -55,7 +55,9 @@ angle θ: `r(θ) = θ + k1·θ³ + k2·θ⁵ + …`. It fits well, but it has a 
 **unprojection has no closed form.**
 
 To go from a pixel back to a ray you must invert that polynomial numerically (Newton
-iterations) for *every pixel, every frame*. In a
+iterations) for *every pixel, every frame*.
+
+In a
 <abbr title="Visual Odometry / Simultaneous Localization and Mapping — real-time pose and map estimation from a camera feed.">VO/SLAM</abbr>
 front-end unprojecting thousands of features per image, that adds up.
 
@@ -72,8 +74,9 @@ Pinhole projection divides by `Z`. That explodes as a ray approaches 90° (`Z �
 
 The fix every wide-<abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>
 model uses is the same idea: **first map the ray onto a unit sphere (where nothing explodes),
-then do a perspective division from a shifted center.** Models differ only in *where* that
-second center sits.
+then do a perspective division from a shifted center.**
+
+Models differ only in *where* that second center sits.
 
 Double Sphere uses *two* unit spheres in sequence, governed by two new numbers:
 
@@ -137,9 +140,10 @@ ds_project() agrees:  u=593.6100  v=361.0100  valid=True
 - The last two lines are the pinhole division you've seen a hundred times, just with `den`
   in place of `Z`.
 
-That's the whole model — two extra scalars on top of a pinhole. The point above lands on the
-*same* pixel whether it sits 1 m or 100 m along that ray: only direction matters, the
-hallmark of a central camera.
+That's the whole model — two extra scalars on top of a pinhole.
+
+The point above lands on the *same* pixel whether it sits 1 m or 100 m along that ray: only
+direction matters, the hallmark of a central camera.
 
 ## 4. Why it inverts in closed form
 

@@ -1,10 +1,11 @@
 # Projection validity and field of view — why a fisheye can't fully un-distort
 
 Why does a rectified fisheye image always have a black border, and why are some
-pixels impossible to keep? This page explains the geometry behind the Double Sphere
-model's field of view: the exact half-space test that decides which 3D rays are
-projectable, why that boundary sits *past* 90°, and why no single pinhole image can
-hold the result.
+pixels impossible to keep?
+
+This page explains the geometry behind the Double Sphere model's field of view: the
+exact half-space test that decides which 3D rays are projectable, why that boundary
+sits *past* 90°, and why no single pinhole image can hold the result.
 
 It is the "why" companion to the hands-on
 [Chapter 3 tutorial](../learn/03_projection_validity.md); read this when you want the
@@ -59,8 +60,9 @@ own side. That is precisely why the model represents a field of view greater tha
 
 A $z > 0$ test would reject those rays and quietly cap the
 <abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>
-at a hemisphere. This library does not make that mistake; the comment in `ds_project`
-says so explicitly.
+at a hemisphere.
+
+This library does not make that mistake; the comment in `ds_project` says so explicitly.
 
 ## Reading the half-space as a maximum incidence angle
 
@@ -94,9 +96,10 @@ hemisphere.
 
 The [Chapter 3 tutorial](../learn/03_projection_validity.md) cross-checks this formula
 at runtime against the full-precision calibration. It prints 113.4° from $w_2 = 0.3967$
-— a rounding-of-inputs difference from the 113.3° / 0.396 shown here. A brute-force
-sweep confirms the closed form to the first decimal, so the formula is verified against
-the code, not just asserted.
+— a rounding-of-inputs difference from the 113.3° / 0.396 shown here.
+
+A brute-force sweep confirms the closed form to the first decimal, so the formula is
+verified against the code, not just asserted.
 
 ## The FOV zones, painted onto a real frame
 

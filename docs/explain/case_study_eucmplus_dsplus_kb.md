@@ -68,9 +68,11 @@ They corroborate, but the reproducible anchor for everything on this page is the
 
 ### A false start we corrected
 
-Our first reading of one lens — the inner-field 158° fit — was: *"EUCM⁺'s extra parameter λ₁ is
-collinear with EUCM's β, the shape Jacobian is numerically rank-deficient (condition number
-~10¹⁸), so λ₁ is redundant — EUCM⁺ is mathematically a wrong model."*
+Our first reading of one lens — the inner-field 158° fit — was this claim:
+
+*"EUCM⁺'s extra parameter λ₁ is collinear with EUCM's β, the shape Jacobian is numerically
+rank-deficient (condition number ~10¹⁸), so λ₁ is redundant — EUCM⁺ is mathematically a wrong
+model."*
 
 It's a tidy story. It is also **over-claimed**, and we retracted it. Two checks broke it:
 

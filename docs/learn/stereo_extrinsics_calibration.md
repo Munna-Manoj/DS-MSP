@@ -322,7 +322,7 @@ Deepen your understanding by modifying the code. Each of the following exercises
    while rotation stays put — the §6 lesson, measured.
 
    If you followed the snippets rather than the full script, redefine `target` with the new
-   `tag_size` and re-call `calibrate_camera` on both cameras before re-running §5.
+   `tag_size`. Then re-call `calibrate_camera` on both cameras before re-running §5.
 3. **Use more frames.** Drop `--stride` to 4. Does the per-frame spread (`rot_rms_deg`) shrink,
    and does the agreement with the reference improve? More frames usually tighten the average.
 

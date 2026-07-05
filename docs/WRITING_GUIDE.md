@@ -39,6 +39,11 @@ These are what make this repo's docs distinctive. Keep them everywhere.
    comment or an output block. The reader should know they succeeded.
 4. **One idea per section.** Descriptive heading, one concept, then move on.
 5. **Lead with the point.** First sentence says what the section is for. Don't warm up.
+6. **No paragraph over ~40 words.** If a point needs more, split it into two short paragraphs,
+   convert it to a bullet list, or move the secondary point into a `///` admonition. Formal
+   derivation pages (e.g. `docs/explain/*_geometry.md`) may run longer where splitting would
+   break a proof's logical continuity — tighten the worst offenders there, don't force every
+   sentence apart.
 
 ---
 

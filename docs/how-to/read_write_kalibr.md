@@ -2,6 +2,7 @@
 
 Load a Kalibr <abbr title="Kalibr's per-camera calibration file: one YAML stanza per camera, chained by relative extrinsics between consecutive cameras.">**camchain**</abbr>
 YAML into a DS-MSP camera model, and write a DS-MSP model back out as Kalibr YAML.
+
 Move calibrations in and out of the Kalibr ecosystem without retyping intrinsics.
 
 > **Prerequisites**

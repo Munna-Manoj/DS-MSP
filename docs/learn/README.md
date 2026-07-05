@@ -2,8 +2,10 @@
 
 A guided, **runnable** path through wide-<abbr title="Field of View">FOV</abbr> camera
 models — the geometry behind <abbr title="Simultaneous Localization And Mapping">SLAM</abbr>,
-AR, and robot perception. Every chapter pairs a short explainer with a script that runs on
-**real public data** and prints a **number you can verify**.
+AR, and robot perception.
+
+Every chapter pairs a short explainer with a script that runs on **real public data** and
+prints a **number you can verify**.
 
 /// tip | The house rule
 In 3D vision you don't *hope* your math is right — you *measure* that it is. A good

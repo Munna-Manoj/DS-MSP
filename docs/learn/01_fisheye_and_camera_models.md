@@ -88,9 +88,10 @@ Six-plus numbers fully describe this fisheye camera:
 - `k` — four coefficients shaping the radial <abbr title="Deviation from an ideal pinhole projection — the reason straight lines bow into arcs near a fisheye lens's edge.">distortion</abbr>.
 
 TUM-VI's file says `pinhole + equidistant`, which is the **Kannala-Brandt** model — the
-same one behind OpenCV's `cv2.fisheye`. The library reads it and hands you a working
-object. *(Later chapters swap in the Double Sphere model, which handles >180° more
-gracefully.)*
+same one behind OpenCV's `cv2.fisheye`.
+
+The library reads it and hands you a working object. *(Later chapters swap in the Double
+Sphere model, which handles >180° more gracefully.)*
 
 ## 4. The non-negotiable habit: verify, don't trust
 

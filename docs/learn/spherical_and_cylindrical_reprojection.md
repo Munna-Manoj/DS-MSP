@@ -6,7 +6,9 @@
 
 You may have seen a fisheye frame "unwrapped" onto a **cylinder** or a **sphere**, with
 landmarks drawn on the curved surface, and wondered: is that real geometry, or just a pretty
-picture? Can a non-flat image even *have* intrinsics you can do 2D/3D work with?
+picture?
+
+Can a non-flat image even *have* intrinsics you can do 2D/3D work with?
 
 Short answer: it's real, and the sphere version is **more** fundamental than the flat image
 you started with.
@@ -78,8 +80,10 @@ $$(x, y, z) = (\cos\psi \sin\lambda,\; -\sin\psi,\; \cos\psi \cos\lambda)$$
 Each representation is a different rule for turning a ray's two angles into a pixel.
 
 All three have honest *intrinsics* — a focal-like scale $f$ (pixels per radian, or per unit)
-and a centre $(c_x, c_y)$. Here are the forward laws (ray → pixel); the inverse laws
-(pixel → ray) follow in the breakout just below:
+and a centre $(c_x, c_y)$.
+
+Here are the forward laws (ray → pixel); the inverse laws (pixel → ray) follow in the breakout
+just below:
 
 | Chart | Column law (azimuth) | Row law (elevation) | Valid range |
 |-------|----------------------|---------------------|-------------|
@@ -111,8 +115,9 @@ Two things to notice here:
 
     They differ in **one place only** — the row. The sphere is linear in the elevation angle
     $\psi$; the cylinder is linear in $\tan\psi$ (the height where the ray pierces a unit
-    cylinder). So *the cylinder is the sphere with a vertical $\tan$ warp* — same azimuth,
-    re-spaced rows.
+    cylinder).
+
+    So *the cylinder is the sphere with a vertical $\tan$ warp* — same azimuth, re-spaced rows.
 
 2. **The pinhole bends both axes through $\tan$.** Using the angles:
 
@@ -126,8 +131,9 @@ Two things to notice here:
 ## 3. The maps that move a pixel between charts
 
 To convert a pixel from one chart to another you do the obvious thing: **unproject to a ray in
-the source chart, project with the target chart.** Composing the table above gives closed
-forms. With sphere and cylinder sharing $(f, c_x, c_y)$:
+the source chart, project with the target chart.**
+
+Composing the table above gives closed forms. With sphere and cylinder sharing $(f, c_x, c_y)$:
 
 **Sphere ↔ cylinder** — columns are untouched, only the row warps:
 
@@ -256,6 +262,7 @@ representation-agnostic and transfers directly:
     $$\mathbf{x}_2^\top E\,\mathbf{x}_1 = 0$$
 
     On the sphere image an epipolar *line* becomes an epipolar *great circle*.
+
 - **Triangulation, PnP, bundle adjustment** operate on rays, so they don't care whether you
   stored the measurement as a sphere, cylinder, or pinhole pixel. Spherical
   <abbr title="Structure from Motion">SfM</abbr> and spherical stereo are standard for exactly

@@ -119,9 +119,12 @@ pinhole-specific.
 The pixel-domain version you may have met is a special case. It works only because a pinhole
 relates each pixel to its ray through one matrix `K`.
 
-A fisheye has no such `K`: its pixel-to-ray map is the curved `unproject` of Chapters 1–2. So
-you do the geometry one step earlier — on the rays themselves — and the same estimator works
-for a 195° lens. That is why everything in `ds_msp.mvg` takes `(N, 3)` rays.
+A fisheye has no such `K`: its pixel-to-ray map is the curved `unproject` of Chapters 1–2.
+
+So you do the geometry one step earlier — on the rays themselves — and the same estimator
+works for a 195° lens.
+
+That is why everything in `ds_msp.mvg` takes `(N, 3)` rays.
 
 For *why* `f2ᵀ E f1 = 0` follows from the geometry, and why `E` has rank 2 with singular
 values `(1, 1, 0)`, see **[Two-view geometry → the epipolar constraint](../explain/two_view_geometry.md)**.
@@ -161,9 +164,12 @@ limit. You don't call it directly in this chapter; the real-data re-fit in
 ## 4. Decompose and pick the physical pose — the cheirality step
 
 An essential matrix does **not** uniquely give `(R, t)`: it factors into **four** candidates.
+
 The decomposition splits `E = [t]_× R` into two possible rotation matrices and two possible
-translation directions (±`t`). `recover_pose` builds all four, then applies **cheirality** to
-pick the one where the triangulated points lie in front of both cameras.
+translation directions (±`t`).
+
+`recover_pose` builds all four, then applies **cheirality** to pick the one where the
+triangulated points lie in front of both cameras.
 
 ### Four candidates, one physical pose
 
@@ -206,8 +212,10 @@ the same point, one stage later.
 ### Proving it on a real fisheye camera
 
 The §1 demo used hand-made rays. This one drives them through a real wide-FOV camera model —
-`DoubleSphereModel` — to prove the pipeline is genuinely model-agnostic: project 3D points to
-fisheye pixels in two views, unproject back to rays, recover the pose.
+`DoubleSphereModel` — to prove the pipeline is genuinely model-agnostic.
+
+The steps: project 3D points to fisheye pixels in two views, unproject back to rays, recover
+the pose.
 
 This mirrors `tests/mvg/test_two_view.py::test_recover_pose_through_a_real_double_sphere_camera`
 exactly, so the number is asserted in <abbr title="Continuous Integration">CI</abbr>. Here is
@@ -254,9 +262,11 @@ For the proof that exactly four decompositions exist and why cheirality selects 
 ## 5. Make it robust: RANSAC against wrong matches
 
 The eight-point estimator is least-squares, so a handful of mismatched rays — inevitable from
-a real feature matcher — drag the whole fit off. `ransac_relative_pose` wraps the estimator in
-<abbr title="Random Sample Consensus">RANSAC</abbr>: it samples minimal sets, scores each
-candidate `E` by how many correspondences fit, and re-fits on the consensus.
+a real feature matcher — drag the whole fit off.
+
+`ransac_relative_pose` wraps the estimator in <abbr title="Random Sample Consensus">RANSAC</abbr>:
+it samples minimal sets, scores each candidate `E` by how many correspondences fit, and re-fits
+on the consensus.
 
 It scores with a **Sampson distance on the sphere**, which is an angle in radians. The inlier
 threshold is FOV-independent — the right currency for a fisheye, where a pixel threshold means
@@ -296,9 +306,10 @@ The naïve fit is **~27° off** — useless. RANSAC recovers rotation to **0.107
 translation direction to **0.274°**.
 
 Inlier **precision 0.989 / recall 1.000**: it found every one of the ~91 good matches and
-admitted almost no bad ones. The thresholds asserted in `tests/mvg/test_ransac.py` are rotation
-`< 0.5°`, translation-direction `< 2.0°`, precision `> 0.95`, recall `> 0.9` — all met with
-margin.
+admitted almost no bad ones.
+
+The thresholds asserted in `tests/mvg/test_ransac.py` are rotation `< 0.5°`, translation-direction
+`< 2.0°`, precision `> 0.95`, recall `> 0.9` — all met with margin.
 
 <figure markdown="span">
   ![RANSAC robustness: sorted angular Sampson residual](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/two_view_ransac.png){ loading=lazy }
@@ -384,9 +395,10 @@ it affects the pose estimate:
    0.6)` to `0.05` (a tiny rotation, almost no parallax). Predict first: does the error grow or
    stay near zero?
 
-   Then add noise — `f2 += 1e-3 * rng.standard_normal(f2.shape)` — and re-run. Small-baseline
-   two-view geometry is ill-conditioned; watch the error climb far faster at `0.05` than at
-   `0.6`.
+   Then add noise — `f2 += 1e-3 * rng.standard_normal(f2.shape)` — and re-run.
+
+   Small-baseline two-view geometry is ill-conditioned. Watch the error climb far faster at
+   `0.05` than at `0.6`.
 2. **Push the outlier fraction.** In §5, raise `0.30` to `0.50`, then `0.70`. Predict where
    RANSAC's recall collapses before you run it.
 3. **Move the real pair apart.** Run `examples/11_two_view_pose_tumvi.py` with `--gap 1` (tiny
@@ -398,10 +410,11 @@ it affects the pose estimate:
 You recovered relative pose from bearing rays with `recover_pose`, and proved it exact on a
 synthetic Double Sphere scene (**~1e-6°**, CI-asserted `< 1e-3°`).
 
-You made it robust with `ransac_relative_pose` (**0.107°** under 30% outliers), and ran the
-whole thing on a real TUM-VI fisheye pair (**~90.9% inliers, ~1.1° residual** — an order of
-magnitude looser than the synthetic exercises, because real KLT corners carry real subpixel
-noise).
+You made it robust with `ransac_relative_pose` (**0.107°** under 30% outliers).
+
+You then ran the whole thing on a real TUM-VI fisheye pair (**~90.9% inliers, ~1.1° residual**).
+That's an order of magnitude looser than the synthetic exercises, because real KLT corners carry
+real subpixel noise.
 
 The pose here is a closed-form two-view estimate. The next step is to **refine** it.
 `refine_two_view` runs iterative Levenberg–Marquardt on the rotation–translation manifold

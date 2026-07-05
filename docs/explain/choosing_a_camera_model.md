@@ -7,16 +7,21 @@
 Almost everyone picks a camera model the wrong way: by **reputation** ("everyone uses
 Kannala-Brandt") or by **parameter count** ("more parameters must be more accurate").
 
-Both heuristics fail often enough to quietly ruin a calibration. Measured, not assumed: fit the
-same 6-parameter EUCM model to two different lenses and it swings from 0.24 px RMS on a mild
-~170° lens to 6.62 px on a ~158° lens with a strong θ⁵ bend (diagnostic A, below) — the *same*
-model, a great choice on one lens and a capacity wall on the other.
+Both heuristics fail often enough to quietly ruin a calibration.
+
+Measured, not assumed: fit the same 6-parameter EUCM model to two different lenses and it swings
+from 0.24 px RMS on a mild ~170° lens to 6.62 px on a ~158° lens with a strong θ⁵ bend
+(diagnostic A, below).
+
+The *same* model is a great choice on one lens and a capacity wall on the other.
 
 This page gives you the alternative: **derive the choice from measurements.**
 
-Six diagnostics, each a number you can compute and verify, that together answer the only
-questions that matter — *can this model represent my lens, are its parameters actually
-pinned down by my data, what does it cost, and where will it lie to me?*
+Six diagnostics, each a number you can compute and verify, together answer the only questions
+that matter.
+
+*Can this model represent my lens? Are its parameters actually pinned down by my data? What does
+it cost, and where will it lie to me?*
 
 None of them require you to trust a paper's marketing.
 
@@ -123,10 +128,14 @@ BENIGN:     eucm cond 1.2e3   ds+ cond 1.7e5
 - **cond ~10¹⁵⁺ = numerically rank-deficient** — a true redundancy.
 
 EUCM is beautifully conditioned (cond ~10³) but, per diagnostic A, lacks capacity on the
-demanding lens. DS⁺'s extra shape parameter buys real capacity but costs two to three orders of
-magnitude in conditioning (cond ~2–3e5) — a genuine trade-off, not a free lunch. **The smallest
-singular value, not the parameter count, tells you the effective DOF**: DS⁺'s three shape
-parameters are only pinned down about as tightly as a well-conditioned two-parameter model.
+demanding lens.
+
+DS⁺'s extra shape parameter buys real capacity but costs two to three orders of magnitude in
+conditioning (cond ~2–3e5) — a genuine trade-off, not a free lunch.
+
+**The smallest singular value, not the parameter count, tells you the effective DOF.** DS⁺'s
+three shape parameters are only pinned down about as tightly as a well-conditioned two-parameter
+model.
 
 ---
 
@@ -285,10 +294,11 @@ Run the six in order; each one's answer tells you whether the next even matters:
 
 #### What a defensible answer sounds like
 
-The output you should be able to defend is not "I used model X because it's standard," but
-"on *my* lens over *my* FOV, X has the capacity (A: 0.09 px), all parameters identifiable
-(B: cond 7e3), no redundant term (C: 5% min residual), and the cheapest unproject my task can
-use (E)."
+The output you should be able to defend is not "I used model X because it's standard."
+
+It's this: "on *my* lens over *my* FOV, X has the capacity (A: 0.09 px), all parameters
+identifiable (B: cond 7e3), no redundant term (C: 5% min residual), and the cheapest unproject
+my task can use (E)."
 
 That sentence is a *measurement*, and it's the whole point of this curriculum.
 

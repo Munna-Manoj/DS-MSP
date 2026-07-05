@@ -14,6 +14,7 @@ camera 2:
 $$X_2 = R\,X_1 + t, \qquad R \in SO(3) .$$
 Each camera measures a **unit bearing vector** (a ray), not a pixel:
 $$f_1 = \frac{X_1}{\lVert X_1\rVert}, \qquad f_2 = \frac{X_2}{\lVert X_2\rVert} .$$
+
 A bearing vector is the only thing a calibrated camera reports. That is why everything below is
 **model-agnostic** — Double Sphere, UCM, KB, … all produce bearing vectors and share this
 geometry.
@@ -82,6 +83,7 @@ The epipolar constraint is then linear in $e$:
 $$f_2^\top E f_1 = (f_2 \otimes f_1)^\top e .$$
 Stacking $N \ge 8$ rows gives a homogeneous system:
 $$A e = 0, \qquad A_i = f_2^{(i)} \otimes f_1^{(i)} \in \mathbb{R}^9 .$$
+
 The unit-norm least-squares solution is the **right-singular vector of $A$ with the smallest
 singular value** (SVD), reshaped to $3\times3$.
 
@@ -90,6 +92,7 @@ it onto the essential manifold. Take the SVD:
 $$\hat E = U\,\mathrm{diag}(\sigma_1,\sigma_2,\sigma_3)\,V^\top .$$
 Replace the singular values by $(1,1,0)$:
 $$E = U\,\mathrm{diag}(1,1,0)\,V^\top .$$
+
 **Optimality (Eckart–Young).** Among all matrices with singular values $(\bar\sigma,\bar\sigma,0)$,
 the Frobenius-nearest to $\hat E$ keeps the same singular vectors and takes
 $$\bar\sigma = \tfrac{1}{2}(\sigma_1 + \sigma_2) .$$
@@ -109,6 +112,7 @@ $$W = \begin{pmatrix}0&-1&0\\1&0&0\\0&0&1\end{pmatrix} .$$
 The candidate rotation and translation are
 $$R \in \{\,U W V^\top,\; U W^\top V^\top\,\} ,$$
 $$t = \pm\,U_{:,3} \quad (\text{unit}) .$$
+
 This yields **four** combinations. They are the genuine reconstructions plus their *twisted
 pairs* — a 180° rotation about the baseline and a reflected reconstruction. Exactly one places
 the scene in front of both cameras.
@@ -147,6 +151,7 @@ Ray 2's direction is
 $$d_2 = R^\top f_2 ,$$
 and it traces the line
 $$Q(\lambda_2) = c_2 + \lambda_2 d_2 .$$
+
 The point closest to both lines minimizes their squared gap:
 $$\lVert P(\lambda_1) - Q(\lambda_2)\rVert^2 .$$
 
@@ -156,6 +161,7 @@ $$f_1\!\cdot\!f_1 = d_2\!\cdot\!d_2 = 1 .$$
 Define the intermediate scalars:
 $$w_0 = -c_2, \qquad b = f_1\!\cdot d_2 ,$$
 $$d = f_1\!\cdot w_0, \qquad e = d_2\!\cdot w_0 .$$
+
 The depths then solve the system:
 $$\lambda_1 = \frac{b e - d}{1 - b^2}, \qquad \lambda_2 = \frac{e - b d}{1 - b^2} .$$
 The triangulated point is the midpoint of the two closest-approach points:
@@ -180,6 +186,7 @@ The analogue — `normalize=True`, the 360-8PA idea — whitens the ray covarian
 whitened frame, and maps back:
 $$T = (\mathrm{Cov} + \varepsilon I)^{-1/2} ,$$
 $$E = T_2^\top E' T_1 .$$
+
 It is **exact in the noise-free limit** (it changes nothing). It also lowers the median pose
 error on clustered rays: for a forward cone at $\sigma = 3$ mrad, from $10.5°$ to $4.7°$.
 

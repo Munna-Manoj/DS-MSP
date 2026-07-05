@@ -175,9 +175,10 @@ comparison was first measured, which is why the agreement now extends further ou
 once did.
 ///
 
-In that region the two models are, for any practical purpose, the identical map. Only at
-the 90° rim do they still part ways — a ray parallel to the image plane, which a lens like
-this barely if ever observes directly.
+In that region the two models are, for any practical purpose, the identical map.
+
+Only at the 90° rim do they still part ways — a ray parallel to the image plane, which a
+lens like this barely if ever observes directly.
 
 And each model is internally exact — `project(unproject(·))` round-trips to **1e-13 px**
 (machine precision) for both. Neither is "broken": they're each self-consistent maps that

@@ -2,8 +2,9 @@
 
 Generate a displacement-mesh lookup table (LUT) that the on-chip
 <abbr title="Lens Distortion Correction -- hardware that undistorts a fisheye frame from a stored per-pixel displacement mesh, instead of a CPU/GPU remap.">LDC</abbr>
-engine on a TI Jacinto J7 / TDA4 <abbr title="System on Chip">SoC</abbr> can read, so the
-hardware undistorts each fisheye frame for you.
+engine on a TI Jacinto J7 / TDA4 <abbr title="System on Chip">SoC</abbr> can read.
+
+The hardware then undistorts each fisheye frame for you.
 
 This is a task recipe — no theory. If you want to undistort on the CPU/GPU instead of on the
 SoC, see [Undistort a fisheye image](undistort_images.md).

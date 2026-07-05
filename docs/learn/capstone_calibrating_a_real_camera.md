@@ -5,9 +5,10 @@
 (after the [setup](README.md#setup-once)).
 ///
 
-Everything else in this curriculum is practice for one claim: **give me raw footage of a
-camera looking at a calibration board, and I will recover its lens parameters from scratch
-— and they will agree with the numbers the experts published.**
+Everything else in this curriculum is practice for one claim:
+
+**Give me raw footage of a camera looking at a calibration board, and I will recover its lens
+parameters from scratch — and they will agree with the numbers the experts published.**
 
 No `convert()`, no loading someone's answer. Detect the corners, bundle-adjust the geometry,
 compare to truth.
@@ -153,9 +154,11 @@ reproduces the measurements to a tenth of a pixel.*
   against each other. That's why we judge the camera by reprojection error, not by staring
   at `k4`.
 - **0.080 px median reprojection** is Kalibr-grade. That number is the proof the
-  calibration is real. (We report median + inlier RMS rather than a single RMS: under a
-  robust loss the plain all-corner RMS is inflated by the few outliers the loss correctly
-  *ignored*, so it would understate the fit.)
+  calibration is real.
+
+  We report median + inlier RMS rather than a single RMS. Under a robust loss the plain
+  all-corner RMS is inflated by the few outliers the loss correctly *ignored*, so it would
+  understate the fit.
 
 /// note
 This near-exact agreement is recent: it took **multi-scale detection** to recover the
