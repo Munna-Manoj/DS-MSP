@@ -1,17 +1,16 @@
 cff-version: 1.2.0
-message: "If you use DS-MSP — in particular the DS+ or EUCM+ camera models — please cite it and credit the author."
-title: "DS-MSP: Double Sphere & multi-model spherical-camera platform (incl. the DS+ and EUCM+ camera models)"
+message: "If you use DS-MSP — in particular the DS+ camera model — please cite it and credit the author."
+title: "DS-MSP: Double Sphere & multi-model spherical-camera platform (incl. the DS+ camera model)"
 authors:
   - family-names: "Munna-Manoj"
     alias: "Munna-Manoj"
 repository-code: "https://github.com/Munna-Manoj/DS-MSP"
 url: "https://github.com/Munna-Manoj/DS-MSP"
-license: "MIT AND LicenseRef-PolyForm-Noncommercial-1.0.0"
+license: "MIT"
 keywords:
   - fisheye
   - camera model
   - calibration
   - double sphere
   - DS+
-  - EUCM+
   - computer vision

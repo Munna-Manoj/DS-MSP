@@ -7,10 +7,8 @@ name = "ds_msp"
 version = "0.9.1"
 description = "Double Sphere & multi-model spherical-camera platform: models, calibration, conversion & 3D for wide-FOV lenses"
 readme = "README.md"
-# Dual-licensed: the library is MIT; the DS+ and EUCM+ model implementations
-# (ds_msp/models/{dsplus,eucmplus}*.py) are PolyForm Noncommercial 1.0.0 — see LICENSING.md.
-license = "MIT AND LicenseRef-PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE", "LICENSE-NONCOMMERCIAL.txt"]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Munna-Manoj" }]
 keywords = [

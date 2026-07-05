@@ -1,8 +1,3 @@
-# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
-# Copyright (c) 2025-2026 Munna-Manoj. Robust image-free camera-model conversion
-# (deterministic shape sweep) — part of the DS-MSP robust calibration engine
-# (https://github.com/Munna-Manoj/DS-MSP). NONCOMMERCIAL use only, with attribution —
-# see LICENSE-NONCOMMERCIAL.txt and LICENSING.md. The rest of DS-MSP is MIT.
 """
 Camera model conversion ("adapter").
 
@@ -15,15 +10,15 @@ Global optimum, any scenario
 ----------------------------
 A single linear seed plus one local refine can stall in a poor basin when the
 target's shape parameters are far from their seed (e.g. a strong-``xi`` Double
-Sphere, an EUCM+ whose ``beta`` is far from the linear seed's ``beta=1``, or a
+Sphere, a DS+ whose ``lambda1``/``lambda2`` are far from their neutral seed, or a
 polynomial OCam whose higher coefficients matter). To find the *global* optimum
 regardless of the source, the refine runs as a **multi-start**: the linear seed,
 a **deterministic sweep** that walks each finitely-bounded shape parameter across
 its range, and ``n_restarts`` additional random dispersed seeds — keeping the
 lowest-cost fit. The deterministic sweep makes the result reproducible and removes
-the random-restart lottery that previously let some targets (notably EUCM+) settle
-in a wrong basin and fail even to self-convert. Only the *shape* parameters are
-seeded; the intrinsics (fx, fy, cx, cy) start from their closed-form linear seed.
+the random-restart lottery that previously let some targets settle in a wrong
+basin and fail even to self-convert. Only the *shape* parameters are seeded; the
+intrinsics (fx, fy, cx, cy) start from their closed-form linear seed.
 
 Decoupled by dependency injection: ``convert`` takes the source instance and the
 target *class*, so this module imports no concrete model — only the contract and
@@ -57,7 +52,7 @@ def _shape_seeds(target_cls: Type[CameraModel], base: np.ndarray,
     The deterministic sweep moves *one* finitely-bounded shape parameter at a time to a few
     fractions of its range (others held at the linear seed). This guarantees a shape optimum
     that sits *far* from the linear seed is reached without relying on the luck of the random
-    restarts — e.g. an EUCM+ whose ``beta`` is far from the linear seed's ``beta=1`` would
+    restarts — e.g. a DS+ whose ``lambda1``/``lambda2`` are far from their neutral seed would
     otherwise self-convert into a wrong basin. The random restarts are retained on top for
     joint (multi-parameter) basins; they keep the previous behaviour for ``n_restarts>0``.
     """

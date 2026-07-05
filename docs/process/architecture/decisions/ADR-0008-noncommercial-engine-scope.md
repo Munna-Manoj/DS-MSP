@@ -1,6 +1,6 @@
 # ADR-0008 — Noncommercial license covers the robust calibration/conversion engine, not just the Plus models
 
-- **Status:** Accepted (recorded 2026-06-28)
+- **Status:** Superseded by [ADR-0010](ADR-0010-mit-relicense-and-eucmplus-removal.md)
 - **Deciders:** maintainer
 - **Relates to:** ARC-GEOMETRY, ARC-CALIB, ARC-ADAPT, ARC-MODELS
 - **Supersedes:** —
