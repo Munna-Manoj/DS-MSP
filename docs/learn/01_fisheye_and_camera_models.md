@@ -27,70 +27,94 @@
 
 A **pinhole** camera has one defining property: straight lines in the world stay
 straight in the image. It's the model behind `cv2.solvePnP`, most SfM, and the matrix
-`K` you've seen a hundred times. It works because projection is a clean perspective
-division: `u = fx·X/Z + cx`.
+`K` you've seen a hundred times.
+
+It works because projection is a clean perspective division: `u = fx·X/Z + cx`.
 
 A **fisheye** lens deliberately breaks this to buy field of view — often **> 180°**, more
 than a hemisphere. Run the example and open `results/learn/01_fisheye_raw.png`: the
-ceiling lights bow into arcs. A pinhole model literally *cannot* describe this — and
-worse, `X/Z` blows up as a ray approaches 90° off-axis (`Z → 0`), and goes nonsensical
-beyond it (`Z < 0`, i.e. light from *behind* the pinhole). You need a different model.
+ceiling lights bow into arcs. A pinhole model literally *cannot* describe this.
+
+/// note
+Worse than "can't describe it": `X/Z` blows up as a ray approaches 90° off-axis
+(`Z → 0`), and goes nonsensical beyond it (`Z < 0`, i.e. light from *behind* the
+pinhole). You need a different model.
+///
 
 ## 2. A camera model is a pair of functions
 
 Strip away the mystique. A camera model is just two maps plus a handful of numbers
-(the *intrinsics*):
+(the **intrinsics**):
 
 - **project**: 3D point in the camera frame → 2D pixel. `(X,Y,Z) ↦ (u,v)`
-- **unproject**: 2D pixel → 3D unit ray (bearing). `(u,v) ↦ (x,y,z)`, ‖·‖ = 1
+- **unproject**: 2D pixel → 3D unit ray (<abbr title="A unit-length direction vector — magnitude carries no information, only direction.">bearing</abbr>).
+  `(u,v) ↦ (x,y,z)`, ‖·‖ = 1
 
-That's the entire interface — and in this library it's literally the
-[`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) contract every model implements. The
-*only* thing that differs between pinhole, Double Sphere, Kannala-Brandt, etc. is the
-math inside those two functions. Same interface, swappable internals.
+That's the entire interface. In this library it's literally the
+[`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py)
+contract every model implements. Pinhole, Double Sphere, Kannala-Brandt, and the rest only
+differ in the math inside those two functions — same interface, swappable internals.
 
-In the example:
+[`examples/01_realdata_fisheye_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/01_realdata_fisheye_tumvi.py#L49-L59)
+puts this to work on a real TUM-VI calibration (it needs the dataset from the
+[setup](README.md#setup-once), so this excerpt doesn't run standalone):
+
 ```python
 cam, (W, H) = load_kalibr_with_resolution(CAMCHAIN, cam="cam0")
-rays, ok = cam.unproject(pixels)   # 2D → 3D
-back, ok2 = cam.project(rays)      # 3D → 2D
+rays, ok = cam.unproject(pix)   # 2D pixels -> 3D unit bearing rays
+back, ok2 = cam.project(rays)   # 3D rays   -> 2D pixels again
 ```
 
 ## 3. A calibration is just numbers in a file
 
 We don't calibrate anything in this chapter — we *load* a calibration that the TUM-VI
-dataset authors already computed and published, straight from their Kalibr YAML:
+dataset authors already computed and published, straight from their Kalibr YAML.
+Running the example prints the loaded model:
 
+<!-- termynal -->
 ```
-KannalaBrandtModel(fx=190.978, fy=190.973, cx=254.932, cy=256.897,
-                   k=[0.00348, 0.00072, -0.00205, 0.00020])
+$ python examples/01_realdata_fisheye_tumvi.py
+[1] loaded published TUM-VI cam0 calibration -> kb model (512x512)
+    KannalaBrandtModel(fx=190.978, fy=190.973, cx=254.932, cy=256.897, k=[0.00348, 0.00072, -0.00205, 0.00020])
 ```
 
-Six-plus numbers fully describe this fisheye camera. `fx, fy` are focal lengths in
-pixels, `cx, cy` the optical center, and the `k`'s shape the radial distortion. TUM-VI's
-file says `pinhole + equidistant`, which is the **Kannala-Brandt** model (the same one
-behind OpenCV's `cv2.fisheye`). The library reads it and hands you a working object.
-*(Later chapters swap in the Double Sphere model, which handles >180° more gracefully.)*
+Six-plus numbers fully describe this fisheye camera:
+
+- `fx, fy` — focal lengths, in pixels.
+- `cx, cy` — the optical center.
+- `k` — four coefficients shaping the radial <abbr title="Deviation from an ideal pinhole projection — the reason straight lines bow into arcs near a fisheye lens's edge.">distortion</abbr>.
+
+TUM-VI's file says `pinhole + equidistant`, which is the **Kannala-Brandt** model — the
+same one behind OpenCV's `cv2.fisheye`. The library reads it and hands you a working
+object. *(Later chapters swap in the Double Sphere model, which handles >180° more
+gracefully.)*
 
 ## 4. The non-negotiable habit: verify, don't trust
 
-Here's the mindset that separates 3D-vision work from "it looked fine on my test image."
-project and unproject must be **inverses**: unproject a pixel to a ray, project it back,
-and you must land on the original pixel. The example measures exactly this on a grid of
-1600 real pixels:
+Here's the habit that separates 3D-vision work from "it looked fine on my test image":
+*project* and *unproject* must be **inverses**.
 
+Unproject a pixel to a ray, project it back, and you must land on the original pixel.
+The example measures exactly this on a grid of 1600 real pixels:
+
+<!-- termynal -->
 ```
-project(unproject(x)) round-trip: mean=1.55e-14px  max=9.10e-14px
+$ python examples/01_realdata_fisheye_tumvi.py
+[2] project(unproject(x)) round-trip on 1600 pixels: mean=1.55e-14px  max=9.10e-14px   (≈machine precision)
 ```
 
 `1e-14` is machine precision for `float64` — the functions are inverse to the last bit
 the hardware can represent. If that number were `0.3px` instead, your unprojection has a
-bug, full stop. **Always have a number that proves correctness.** It's how you debug, and
-(later) it's how you earn a reviewer's trust.
+bug, full stop.
 
-> The `ok` masks matter too: not every pixel is valid (some lie outside the lens's image
-> circle), and not every 3D ray is projectable. A correct model tells you *which* —
-> Chapter 3 is entirely about that boundary for >180° lenses.
+**Always have a number that proves correctness.** It's how you debug, and later, it's
+how you earn a reviewer's trust.
+
+/// note
+Not every pixel is valid: some lie outside the lens's image circle, and not every 3D ray
+is projectable. A correct model tells you *which* — via the `ok` masks above. Chapter 3
+is entirely about that validity boundary for >180° lenses.
+///
 
 ## 5. Undistortion: "what would a pinhole have seen?"
 
@@ -103,19 +127,24 @@ lines are now straight.
 *Left: the raw fisheye frame. Right: the rectified pinhole view as the `balance` knob sweeps
 from widest-FOV (more scene, black borders) to tightest-crop. The bent lines straighten out.*
 
-Mechanically (see [`ds_msp/ops/undistort.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/ops/undistort.py#L40-L59)),
-for every output pixel we build a pinhole ray with a fresh `K_new`, **project it through
-the fisheye model** to find where to sample the source image, and resample. The `balance`
-knob trades field-of-view for how much black border you tolerate.
+For every output pixel, [`Undistorter.maps()`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/ops/undistort.py#L99-L104)
+builds a pinhole ray from a fresh `K_new`, then **projects it through the fisheye model**
+to find where to sample the source image.
 
-This is why undistortion can't keep a full >180° FOV: a pinhole image plane is infinite
-at 90°, so the periphery has nowhere to go. Wide-FOV pixels are not lost to a bug — they
-are geometrically un-pinhole-able. (More in Chapter 3.)
+The `balance` knob trades field of view for how much black border you tolerate.
+
+This is why undistortion can't keep a full >180° <abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>:
+a pinhole image plane is infinite at 90°, so the periphery has nowhere to go.
+
+/// tip
+Wide-FOV pixels aren't lost to a bug — they're geometrically un-pinhole-able. A rectified
+frame can never keep more than a hemisphere; Chapter 3 measures exactly how much is lost.
+///
 
 ## Try it yourself
 1. Re-run with `balance=1.0` in the script — predict whether the rectified image gets
    *more* or *less* black border before you look.
-2. Load `cam="cam1"` (the other stereo camera) and confirm its intrinsics differ slightly.
+2. Load `cam="cam1"` (the other stereo camera) and confirm its *intrinsics* differ slightly.
 3. Widen the verification grid toward the image edge (`np.linspace(2, W-2, …)`) and watch
    how many pixels fall *outside* the valid mask.
 

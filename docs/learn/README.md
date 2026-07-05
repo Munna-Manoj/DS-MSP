@@ -1,11 +1,14 @@
 # Learn: fisheye & omnidirectional camera geometry, from first principles
 
-A guided, **runnable** path through wide-FOV camera models — the geometry behind
-SLAM, AR, and robot perception. Every chapter pairs a short explainer with a script
-that runs on **real public data** and prints a **number you can verify**. That last
-part is the whole point: in 3D vision you don't *hope* your math is right, you
-*measure* that it is (a good unprojection inverts projection to ~1e-14 px, not "looks
-about right").
+A guided, **runnable** path through wide-<abbr title="Field of View">FOV</abbr> camera
+models — the geometry behind <abbr title="Simultaneous Localization And Mapping">SLAM</abbr>,
+AR, and robot perception. Every chapter pairs a short explainer with a script that runs on
+**real public data** and prints a **number you can verify**.
+
+/// tip | The house rule
+In 3D vision you don't *hope* your math is right — you *measure* that it is. A good
+unprojection inverts projection to ~1e-14 px, not "looks about right."
+///
 
 ![Calibration reprojection on real TUM-VI data](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/calibration_reprojection.gif)
 
@@ -13,11 +16,15 @@ about right").
 fisheye from scratch until the model (red) predicts every detected corner (green) to a tenth
 of a pixel, matching the published reference.*
 
-This is the teaching layer. The library it teaches (`ds_msp/`) stays deliberately
-clean and untouched by tutorial clutter — read the docs to learn, read the code to
-see how it's done in production. Looking for the "why" behind a proof or a derivation
-instead of a hands-on walkthrough? That lives in [**Explanation**](../explain/README.md),
-kept deliberately separate so this track stays runnable end to end.
+This is the **teaching layer**. The library it teaches (`ds_msp/`) stays deliberately clean
+and untouched by tutorial clutter:
+
+- Read the docs to learn.
+- Read the code to see how it's done in production.
+
+Looking for the "why" behind a proof or a derivation, not a hands-on walkthrough? That lives
+in [**Explanation**](../explain/README.md) — kept separate so this track stays runnable
+end to end.
 
 ## Who this is for
 Aspiring 3D-vision researchers, applied-perception engineers, and developers who know
@@ -38,13 +45,18 @@ See [`datasets/README.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/datas
 
 ## The path
 
-The track has two arcs. **Part I — Calibration** takes one camera from "what is a fisheye"
-to a published-grade calibration you reproduce yourself, then a set of companion chapters
-that go deeper on specific pieces of that pipeline. **Part II — Geometry & 3D** takes that
-calibrated camera *out into the world*: two-view pose, manifold optimization, and stereo
-depth — the geometry behind SLAM and SfM. Part II's **library is shipped and tested**
-(`ds_msp/mvg/`, `ds_msp/core/`, `ds_msp/stereo/`); its chapters and runnable examples are
-landing now (see [ROADMAP](../ROADMAP.md)).
+The track has two arcs:
+
+- **Part I — Calibration** takes one camera from "what is a fisheye" to a published-grade
+  calibration you reproduce yourself, then a set of companion chapters that go deeper on
+  specific pieces of that pipeline.
+- **Part II — Geometry & 3D** takes that calibrated camera *out into the world*: two-view
+  pose, manifold optimization, and stereo depth — the geometry behind SLAM and
+  <abbr title="Structure from Motion">SfM</abbr>.
+
+Part II's **library is shipped and tested** (`ds_msp/mvg/`, `ds_msp/core/`,
+`ds_msp/stereo/`). Its chapters and runnable examples are landing now — see the
+[ROADMAP](../ROADMAP.md).
 
 ```mermaid
 graph LR
@@ -66,9 +78,10 @@ graph LR
     CAP ==> B8
 ```
 
-*Part I solid = runnable today (do Ch.1 → Ch.2 → capstone → companions); dotted = theory
-chapters landing incrementally. Part II Ch.8 is runnable today; Ch.9–12 land incrementally
-on top of the shipped, tested library.*
+- **Solid arrows** = runnable today: Ch.1 → Ch.2 → capstone → companions.
+- **Dotted arrows** = theory chapters landing incrementally.
+- Part II Ch.8 is runnable today; Ch.9–12 land incrementally on top of the shipped, tested
+  library.
 
 ### Part I — Calibration
 
@@ -83,17 +96,22 @@ on top of the shipped, tested library.*
 | 7 | Reproducing a published calibration *(coming soon)* | match TUM-VI / EuRoC reference numbers with your own code | `ds_msp/io/kalibr.py` |
 
 ### 🏆 The capstone (runnable now)
+
 **[Calibrate a real fisheye camera and match the published numbers](capstone_calibrating_a_real_camera.md)**
-— detect AprilGrid corners in TUM-VI's raw footage, bundle-adjust the intrinsics from
-scratch, and land on the calibration the dataset authors published to **~0.02%** focal
-(0.080 px median reprojection). This is the artifact the chapters build toward; you can run
-it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
+is the artifact every chapter builds toward.
+
+Detect **AprilGrid** corners in TUM-VI's raw footage, bundle-adjust the intrinsics from
+scratch, and land on the calibration the dataset authors published — to **~0.02%** focal
+(0.080 px median reprojection).
+
+You can run it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
 
 ### Capstone companions — go deeper on one piece of the pipeline
 
-Each of these takes a specific step inside the capstone and puts it under a microscope: same
-TUM-VI data, a runnable script, and a number you verify. Read them after the capstone, in any
-order — they don't depend on each other.
+Each of these takes a specific step inside the capstone and puts it under a microscope —
+same TUM-VI data, a runnable script, and a number you verify.
+
+Read them after the capstone, in any order. They don't depend on each other.
 
 | Chapter | You'll be able to… | Code anchor |
 |---------|--------------------|--------------|
@@ -106,9 +124,11 @@ Chapters land incrementally — see [`../ROADMAP.md`](../ROADMAP.md) for the bui
 
 ### Part II — Geometry & 3D *(library shipped & tested; chapters + examples landing)*
 
-A fisheye measures **rays**, so this whole arc is built on `project` / `unproject` — epipolar
-lines become curves, disparity becomes angular, and the essential matrix still holds on unit
-bearing vectors.
+A fisheye measures **rays**, so this whole arc is built on `project` / `unproject`:
+
+- Epipolar lines become curves.
+- Disparity becomes angular.
+- The essential matrix still holds — on unit bearing vectors.
 
 | # | Chapter | You'll be able to… | Code anchor (shipped) |
 |---|---------|--------------------|-----------------------|
@@ -124,12 +144,22 @@ the numerical-stability notes — lives in Explanation:
 
 ## Looking for the "why", not the "how"?
 
-Some questions in this space aren't a hands-on skill so much as a conceptual puzzle worth
-settling once, in depth — "are two calibrations of the same lens really the same camera?",
-"which model should I pick?". Those live in [**Explanation**](../explain/README.md) so this
-tutorial track stays focused on runnable, hands-on chapters.
+Some questions in this space aren't a hands-on skill — they're a conceptual puzzle worth
+settling once, in depth:
+
+- "Are two calibrations of the same lens really the same camera?"
+- "Which model should I pick?"
+
+Those live in [**Explanation**](../explain/README.md), so this tutorial track stays focused
+on runnable, hands-on chapters.
 
 ## How to use it
-Read the chapter, run its script, then **change one thing and predict what happens**
-before you re-run (a different `balance`, a wider pixel grid, `cam1` instead of `cam0`).
+
+Read the chapter, run its script, then **change one thing and predict what happens** before
+you re-run. Try:
+
+- A different `balance`.
+- A wider pixel grid.
+- `cam1` instead of `cam0`.
+
 The fastest way to learn geometry is to break it on purpose and watch the number move.
