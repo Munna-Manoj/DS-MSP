@@ -61,6 +61,7 @@ jobs:
           cp -r site/. _site/
           mkdir -p _site/studio
           cp -r web/dist/. _site/studio/
+          touch _site/.nojekyll
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
