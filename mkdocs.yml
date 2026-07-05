@@ -21,27 +21,42 @@ theme:
   features:
     - navigation.sections
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.indexes
     - navigation.top
+    - navigation.path
+    - navigation.footer
+    - navigation.tracking
     - content.code.copy
     - content.code.annotate
+    - content.tabs.link
+    - content.footnote.tooltips
+    - content.tooltips
     - search.highlight
     - search.suggest
+    - search.share
+    - toc.follow
+  # Typer's exact palette (github.com/fastapi/typer): black primary, teal accent, an
+  # auto-detect variant first so the toggle cycles auto -> light -> dark -> auto.
   palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/lightbulb-auto
+        name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: black
+      accent: teal
       toggle:
-        icon: material/weather-night
+        icon: material/lightbulb
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: black
+      accent: teal
       toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
+        icon: material/lightbulb-outline
+        name: Switch to system preference
 
 plugins:
   - search
@@ -50,6 +65,9 @@ plugins:
       zoomable: true
       draggable: true
       auto_caption: true
+  - termynal:
+      prompt_literal_start:
+        - "$"
   - mkdocstrings:
       handlers:
         python:
@@ -71,15 +89,32 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
+  # Legacy admonition/tabbed syntax (!!! note, === "Tab") kept active alongside the
+  # Typer-style pymdownx.blocks.* syntax (/// tip, /// tab) below during the content
+  # migration -- both syntaxes coexist without conflict. Drop the legacy two once every
+  # page has migrated (tracked in the docs restyle plan).
   - pymdownx.tabbed:
       alternate_style: true
   - admonition
   - pymdownx.details
+  # Typer's terse "/// tip ... ///" block syntax for admonitions and tabs.
+  - pymdownx.blocks.admonition
+  - pymdownx.blocks.details
+  - pymdownx.blocks.tab:
+      alternate_style: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.keys
   - attr_list
   - md_in_html
   - tables
+  - abbr
+  - footnotes
   - toc:
       permalink: true
+  # Typer's real-file macro-inclusion mechanism: {* docs_src/path/to/file.py hl[1,2] *}
+  - mdx_include
+  - markdown_include_variants
 
 extra_css:
   - stylesheets/extra.css

@@ -1,18 +1,45 @@
 /* ============================================================================
-   DS-MSP living-book design system — "clean technical" (FastAPI/Stripe feel).
-   Built on Material's CSS variables so it adapts to light/dark automatically.
+   DS-MSP living-book design system — matches Typer/FastAPI's (fastapi/typer)
+   documentation format: black/teal Material palette, Fira Code, terse
+   admonitions. Built on Material's CSS variables so it adapts to light/dark
+   automatically, and derives from the theme's own accent (teal) rather than
+   a hardcoded hex so it always tracks mkdocs.yml's palette.
    ========================================================================== */
 
+/* Fira Code for code, Noto Color Emoji so emoji render consistently across
+   platforms -- the exact font stack Typer's own docs use. */
+@import url(https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/fira_code.css);
+@import url(https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap);
+
 :root {
-  --ds-accent: #5b6cff;          /* primary accent */
-  --ds-accent-soft: #eef0ff;     /* accent tint (light) */
+  --md-code-font: "Fira Code", monospace, "Noto Color Emoji";
+  --md-text-font: "Roboto", "Noto Color Emoji";
+  --ds-accent: var(--md-accent-fg-color);
+  --ds-accent-soft: color-mix(in srgb, var(--md-accent-fg-color) 12%, transparent);
   --ds-radius: 12px;
   --ds-border: var(--md-default-fg-color--lightest);
 }
 [data-md-color-scheme="slate"] {
-  --ds-accent: #8a97ff;
-  --ds-accent-soft: rgba(138, 151, 255, 0.12);
   --ds-border: rgba(255, 255, 255, 0.12);
+}
+
+/* External links get a small arrow icon so a reader knows before clicking
+   whether they're leaving the site -- Typer's own convention. */
+.md-typeset a[href^="http"]:not([href*="munna-manoj.github.io"]):not(.md-nav__link)::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.2em;
+  vertical-align: middle;
+  opacity: 0.55;
+  background: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cline x1='10' y1='14' x2='21' y2='3'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cline x1='10' y1='14' x2='21' y2='3'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 /* --- Readable measure & rhythm ------------------------------------------- */

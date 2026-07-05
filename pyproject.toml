@@ -52,7 +52,8 @@ calib = ["aprilgrid"]
 webviewer = []
 # Building the published MkDocs Material site (mkdocs.yml) -- not needed to use the library,
 # only to build/preview the docs locally (`pip install -e ".[docs]"`, then `mkdocs serve`).
-docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions", "mkdocs-glightbox"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions", "mkdocs-glightbox",
+        "mdx-include", "markdown-include-variants", "termynal"]
 
 # `ds-msp-calibrate-rig`/`ds-msp-calibrate` are real console commands right after
 # `pip install ds-msp` -- no repo clone needed. Their logic lives in ds_msp.rig.cli /
