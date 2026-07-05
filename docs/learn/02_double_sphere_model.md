@@ -7,9 +7,9 @@ In [Chapter 1](01_fisheye_and_camera_models.md) a camera model was a black box: 
 `project`/`unproject` pair that happened to be inverses. This chapter opens one specific
 box — **Double Sphere** (Usenko, Demmel & Cremers, 3DV 2018) — and shows that its math is
 short, geometric, and exactly invertible. By the end you'll read
-[`ds_msp/models/ds_math.py`](../../ds_msp/models/ds_math.py) and recognize every line.
+[`ds_msp/models/ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py) and recognize every line.
 
-![A 3D point projected through both spheres to a fisheye pixel](../../assets/learn/double_sphere_pipeline.gif)
+![A 3D point projected through both spheres to a fisheye pixel](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_pipeline.gif)
 
 *The whole idea in one picture: follow the bright point as it travels **3D point → sphere 1 →
 sphere 2 → α-centre**, while a colourful world of directions fills in the image. The same
@@ -21,11 +21,28 @@ normal camera cannot capture.*
 The model is radially symmetric, so a 2-D cross-section is the complete picture — the same
 construction with both image planes labelled:
 
-![Double Sphere 2D cross-section — ray to sphere 1, shift to sphere 2, projection onto the z=1 plane and the inverted physical sensor](../../assets/learn/double_sphere_2d.gif)
+![Double Sphere 2D cross-section — ray to sphere 1, shift to sphere 2, projection onto the z=1 plane and the inverted physical sensor](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_2d.gif)
 
 *The two spheres sit between the 3-D world (right) and the sensor (left, behind the α-centre),
 matching the paper's figure; the z = 1 plane in front carries the equivalent upright image. The
 sections below dissect each step.*
+
+**You'll learn**
+- Derive Double Sphere's projection as two sequential unit-sphere projections — shifted by
+  `ξ` and blended by `α` — and read it directly in
+  [`ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L20-L51).
+- Why Double Sphere unprojects in **closed form** (one square root, no iteration), unlike
+  Kannala-Brandt's polynomial, which needs Newton's method.
+- Verify projection and its closed-form inverse are exact to machine precision
+  (round-trip mean 2.17e-14 px, max 1.17e-13 px over 1600 real pixels).
+- Use [`convert()`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/adapt/convert.py#L96-L182) to re-express TUM-VI's published
+  Kannala-Brandt calibration as Double Sphere, matching it to **0.025 px** max reprojection
+  error over 179.8° of field of view.
+
+**Prerequisites**
+- Finish [Chapter 1](01_fisheye_and_camera_models.md) — this chapter assumes `project`/
+  `unproject` and the `CameraModel` contract are already familiar.
+- Same [setup](README.md#setup-once) as Chapter 1; no new installs.
 
 ## 1. Why another model after Kannala-Brandt?
 
@@ -63,7 +80,7 @@ So Double Sphere = pinhole + two shape knobs: **`ξ` (sphere spacing)** and **`�
 center you project from)**. Everything else (`fx, fy, cx, cy`) is the ordinary intrinsic
 matrix you already know.
 
-![The Double Sphere two-sphere projection](../../assets/learn/double_sphere_projection.gif)
+![The Double Sphere two-sphere projection](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/double_sphere_projection.gif)
 
 *The construction in cross-section (the model is radially symmetric, so this slice is the
 whole story): an incoming ray (green) lands on the **first** unit sphere, is **shifted by `ξ`**
@@ -75,7 +92,7 @@ from the exact `ds_project` geometry — every point matches the library to ~1e-
 ## 3. Read the projection in code
 
 Here is the entire forward map from
-[`ds_math.py`](../../ds_msp/models/ds_math.py) — six lines of real arithmetic:
+[`ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L26-L49) — six lines of real arithmetic:
 
 ```python
 d1  = np.sqrt(x*x + y*y + z*z)          # distance to sphere 1  (normalize the ray)
@@ -104,7 +121,7 @@ That's the whole model. Two extra scalars on top of a pinhole.
 The reason Double Sphere unprojects without iteration: the forward map is a composition of
 a normalization and a *quadratic* perspective step, and a quadratic can be solved with a
 square root rather than Newton's method. You can see the solved result directly in
-[`ds_unproject`](../../ds_msp/models/ds_math.py):
+[`ds_unproject`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L139-L155):
 
 ```python
 mx = (u - cx) / fx;  my = (v - cy) / fy;  r2 = mx*mx + my*my
@@ -129,7 +146,7 @@ A model that inverts cleanly is useless if it can't actually fit real glass. So:
 authors calibrated their fisheye and published it as a Kannala-Brandt model. Can a Double
 Sphere model describe the **same** camera?
 
-The example re-expresses it with the library's own [`convert()`](../../ds_msp/adapt/convert.py)
+The example re-expresses it with the library's own [`convert()`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/adapt/convert.py#L96-L182)
 (sample pixels → unproject through the reference → seed → Levenberg-Marquardt refine with
 the model's *analytic* Jacobian), then measures agreement over the whole frame:
 
@@ -145,7 +162,7 @@ Evaluated over 1879 rays spanning 179.8 deg of field of view:
 power to capture this lens to a fortieth of a pixel. (Notice `fx` changed from 191 to 240:
 focal length is *model-relative* — the same lens has a different `fx` under KB vs DS because
 the denominators differ. The true paraxial focal is `fx_DS/(1+ξ)`; a whole deep-dive proves
-this — **[are two models the same camera?](are_two_models_the_same_camera.md)**. What's
+this — **[are two models the same camera?](../explain/are_two_models_the_same_camera.md)**. What's
 invariant is where rays land, not the raw numbers.)
 
 > **This is model *conversion*, not calibration.** We re-expressed one set of published

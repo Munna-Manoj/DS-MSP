@@ -22,7 +22,7 @@ within ~0.2%**. The whole method rests on one cancellation, which §2 shows you.
 - The mental model: why two synced cameras watching the *same* board hand you their relative
   pose for free, even though the board is moving and its pose is unknown.
 - How to turn per-frame board poses into a single rig transform with
-  [`estimate_relative_pose`](../../ds_msp/calib/stereo.py).
+  [`estimate_relative_pose`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/stereo.py#L29-L78).
 - How to score the result against a published reference with `relative_pose_error`, and what
   "rotation is scale-free, translation is not" means in practice.
 
@@ -39,7 +39,7 @@ within ~0.2%**. The whole method rests on one cancellation, which §2 shows you.
 > **Scope.** This is the *calibration* `estimate_relative_pose` — it averages per-frame board
 > poses into a rig transform. There is a second function with the same name in `ds_msp.mvg`
 > that recovers pose from raw feature matches (the essential matrix on bearing vectors); that
-> is [Chapter 8](README.md#part-ii--geometry--3d)'s topic. This chapter anchors only to
+> is [Chapter 8](README.md#part-ii-geometry-3d-library-shipped-tested-chapters-examples-landing)'s topic. This chapter anchors only to
 > `ds_msp.calib`.
 
 ## 1. The minimal working example
@@ -111,7 +111,7 @@ Every frame gives one estimate of `T_cam1_cam0`. With 55 frames you get 55 estim
 same fixed quantity — so you **average** them, and the spread across frames tells you how much
 to trust the result. That averaging is the next step.
 
-![AprilGrid board sweeping through diverse poses while the two camera frusta and the T_cam1_cam0 rig arrow stay fixed (top-down view).](../../assets/learn/stereo_extrinsics_invariance.gif)
+![AprilGrid board sweeping through diverse poses while the two camera frusta and the T_cam1_cam0 rig arrow stay fixed (top-down view).](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/stereo_extrinsics_invariance.gif)
 *Two cameras (blue = cam0, orange = cam1) are bolted in place. An AprilGrid board moves to ten
 different positions and orientations across the loop. Each frame independently recovers
 `T_cam1_cam0 = T_cam1_board ∘ (T_cam0_board)⁻¹` via `estimate_relative_pose`; the rig arrow
@@ -254,7 +254,7 @@ The critical scale subtlety — the one thing readers get wrong — is this:
 | **Rotation (0.062°)** | Comes from *directions* only; never needs metric size. | Unconditional. It would hold even if you'd guessed the tag size wrong by 10%. |
 | **Translation (0.25 mm / ~0.2%)** | Carries the scale you assumed (`tag_size=0.088`). Get that wrong by 1% and every distance scales by 1%. | Proof that 88 mm is the right tag size *and* a proxy for overall measurement fidelity. |
 
-This is why the example phrases the result as "rotation to a fifth of a degree, baseline to ~1%": the two numbers are trustworthy for *different* reasons and speak to different kinds of error.
+This is why the example phrases the result as "rotation to a sixteenth of a degree, baseline to ~0.2%": the two numbers are trustworthy for *different* reasons and speak to different kinds of error.
 
 ## Recap
 
@@ -293,11 +293,11 @@ Deepen your understanding by modifying the code. Each of the following exercises
 - **Use the extrinsic for depth.** With `T_cam1_cam0` in hand, the two cameras define their
   epipolar geometry — the constraint that fixes where a point in one image can land in the
   other. That constraint is the basis for stereo depth. See **Part II → [Sphere-sweep stereo
-  depth](README.md#part-ii--geometry--3d)**, which gets dense depth straight on raw fisheye.
+  depth](README.md#part-ii-geometry-3d-library-shipped-tested-chapters-examples-landing)**, which gets dense depth straight on raw fisheye.
 - **Recover pose without a board.** This chapter leaned on a known calibration target. The
   `ds_msp.mvg` two-view geometry recovers relative pose from *feature matches alone* — the
-  essential matrix on bearing vectors. See **Part II → [Two-view geometry on
-  rays](README.md#part-ii--geometry--3d)**.
+  essential matrix on bearing vectors. See **[Chapter 8 — Two-view geometry on
+  rays](08_two_view_geometry_on_rays.md)**.
 - **Reference:** the two functions used here live in
-  [`ds_msp/calib/stereo.py`](../../ds_msp/calib/stereo.py); the camchain I/O in
-  [`ds_msp/io/kalibr.py`](../../ds_msp/io/kalibr.py).
+  [`ds_msp/calib/stereo.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/stereo.py); the camchain I/O in
+  [`ds_msp/io/kalibr.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/io/kalibr.py).

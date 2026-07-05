@@ -140,14 +140,31 @@ def _reproj_errors(model, poses, X_world_list, keypoints_list, masks) -> np.ndar
     return np.concatenate(errs) if errs else np.empty(0)
 
 
-def _shape_seeds(cls, base: np.ndarray, n_restarts: int, seed: int):
+def _shape_seeds(cls, base: np.ndarray, n_restarts: int, seed: int, *, force: bool = True):
     """Multi-start seeds: the base intrinsics with the **shape** parameters (index ≥ 4 by the
     ``[fx, fy, cx, cy, …]`` convention) dispersed across their bounds. Focal/principal point are
     held at the base seed (they are well-constrained by the data); the shape parameters own the
-    basins a single local refine can fall into (the DS ``ξ`` fold, EUCM ``α→1``, etc.)."""
+    basins a single local refine can fall into (the DS ``ξ`` fold, EUCM ``α→1``, and — corrected
+    2026-07-02 — a *plain distortion tail on under-constrained data too*).
+
+    History (why this always disperses, no model-class shortcut): an earlier version of this
+    function skipped dispersion for models with no *documented* degenerate basin (RadTan/KB/
+    OCam — measured "identical median/RMS" on a well-conditioned real 2-camera / 99-frame
+    dataset). At scale on less-constrained data (100 synthetic cameras, ~20 frames/camera) that
+    turned out to be **wrong**: forcing the single base seed left 56/100 RadTan cameras with
+    roughly double the reprojection error and zero improved — not a degenerate-basin collapse,
+    just an ordinary local optimum a single local refine can land in when the data is thinner.
+    Restoring full multi-start for every model (verified: matches the true pre-change baseline
+    exactly, mean/median/max all within 1e-4px, 0/100 cameras degraded) fixed it.
+    ``force`` is kept (default ``True``) as the call-site-level override this history earned;
+    a future, *data-conditioned* (not model-class-conditioned) skip would need the same rigor
+    (true-baseline comparison at realistic scale, not just a small/well-conditioned case) before
+    shipping."""
     lb, ub = cls.param_bounds()
     seeds = [base.copy()]
     if n_restarts <= 0 or len(base) <= 4:
+        return seeds
+    if not force:
         return seeds
     rng = np.random.default_rng(seed)
     for _ in range(n_restarts):
@@ -180,7 +197,7 @@ def calibrate(init_model: CameraModel,
               *, max_nfev: int = 200, verbose: int = 0,
               robust: str = "cauchy", robust_scale: "float | str" = "auto",
               gnc: bool = False, multi_start: bool = True, n_restarts: int = 4,
-              seed: int = 0,
+              seed: int = 0, force_multistart: bool = True,
               loss: str | None = None, f_scale: float | None = None) -> Dict:
     """Calibrate any model from checkerboard correspondences — robust by default.
 
@@ -205,18 +222,33 @@ def calibrate(init_model: CameraModel,
         the one with the lowest robust (median) reprojection, then refine it fully. This is what
         makes a *poor* ``init_model`` (only the type + a rough focal) converge — it rescues
         wrong-basin shape seeds (the DS ``ξ`` fold, etc.) and is a no-op when the base seed is
-        already good. Determinism is preserved via ``seed``.
+        already good. Determinism is preserved via ``seed``. Applies to **every** model,
+        including RadTan/KB/OCam: an earlier version of this code skipped dispersion for models
+        with no *documented* degenerate basin on the theory that a plain distortion tail is
+        well-conditioned — true on rich, real data, measurably **false** at scale on thinner
+        synthetic data (56/100 RadTan cameras with ~2x the reprojection error in one real test —
+        see :func:`_shape_seeds`'s docstring). Set ``multi_start=False`` only when you have
+        independently verified it is safe for your data, not by model class alone.
     n_restarts : int
         Number of dispersed shape seeds for ``multi_start`` (default 4).
+    force_multistart : bool
+        Kept for API stability (default ``True``, matching the always-disperse default above);
+        see :func:`_shape_seeds`.
+    loss : str, optional
+        SciPy-style loss name (``"linear"``, ``"huber"``, ``"soft_l1"``, ``"cauchy"``) for
+        backward compatibility. Passing this (with or without ``f_scale``) reproduces the
+        pre-robust-default behaviour: fixed scale, GNC off.
+    f_scale : float, optional
+        Fixed inlier scale (px) for the legacy ``loss``-based path, in place of the modern
+        ``robust``/``robust_scale`` auto-scaling.
 
-    Backward compatibility: passing the SciPy-style ``loss`` (``"linear"``/``"huber"``/
-    ``"soft_l1"``/``"cauchy"``) and/or ``f_scale`` reproduces the pre-robust-default
-    behaviour (fixed scale, GNC off) so existing callers stay stable.
-
-    Returns a dict with the refined ``model``, per-image ``poses`` as ``(rvec, tvec)``,
-    ``success``, ``n_obs``, and reprojection statistics over valid observations:
-    ``rms_px``, ``mean_px``, ``median_px``, ``p95_px``, ``max_px`` (all in pixels and
-    independent of the kernel, so they stay comparable across configurations).
+    Returns
+    -------
+    dict
+        The refined ``model``, per-image ``poses`` as ``(rvec, tvec)``, ``success``, ``n_obs``,
+        and reprojection statistics over valid observations — ``rms_px``, ``mean_px``,
+        ``median_px``, ``p95_px``, ``max_px`` (all in pixels, independent of the robust kernel
+        so they stay comparable across configurations).
     """
     # Back-compat: an explicit loss/f_scale pins the legacy fixed-scale, no-GNC path.
     legacy = loss is not None or f_scale is not None
@@ -245,7 +277,8 @@ def calibrate(init_model: CameraModel,
     # (a short BA each), score by the *robust* (median) reprojection so a wrong shape basin is
     # rejected, then run the full refine from the winning seed. With a single seed this reduces
     # to one full fit, so non-multistart behaviour is unchanged.
-    seeds = _shape_seeds(cls, init_model.params, n_restarts, seed) if multi_start else [
+    seeds = _shape_seeds(cls, init_model.params, n_restarts, seed,
+                         force=force_multistart) if multi_start else [
         np.asarray(init_model.params, float)]
     if len(seeds) > 1:
         screen_iter = max(15, max_nfev // 5)

@@ -7,9 +7,10 @@ ARC-DETECT,detect,ds_msp/detect,OpenCV detection adapters (ChArUco / AprilGrid) 
 ARC-IO,io,ds_msp/io,Interop read/write (Kalibr / COLMAP / nerfstudio / MC-Calib),ARC-CORE;ARC-DATA;ARC-MODELS
 ARC-OPS,ops,ds_msp/ops,Model-agnostic services: undistort, multi-chart reproject, PnP,ARC-CORE;ARC-MODELS
 ARC-ADAPT,adapt,ds_msp/adapt,Model conversion and automatic model selection,ARC-CORE;ARC-MODELS
-ARC-CALIB,calib,ds_msp/calib,Single-camera intrinsic + stereo extrinsic calibration,ARC-CORE;ARC-DATA;ARC-GEOMETRY;ARC-DETECT
+ARC-CALIB,calib,ds_msp/calib,Single-camera intrinsic + stereo extrinsic calibration,ARC-CORE;ARC-DATA;ARC-GEOMETRY;ARC-DETECT;ARC-MODELS
 ARC-MVG,mvg,ds_msp/mvg,Two-view geometry on bearing vectors,ARC-CORE
 ARC-STEREO,stereo,ds_msp/stereo,Wide-FOV stereo depth and rectification,ARC-CORE;ARC-MODELS
-ARC-RIG,rig,ds_msp/rig,Multi-camera rig calibration pipeline (composes calib + geometry),ARC-CORE;ARC-DATA;ARC-GEOMETRY;ARC-DETECT;ARC-CALIB
+ARC-RIG,rig,ds_msp/rig,Multi-camera rig calibration pipeline (composes calib + geometry),ARC-CORE;ARC-DATA;ARC-GEOMETRY;ARC-DETECT;ARC-CALIB;ARC-MODELS
 ARC-VO,vo,ds_msp/vo,Monocular visual odometry pipeline (composes mvg),ARC-CORE;ARC-MVG
 ARC-INTEROP,interop,ds_msp/cv.py;ds_msp/ldc.py,OpenCV-compatible API and TI Jacinto LDC export,ARC-CORE;ARC-MODELS
+ARC-DOCS,docs,docs;mkdocs.yml,Published MkDocs Material documentation site (tutorials/how-to/reference/explanation) built and link-checked in CI,(none)

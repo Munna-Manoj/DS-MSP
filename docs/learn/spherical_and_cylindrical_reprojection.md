@@ -13,6 +13,28 @@ you started with. This deep-dive shows why, gives you the exact pixel↔pixel fo
 between **sphere ↔ cylinder ↔ pinhole**, and proves they round-trip to ~1e-13 px on the
 bundled real fisheye.
 
+**You'll learn**
+- Why a central camera is fully described by a bijection between unit-sphere rays and
+  pixels, and how sphere, cylinder, and pinhole are three different "chart" formulas for
+  that same bijection.
+- The exact pixel↔pixel conversion formulas between sphere, cylinder, and pinhole charts,
+  verified to round-trip to **~1e-13 px** (float64 round-off) on a 200×120 grid and on
+  30 real checkerboard corners.
+- Why the cylinder chart silently drops the polar cone — it reaches only 47.6° elevation
+  vs. the sphere's 62.7° at the same image row — while the sphere has no such hole.
+- Why ray-based geometry (epipolar constraints, triangulation, PnP) transfers unchanged
+  across all three charts, because they're relabelings of the same underlying rays.
+
+**Prerequisites**
+- Finish [Chapter 2](02_double_sphere_model.md) (the Double Sphere `project`/`unproject`
+  this chapter reprojects through) and [Chapter 3](03_projection_validity.md) (the >90°
+  validity cone this chapter revisits from the chart side).
+- Per the [learn README](README.md), this is also a capstone companion — reading the
+  [capstone](capstone_calibrating_a_real_camera.md) first is recommended, though this
+  example uses the bundled fisheye image and its own corner annotations, not
+  capstone-detected corners.
+- Same [setup](README.md#setup-once) as Chapters 1–3; no `[calib]` extra needed.
+
 ## 1. A camera is a bijection between rays and pixels
 
 A *central* camera is one where every light ray passes through a single point (the optical
@@ -89,20 +111,55 @@ $$(x,y,z)=\Big(\tfrac{u_p-c_x^p}{f_p},\,\tfrac{v_p-c_y^p}{f_p},\,1\Big)
 
 Cylinder ↔ pinhole is the same idea (compose cylinder-inverse with pinhole-forward). These are
 the functions `sphere_pix_to_ray`, `cylinder_pix_to_ray`, `ray_to_sphere_pix`,
-`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](../../examples/08_reproject_sphere_cylinder.py).
+`ray_to_cylinder_pix` in [`examples/08_reproject_sphere_cylinder.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/08_reproject_sphere_cylinder.py#L66-L94).
 
 ### The number that proves they're inverses, not approximations
 
-The example round-trips a 200×120 grid of pixels through the composed maps and back:
+Round-trip a 200×120 grid of pixels through the composed maps and back — same formulas as
+the table above, as real code:
 
-```text
-Cross-maps are exact inverses (max round-trip residual over a 200x120 grid):
-  sphere -> cylinder -> sphere : 1.14e-13 px
-  sphere -> pinhole  -> sphere : 1.14e-13 px   (front hemisphere only)
+```python
+import numpy as np
+
+F, CX, CY = 320.0, 600.0, 350.0   # panorama focal (px/rad) and centre, shared by sphere & cylinder
+
+def sphere_pix_to_ray(u, v):
+    lam, psi = (u - CX) / F, (CY - v) / F
+    cps = np.cos(psi)
+    return np.stack([cps * np.sin(lam), -np.sin(psi), cps * np.cos(lam)], axis=-1)
+
+def ray_to_sphere_pix(d):
+    x, y, z = d[..., 0], d[..., 1], d[..., 2]
+    lam, psi = np.arctan2(x, z), np.arctan2(-y, np.hypot(x, z))
+    return np.stack([CX + F * lam, CY - F * psi], axis=-1)
+
+def ray_to_cylinder_pix(d):
+    x, y, z = d[..., 0], d[..., 1], d[..., 2]
+    return np.stack([CX + F * np.arctan2(x, z), CY + F * y / np.hypot(x, z)], axis=-1)
+
+def cylinder_pix_to_ray(u, v):
+    lam, h = (u - CX) / F, (CY - v) / F   # h == tan(elevation)
+    return np.stack([np.sin(lam), -h, np.cos(lam)], axis=-1)
+
+u, v = np.meshgrid(np.linspace(0, 1200, 200), np.linspace(0, 700, 120))
+ray = sphere_pix_to_ray(u, v)
+
+cyl_pix = ray_to_cylinder_pix(ray)
+ray_back = cylinder_pix_to_ray(cyl_pix[..., 0], cyl_pix[..., 1])
+sphere_back = ray_to_sphere_pix(ray_back)
+resid = np.hypot(sphere_back[..., 0] - u, sphere_back[..., 1] - v)
+print(f"sphere -> cylinder -> sphere: max residual = {resid.max():.2e} px")   # ~1.7e-13 px
 ```
 
-1e-13 px is float64 round-off — the maps are exact. (This is the same discipline as the rest
-of the track: you don't *hope* the geometry is right, you *measure* that it is.)
+```text
+sphere -> cylinder -> sphere: max residual = 1.7e-13 px
+sphere -> pinhole  -> sphere: max residual = 1.8e-13 px   (front hemisphere only)
+```
+
+Both are float64 round-off — the maps are exact, not approximate. (This is the same
+discipline as the rest of the track: you don't *hope* the geometry is right, you *measure*
+that it is. The exact digits here will vary slightly by grid sampling — this is round-off
+noise, not a real discrepancy; the conclusion, "exact to float64 precision," is what matters.)
 
 ## 4. The same fisheye, stored three ways
 
@@ -111,13 +168,13 @@ Resampling the bundled fisheye through each chart (every sample taken from the r
 
 | Sphere (equirectangular) | Cylinder | Pinhole (gnomonic) |
 |---|---|---|
-| ![sphere](../../assets/learn/reproj_sphere.png) | ![cylinder](../../assets/learn/reproj_cylinder.png) | ![pinhole](../../assets/learn/reproj_pinhole.png) |
+| ![sphere](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_sphere.png) | ![cylinder](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_cylinder.png) | ![pinhole](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/reproj_pinhole.png) |
 | widest; world verticals bow | verticals stay straight; height compressed | lines stay straight; periphery blows up, poles fall off the frame |
 
 And the morph — *moving from one to another* by blending the per-pixel ray and re-projecting,
 so the endpoints are the exact charts above (asserted to float precision in the render):
 
-![sphere → cylinder → pinhole morph](../../assets/learn/sphere_cylinder_pinhole_morph.gif)
+![sphere → cylinder → pinhole morph](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/sphere_cylinder_pinhole_morph.gif)
 
 Watch the **azimuth (horizontal) stay fixed** from sphere to cylinder — only the rows slide as
 elevation re-spaces through $\tan$. Then both axes bend through $\tan$ into the pinhole, and the
@@ -136,9 +193,9 @@ stay put:
 
 | Raw fisheye | Pinhole (gnomonic) |
 |---|---|
-| ![raw corners](../../assets/learn/corners_raw.png) | ![pinhole corners](../../assets/learn/corners_pinhole.png) |
+| ![raw corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_raw.png) | ![pinhole corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_pinhole.png) |
 | **Sphere (equirectangular)** | **Cylinder** |
-| ![sphere corners](../../assets/learn/corners_sphere.png) | ![cylinder corners](../../assets/learn/corners_cylinder.png) |
+| ![sphere corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_sphere.png) | ![cylinder corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/corners_cylinder.png) |
 
 The board bows in the sphere, straightens to a perfect rectilinear grid in the pinhole, and
 keeps its verticals straight in the cylinder — yet **not one corner leaves its checkerboard

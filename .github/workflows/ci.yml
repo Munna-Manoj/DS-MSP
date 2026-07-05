@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
@@ -47,6 +48,9 @@ jobs:
               - 'pyproject.toml'
               - 'requirements*.txt'
               - '.github/workflows/**'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
 
   # Required check. The JOB always runs so the `lint + types + layering` status always
   # reports (branch protection stays satisfied), but on a docs-only change the heavy
@@ -85,7 +89,9 @@ jobs:
   # Always runs (no path gate): the governance checks validate the docs/process tree and the
   # packaging contract — requirements traceability, tree hygiene, and that the docs never
   # advertise a subpackage the wheel excludes (the "rig documented but not shipped" guard).
-  # Pure stdlib, no install, ~seconds — so a docs-only PR is exactly when they matter most.
+  # traceability/tree-hygiene are pure stdlib; the packaging check actually imports each
+  # [project.scripts] entry point (the only reliable way to catch a broken/renamed target),
+  # so it needs ds_msp installed — a docs-only PR is exactly when these checks matter most.
   governance:
     name: governance (traceability + hygiene + packaging)
     runs-on: ubuntu-latest
@@ -95,12 +101,41 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
       - name: traceability (requirements <-> tests <-> ADRs in sync)
         run: python tools/check_traceability.py --check
       - name: tree hygiene (no tracked local-only / leak content)
         run: python tools/check_tree_hygiene.py
       - name: packaging (docs match the wheel — no advertised-but-excluded subpackage)
-        run: python tools/check_packaging.py
+        run: |
+          pip install -e .
+          python tools/check_packaging.py
+
+  # Docs-site build check: runs on any docs/** or mkdocs.yml change (a "docs-only" PR is
+  # exactly when this matters, so it is NOT gated off by the code-only fast path above) AND on
+  # any ds_msp/** change (mkdocstrings pulls from source docstrings, so removing/renaming a
+  # documented symbol can break the site too).
+  docs-build:
+    name: docs site build (mkdocs --strict)
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        uses: actions/checkout@v5
+      - if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: mkdocs build --strict (via pytest, so xfail/skip markers apply)
+        if: needs.changes.outputs.code == 'true' || needs.changes.outputs.docs == 'true'
+        run: |
+          pip install -e ".[docs]" -r requirements-dev.txt
+          pytest tests/docs/ -q
+      - name: no docs/code change — nothing to build
+        if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs != 'true'
+        run: echo "No docs or code changes — skipping docs build."
 
   # Fast tier: unit + contract + rig-smoke tests across the support matrix, parallelized.
   # `-m "not slow"` excludes the heavy synthetic suite (nightly). `--timeout` is the

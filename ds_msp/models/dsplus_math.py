@@ -250,6 +250,12 @@ def _invert_division(s, lambda1: float, lambda2: float):
     # forward-injective domain (guarded by valid_d in dsplus_project).
     idx = np.argmin(Rr, axis=-1)
     rho_q = np.take_along_axis(Rr, idx[..., None], axis=-1)[..., 0]
+    # No real positive root exists for some (s, lambda1, lambda2) combinations — a point
+    # beyond where the forward distortion map is invertible (rare, but reachable on wide-FOV
+    # real data). Every other branch of this function already falls back to `s` (the small-
+    # distortion identity estimate) rather than propagate an unbounded value; without this,
+    # rho_q silently stays +inf here and poisons every downstream computation with inf/nan.
+    rho_q = np.where(np.isfinite(rho_q), rho_q, s)
     return np.where(nz, rho_q, s)
 
 
@@ -282,11 +288,17 @@ def dsplus_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy:
     ss = 1.0 - (2.0 * alpha - 1.0) * r2
     valid_s = ss >= 0
     ss = np.maximum(ss, 0.0)
-    mz = (1.0 - alpha * alpha * r2) / (alpha * np.sqrt(ss) + (1.0 - alpha))
+    # Denominator is >= (1-alpha) for alpha in [0,1) and only reaches exactly 0 at the legal
+    # optimizer boundary alpha=1 combined with a ray exactly at the sphere-intersection edge
+    # (ss=0) — a real 0/0 on wide-FOV fits (see ds_math.py's identical formula). Gate it
+    # explicitly rather than let a NaN ray fall through as valid=True.
+    den = alpha * np.sqrt(ss) + (1.0 - alpha)
+    valid_den = den > 1e-9
+    mz = (1.0 - alpha * alpha * r2) / np.maximum(den, 1e-9)
 
     ray = np.stack([mx, my, mz], axis=-1)
     norm = np.linalg.norm(ray, axis=-1, keepdims=True)
     ray = ray / np.maximum(norm, 1e-10)
-    valid = valid_s & valid_h
+    valid = valid_s & valid_den & valid_h
     ray[~valid] = 0.0
     return ray, valid

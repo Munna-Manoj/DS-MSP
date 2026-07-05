@@ -187,7 +187,9 @@ save_kalibr(cam, "camchain.yaml", W, H)            # any model -> Kalibr camchai
 ## 4. Calibrate any model
 
 `ds_msp.calib.calibrate` runs bundle adjustment for **any** model using its
-analytic Jacobian (generalizing the DS-specific `calibrate.py`):
+analytic Jacobian — the same backend the `ds-msp-calibrate` console command (checkerboard /
+ChArUco / AprilGrid, config-driven, `pip install ds-msp` alone) drives via
+`ds_msp.calib.single_camera.calibrate_camera`:
 
 The inputs are per-image lists of board points, detected pixels, and visibility masks — you
 build them by detecting corners (see the [calibration capstone](learn/capstone_calibrating_a_real_camera.md)

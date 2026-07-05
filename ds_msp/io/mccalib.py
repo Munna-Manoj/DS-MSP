@@ -19,6 +19,9 @@ File formats (per scenario directory ``<scn>/Results/``):
 from __future__ import annotations
 
 import os
+import threading
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -40,6 +43,29 @@ def _flat(node) -> np.ndarray:
 
 @dataclass
 class CameraGT:
+    """One camera's intrinsics + pose as read from an MC-Calib YAML file.
+
+    Used for both the synthetic ground truth (``GroundTruth.yml``) and MC-Calib's
+    own calibration result (``calibrated_cameras_data.yml``); the two files share
+    this shape, differing only in which fields are populated.
+
+    Parameters
+    ----------
+    K : (3, 3) array
+        Pinhole intrinsic matrix.
+    dist : array or None
+        Raw distortion coefficient vector in the file's native order, or ``None``
+        when the source file has none (e.g. ``GroundTruth.yml``).
+    pose : (4, 4) array
+        Camera pose as stored by the source file (group-reference -> camera
+        convention for MC-Calib's own result; see the module docstring).
+    model_name : str or None, default None
+        Canonical DS-MSP model name (e.g. ``"ds"``, ``"kb"``) when the file states
+        it explicitly (``camera_model`` string or MC-Calib's ``distortion_type``
+        int); ``None`` for a plain MC-Calib file where the caller must infer the
+        model from ``len(dist)``.
+    """
+
     K: np.ndarray
     dist: Optional[np.ndarray]
     pose: np.ndarray            # 4x4 (group-ref -> camera convention, as stored)
@@ -50,6 +76,36 @@ class CameraGT:
 
 @dataclass
 class Scenario:
+    """A fully loaded MC-Calib Blender benchmark scenario.
+
+    Bundles everything :func:`load_scenario` reads from one
+    ``Blender_Images/Scenario_*`` directory: the fused calibration object, the
+    2D detections that drive ``ds_msp.rig.calibrate_rig``, and both reference
+    calibrations (synthetic ground truth and MC-Calib's own result) to compare
+    against.
+
+    Parameters
+    ----------
+    name : str
+        Scenario directory name (e.g. ``"Scenario_1"``).
+    object : Object3D
+        Fused multi-board calibration object shared by every camera.
+    object_obs : list of ObjectObs
+        One entry per ``(camera, frame)`` observation of the object.
+    cam_ids : list of int
+        0-based camera ids present in the scenario, sorted.
+    img_size : dict of int to (int, int)
+        Per-camera ``(width, height)`` in pixels.
+    gt : dict of int to CameraGT
+        Synthetic ground-truth intrinsics/pose per camera id, from
+        ``GroundTruth.yml``; empty if the file is absent.
+    mccalib : dict of int to CameraGT
+        MC-Calib's own calibrated intrinsics/pose per camera id.
+    mccalib_rms : dict of int to float
+        Per-camera RMS reprojection error reported by MC-Calib, pixels; empty
+        unless populated by the caller (:func:`load_scenario` leaves it empty).
+    """
+
     name: str
     object: Object3D
     object_obs: List[ObjectObs]                 # one per (camera, frame)
@@ -227,6 +283,57 @@ def save_mccalib_cameras(rig, path: str, *, cam_groups: Optional[Dict[int, int]]
     fs.release()
 
 
+#: Per-model ``distortion_vector`` field order -- the exact inverse of each model's own
+#: ``.distortion`` property (see e.g. ``ds_msp/models/dsplus.py``), needed to reconstruct a
+#: real ``CameraModel`` instance from ``calibrated_cameras_data.yml``'s raw arrays.
+_DISTORTION_LAYOUT: Dict[str, Tuple[str, ...]] = {
+    "ds": ("xi", "alpha"),
+    "dsplus": ("alpha", "lambda1", "lambda2", "tau_x", "tau_y"),
+    "kb": ("k1", "k2", "k3", "k4"),
+    "radtan": ("k1", "k2", "p1", "p2", "k3"),
+    "ucm": ("alpha",),
+    "eucm": ("alpha", "beta"),
+    "eucmplus": ("alpha", "beta", "lambda1", "tau_x", "tau_y"),
+    "ocam": ("c", "d", "e", "a0", "a1", "a2", "a3", "a4"),
+}
+
+
+def load_camera(path: str, cam_id: int):
+    """Read one camera's calibrated intrinsics back into a ready ``CameraModel`` instance --
+    the ``ds_msp.io.mccalib`` analogue of :func:`ds_msp.io.kalibr.load_kalibr`.
+
+    Needs ``camera_model`` (or the legacy ``distortion_type``/``disto_type`` int) to be
+    present in the file to know which model to reconstruct -- see :func:`_camera_model_field`.
+    Unlike Kalibr's single-camera camchain, one MC-Calib file holds every camera in the rig,
+    so this takes the 0-based ``cam_id`` (matching ``camera_<cam_id>`` in the file, the same
+    indexing :func:`save_mccalib_cameras` writes)."""
+    from ..models.registry import model_class
+    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    cn = fs.getNode(f"camera_{cam_id}")
+    if cn.empty():
+        fs.release()
+        raise KeyError(f"no camera_{cam_id} in {path}")
+    name = _camera_model_field(cn)
+    K = cn.getNode("camera_matrix").mat()
+    dist_node = cn.getNode("distortion_vector")
+    dist = dist_node.mat() if not dist_node.empty() else None
+    fs.release()
+    if name is None:
+        raise ValueError(f"camera_{cam_id} in {path} states no camera_model/distortion_type "
+                         f"-- cannot tell which model to reconstruct")
+    layout = _DISTORTION_LAYOUT[name]
+    dist = np.asarray(dist, dtype=float).ravel() if dist is not None else np.zeros(0)
+    if len(dist) != len(layout):
+        raise ValueError(f"camera_{cam_id}: model {name!r} expects {len(layout)} distortion "
+                         f"values {layout}, file has {len(dist)}")
+    kwargs = dict(zip(layout, dist.tolist()))
+    if name == "ocam":
+        kwargs["cx"], kwargs["cy"] = float(K[0, 2]), float(K[1, 2])
+    else:
+        kwargs.update(fx=float(K[0, 0]), fy=float(K[1, 1]), cx=float(K[0, 2]), cy=float(K[1, 2]))
+    return model_class(name)(**kwargs)
+
+
 def save_mccalib_objects(obj: Object3D, path: str) -> None:
     """Write ``calibrated_objects_data.yml`` (McCalib.cpp:427): per ``object_<j>`` a
     ``points`` matrix of shape ``(5, N)`` whose rows are ``[x, y, z, board_id, corner_id]``."""
@@ -326,23 +433,41 @@ def _obs_image_path(obs_list, image_root, cam, fr, cam_prefix="Cam_", ext="png")
 
 
 def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
-                             cam_prefix: str = "Cam_", ext: str = "png") -> int:
+                             cam_prefix: str = "Cam_", ext: str = "png",
+                             workers: Optional[int] = None, progress_cb=None) -> int:
     """Draw detected (green) vs reprojected (red) corners per frame and save under
     ``<save_dir>/Reprojection/<cam:03d>/<frame:06d>.jpg`` — the MC-Calib layout
     (McCalib.cpp:1923). The source image is the one recorded at detection (``image_path``),
-    falling back to filename lookup. Returns the number of images written."""
+    falling back to filename lookup. Returns the number of images written.
+
+    Parallelised across (camera, frame) tasks the same way as ``detect.charuco.detect_rig`` —
+    each task's ``cv2.imread``/``cv2.circle``/``cv2.imwrite`` releases the GIL and touches only
+    its own image array, so this scales the same way corner detection does (measured ~12.7s
+    serial for 255 images on this repo's real MC-Calib dataset; this used to run silently and
+    serially *after* the whole bundle adjustment converged, which read as the live view "just
+    sitting there doing nothing" once the optimizer was actually done).
+    ``progress_cb(cam_id, i, n, frame_id)``, if given, fires once per completed image."""
     root = os.path.join(save_dir, "Reprojection")
-    written = 0
     by_cf: Dict[Tuple[int, int], List] = {}
     for o in object_obs:
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
-    for (cam, fr), obs_list in by_cf.items():
+    items = list(by_cf.items())
+    counts = Counter(cam for (cam, _fr), _ in items)
+    seen: Dict[int, int] = Counter()
+    lock = threading.Lock()
+
+    def _do(entry) -> bool:
+        (cam, fr), obs_list = entry
+        if progress_cb is not None:
+            with lock:
+                seen[cam] += 1
+                progress_cb(cam, seen[cam], counts[cam], fr)
         img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
-            continue
+            return False
         image = cv2.imread(img_path)
         if image is None:
-            continue
+            return False
         for o in obs_list:
             rep = _obs_reprojection(rig, o)
             if rep is None:
@@ -356,8 +481,15 @@ def save_reprojection_images(rig, object_obs, image_root: str, save_dir: str, *,
         out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
-        written += 1
-    return written
+        return True
+
+    n_workers = (os.cpu_count() or 4) if workers is None else workers
+    if n_workers and n_workers > 1 and len(items) > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            results = list(ex.map(_do, items))
+    else:
+        results = [_do(e) for e in items]
+    return sum(1 for ok in results if ok)
 
 
 def _write_int_seq(fs, name, values):
@@ -437,30 +569,51 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
 
 
 def save_detection_images(object_obs, image_root: str, save_dir: str, *,
-                          cam_prefix: str = "Cam_", ext: str = "png") -> int:
+                          cam_prefix: str = "Cam_", ext: str = "png",
+                          workers: Optional[int] = None, progress_cb=None) -> int:
     """Draw detected corners (green) per frame and save under
     ``<save_dir>/Detection/<cam:03d>/<frame:06d>.jpg`` — MC-Calib's ``saveDetectionImages``
-    layout. Returns the number of images written (0 if no source images found)."""
+    layout. Returns the number of images written (0 if no source images found).
+
+    Parallelised the same way as :func:`save_reprojection_images` (see its docstring for why
+    this used to be a silent, unparallelised tail after the bundle adjustment already
+    converged). ``progress_cb(cam_id, i, n, frame_id)``, if given, fires once per image."""
     root = os.path.join(save_dir, "Detection")
     by_cf: Dict[Tuple[int, int], List] = {}
     for o in object_obs:
         by_cf.setdefault((o.cam_id, o.frame_id), []).append(o)
-    written = 0
-    for (cam, fr), obs_list in by_cf.items():
+    items = list(by_cf.items())
+    counts = Counter(cam for (cam, _fr), _ in items)
+    seen: Dict[int, int] = Counter()
+    lock = threading.Lock()
+
+    def _do(entry) -> bool:
+        (cam, fr), obs_list = entry
+        if progress_cb is not None:
+            with lock:
+                seen[cam] += 1
+                progress_cb(cam, seen[cam], counts[cam], fr)
         img_path = _obs_image_path(obs_list, image_root, cam, fr, cam_prefix, ext)
         if img_path is None:
-            continue
+            return False
         image = cv2.imread(img_path)
         if image is None:
-            continue
+            return False
         for o in obs_list:
             for u, v in np.asarray(o.pts_2d, float):
                 cv2.circle(image, (int(round(u)), int(round(v))), 4, (0, 255, 0), cv2.FILLED, 8)
         out_dir = os.path.join(root, f"{cam_prefix}{cam + 1:03d}")
         os.makedirs(out_dir, exist_ok=True)
         cv2.imwrite(os.path.join(out_dir, f"{fr:06d}.jpg"), image)
-        written += 1
-    return written
+        return True
+
+    n_workers = (os.cpu_count() or 4) if workers is None else workers
+    if n_workers and n_workers > 1 and len(items) > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            results = list(ex.map(_do, items))
+    else:
+        results = [_do(e) for e in items]
+    return sum(1 for ok in results if ok)
 
 
 def save_mccalib_results(rig, save_dir: str, *, object3d: Optional[Object3D] = None,

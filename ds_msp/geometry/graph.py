@@ -35,6 +35,7 @@ def connected_components(nodes: List[int], weights: Dict[Edge, float]) -> List[L
     parent = {n: n for n in nodes}
 
     def find(x: int) -> int:
+        """Union-find root of ``x``, with path halving."""
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]

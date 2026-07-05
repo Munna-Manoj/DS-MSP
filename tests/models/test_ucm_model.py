@@ -1,8 +1,11 @@
 """UCM unit tests: UCM must equal Double Sphere with xi = 0."""
 
+import warnings
+
 import numpy as np
 
 from ds_msp.models.ucm import UCMModel
+from ds_msp.models.ucm_math import ucm_unproject
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.testing import sample_forward_points
 
@@ -31,3 +34,17 @@ def test_ucm_roundtrip():
     d = P[ok] / np.linalg.norm(P[ok], axis=1, keepdims=True)
     cos = np.sum(rays[ok] * d, axis=1)
     assert (cos > 1 - 1e-6).all()
+
+
+def test_unproject_alpha_one_boundary_ray_is_finite_and_invalid_not_a_warning():
+    """Regression: unlike DS, UCM's unproject had NO second validity check downstream of the
+    mz-denominator division — an alpha=1.0 (a legal optimizer bound) boundary ray produced a
+    NaN ray tagged valid=True, silently corrupting anything that trusted the mask."""
+    fx = fy = 500.0
+    cx = cy = 320.0
+    pts = np.array([[cx + fx * 1.0, cy]])   # mx=1, my=0 -> r2=1 -> the alpha=1 boundary
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ray, valid = ucm_unproject(pts, fx, fy, cx, cy, alpha=1.0)
+    assert not valid[0]
+    assert np.all(np.isfinite(ray))

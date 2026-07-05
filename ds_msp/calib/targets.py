@@ -44,6 +44,7 @@ class AprilGridTarget:
 
     @property
     def n_tags(self) -> int:
+        """Total tag count, ``tag_rows * tag_cols``."""
         return self.tag_rows * self.tag_cols
 
     def object_points(self, tag_id: int) -> np.ndarray:

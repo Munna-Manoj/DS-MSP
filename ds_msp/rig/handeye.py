@@ -141,6 +141,7 @@ def link_groups(groups: List[List[int]], extr: Dict[int, np.ndarray],
 
     # object pose per (group-ref camera, frame), needed to pair motions across groups
     def ref_poses(group):
+        """``(ref_cam, {frame_id: T_c_o})`` for ``group``'s reference (first) camera."""
         ref = group[0]
         poses = {}
         for o in object_obs:

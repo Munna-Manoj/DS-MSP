@@ -66,8 +66,30 @@ def _normalize_3d(pts: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 def dlt_projection(X: np.ndarray, uv: np.ndarray) -> np.ndarray:
     """Normalized DLT estimate of the 3x4 camera matrix ``P`` (``uv ~ P·[X;1]``).
 
-    Needs ≥6 correspondences. Solves the 2N×12 homogeneous system by SVD and
-    de-normalizes. The returned ``P`` is only defined up to scale.
+    Solves the 2N x 12 homogeneous system ``A vec(P) = 0`` by SVD (smallest right-singular
+    vector) after Hartley normalization, then de-normalizes. The returned ``P`` is only defined
+    up to scale.
+
+    Parameters
+    ----------
+    X : (N, 3) ndarray
+        World-frame 3D points, genuinely non-coplanar (see :func:`_is_coplanar` /
+        :func:`ransac_pnp_normalized`'s planar branch for coplanar targets, where this general
+        DLT is degenerate).
+    uv : (N, 2) ndarray
+        Corresponding image points (pixels, or normalized coordinates with ``K = I``).
+
+    Returns
+    -------
+    (3, 4) ndarray
+        Camera matrix ``P`` such that ``[u, v, 1]ᵀ ~ P @ [X, 1]ᵀ`` up to scale.
+
+    Notes
+    -----
+    Needs **at least 6** correspondences for ``A`` to be non-degenerate (``2N >= 11`` free
+    unknowns), but this is **not checked**: fewer points still run without error and silently
+    return a meaningless ``P``. Callers needing that guarantee should go through
+    :func:`ransac_resection`, which enforces ``min_sample`` before calling this.
     """
     X = np.asarray(X, float)
     uv = np.asarray(uv, float)

@@ -240,11 +240,17 @@ def eucmplus_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, c
     ss = 1.0 - (2.0 * alpha - 1.0) * beta * r2
     valid_s = ss >= 0.0
     ss = np.maximum(ss, 0.0)
-    mz = (1.0 - beta * alpha * alpha * r2) / (alpha * np.sqrt(ss) + (1.0 - alpha))
+    # Denominator is >= (1-alpha) for alpha in [0,1) and only reaches exactly 0 at the legal
+    # optimizer boundary alpha=1 combined with a ray exactly at the sphere-intersection edge
+    # (ss=0) — a real, previously-observed 0/0 on wide-FOV real-data fits (the RuntimeWarning
+    # this fixes). Gate it explicitly rather than let a NaN ray fall through as valid=True.
+    den = alpha * np.sqrt(ss) + (1.0 - alpha)
+    valid_den = den > 1e-9
+    mz = (1.0 - beta * alpha * alpha * r2) / np.maximum(den, 1e-9)
 
     ray = np.stack([mx, my, mz], axis=-1)
     norm = np.linalg.norm(ray, axis=-1, keepdims=True)
     ray = ray / np.maximum(norm, 1e-10)
-    valid = valid_s & valid_d & valid_h
+    valid = valid_s & valid_den & valid_d & valid_h
     ray[~valid] = 0.0
     return ray, valid

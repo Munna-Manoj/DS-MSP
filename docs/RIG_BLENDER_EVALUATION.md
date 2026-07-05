@@ -1,9 +1,9 @@
 # DS-MSP[rig] — config-driven evaluation on MC-Calib Blender datasets
 
-Every row is produced by writing a real MC-Calib-compatible `calib_param.yml` (under `Blender_Images/configs/`) and running it through `python scripts/calibrate_rig.py --config <file>` — no in-process shortcuts. Two modes per scenario:
+Every row is produced by writing a real MC-Calib-compatible `calib_param.yml` (under `Blender_Images/configs/`) and running it through `ds-msp-calibrate-rig --config <file>` — no in-process shortcuts. Two modes per scenario:
 
-* **given** — use the default *given* intrinsics with **no intrinsics optimization** (`camera_models: radtan`, `cam_params_path` set, `fix_intrinsic: 1`); extrinsics-only.
-* **dsplus** — calibrate **from scratch with DS+** (`camera_models: dsplus`, `cam_params_path: None`, `fix_intrinsic: 0`); intrinsics + extrinsics estimated jointly.
+* **given** — use the default *given* intrinsics with **no intrinsics optimization** (`camera_models: radtan`, `cam_params_path` set, `fix_intrinsic: true`); extrinsics-only.
+* **dsplus** — calibrate **from scratch with DS+** (`camera_models: dsplus`, `cam_params_path: None`, `fix_intrinsic: false`); intrinsics + extrinsics estimated jointly.
 
 Both reuse the pre-detected 2D keypoints (`keypoints_path`) so the rig reconstruction + bundle-adjustment math is what is exercised. `base%GT` = worst inter-camera baseline error vs ground-truth extrinsics; `foc%GT` = paraxial-focal error vs ground-truth intrinsics (model-independent).
 

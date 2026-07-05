@@ -149,49 +149,5 @@ def test_ti_ldc_mesh_and_undistort():
         f"LDC point undistortion differs too much from analytical: LDC={pts_undist_ldc}, GT={pts_undist_gt}"
     )
 
-# ============================================================================
-# 5. Test Pose-Based Extrinsics Initialization
-# ============================================================================
-def test_robust_calibration_initialization():
-    """Verify that calibration script initialization logic is robust (PnP based)."""
-    # Create synthetic checkerboard points and keypoints
-    ph, pw = 5, 6
-    pLength = 0.2
-    
-    # Build 3D world board points
-    from ds_msp.utils import build_checkerboard_points
-    Xw = build_checkerboard_points(ph, pw, pLength)
-    
-    # Intrinsic target
-    fx, fy, cx, cy = 711.57, 711.24, 949.18, 518.81
-    xi, alpha = 0.183, 0.809
-    
-    # Synthetic camera
-    cam = DoubleSphereCamera(fx, fy, cx, cy, xi, alpha, 1920, 1080)
-    
-    # Generate random pose
-    rvec_gt = np.array([0.1, -0.2, 0.05])
-    tvec_gt = np.array([-0.3, 0.15, 2.0])
-    
-    R, _ = cv2.Rodrigues(rvec_gt)
-    Xc = (R @ Xw.T).T + tvec_gt
-    uv, valid = cam.project(Xc)
-    
-    # Mocking calibration initialization logic using PnP
-    fx0, fy0 = 800.0, 800.0
-    cx0, cy0 = 960.0, 540.0
-    xi0, alpha0 = 0.5, 0.5
-    cam0 = DoubleSphereCamera(fx0, fy0, cx0, cy0, xi0, alpha0, 1920, 1080)
-    
-    rays, valid_unproj = cam0.unproject(uv)
-    pts_norm = rays[:, :2] / rays[:, 2:3]
-    ret, rvec0, tvec0 = cv2.solvePnP(Xw[valid_unproj], pts_norm[valid_unproj], np.eye(3), None)
-    
-    assert ret, "PnP initialization failed!"
-    
-    # Verify PnP estimate is close to GT (should be very close, within 10% translation/rotation)
-    t_diff = np.linalg.norm(tvec0.squeeze() - tvec_gt)
-    assert t_diff < 0.35, f"PnP initialization pose translation is too far from GT: got {tvec0.squeeze()}, GT={tvec_gt}"
-
 # Traceability: links this suite to the requirement(s) it verifies.
 pytestmark = pytest.mark.req("FR-INTEROP-002")

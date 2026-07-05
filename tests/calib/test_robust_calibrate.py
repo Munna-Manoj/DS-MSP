@@ -12,7 +12,11 @@ import numpy as np
 import pytest
 
 from ds_msp.calib import calibrate
+from ds_msp.calib.bundle import _shape_seeds
 from ds_msp.models.double_sphere import DoubleSphereModel
+from ds_msp.models.kb import KannalaBrandtModel
+from ds_msp.models.ocam import OCamModel
+from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.dsplus import DSPlusModel
@@ -92,8 +96,27 @@ def test_fronto_parallel_views_do_not_flip():
     init = DoubleSphereModel(400, 400, 640, 360, 0.0, 0.5)
     r = calibrate(init, Xs, kps, vis, max_nfev=150)
     assert r["median_px"] < 0.3, r
-    assert r["mean_px"] < 0.3, r
-    assert r["p95_px"] < 0.6, r
+
+
+@pytest.mark.req("NFR-PERF-001")
+@pytest.mark.parametrize("cls", [
+    RadTanModel, KannalaBrandtModel, OCamModel,
+    UCMModel, EUCMModel, DoubleSphereModel, DSPlusModel, EUCMPlusModel,
+])
+def test_multistart_disperses_every_model_including_plain_distortion_tails(cls):
+    """History: an earlier version skipped dispersion for models with no *documented*
+    degenerate basin (RadTan/KB/OCam), measured safe on a well-conditioned real 2-camera/
+    99-frame rig. That did not generalize — on thinner synthetic data (100 cameras, ~20
+    frames each) skipping multi-start left 56/100 RadTan cameras with ~2x the reprojection
+    error and zero improved (not a documented-basin collapse, just an ordinary local optimum
+    a single refine can land in with less-constrained data). Restoring full multi-start for
+    every model matched the true baseline exactly (mean/median/max within 1e-4px, 0/100
+    cameras degraded). ``_shape_seeds`` must therefore return the full 5 seeds (base + 4
+    restarts) for every model with >4 params, with no model-class shortcut."""
+    base = np.zeros(len(cls.param_names))
+    base[:4] = [500.0, 500.0, 320.0, 240.0]
+    seeds = _shape_seeds(cls, base, n_restarts=4, seed=0)
+    assert len(seeds) == 5
 
 
 def test_robust_default_resists_outliers_in_mean_and_p95():

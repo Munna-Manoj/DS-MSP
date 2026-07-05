@@ -1,3 +1,13 @@
+"""
+Texas Instruments (TI) Jacinto LDC displacement-mesh export.
+
+Generates a quantized displacement-mesh lookup table for the on-chip Lens
+Distortion Correction (LDC) hardware accelerator on TI Jacinto J7/TDA4 SoCs,
+from a calibrated :class:`~ds_msp.model.DoubleSphereCamera`, plus a point
+undistorter that simulates the hardware's own mesh-inversion behavior. See
+[Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md).
+"""
+
 import numpy as np
 from typing import Tuple, Dict
 from .model import DoubleSphereCamera, balanced_pinhole_K
@@ -5,9 +15,20 @@ from .model import DoubleSphereCamera, balanced_pinhole_K
 class TI_LDC_MeshGenerator:
     """
     Texas Instruments (TI) Lens Distortion Correction (LDC) Mesh LUT Generator.
-    
-    Generates downsampled displacement mesh lookup tables compatible with 
-    TI Jacinto J7/TDA4 hardware accelerators.
+
+    Generates downsampled displacement mesh lookup tables compatible with
+    TI Jacinto J7/TDA4 hardware accelerators, from a calibrated
+    :class:`~ds_msp.model.DoubleSphereCamera`. See
+    [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md)
+    for a worked example with real mesh numbers.
+
+    Parameters
+    ----------
+    ds_camera : DoubleSphereCamera
+        The calibrated fisheye camera to generate a mesh for. Its
+        ``width``/``height`` attributes are **not** used by this class — the
+        mesh is sized from the ``output_width``/``output_height`` arguments
+        passed to :meth:`generate_mesh_and_intrinsics`.
     """
     def __init__(self, ds_camera: DoubleSphereCamera) -> None:
         self.cam = ds_camera
@@ -20,7 +41,50 @@ class TI_LDC_MeshGenerator:
         balance: float = 0.5,
     ) -> Dict:
         """
-        Generate LDC Mesh LUT (quantized to Q3 format) and the new pinhole intrinsics.
+        Generate the LDC displacement mesh (Q3 fixed point) and rectified intrinsics.
+
+        Samples one mesh node every ``2**downsample_factor`` output pixels (plus a
+        one-node border), computing at each node the pixel displacement between
+        the undistorted (pinhole) location and its Double Sphere-distorted
+        source location, quantized to Q3 fixed point (``round(delta_px * 8)``,
+        ``int16``).
+
+        Parameters
+        ----------
+        output_width, output_height : int
+            Size of the undistorted (on-chip output) image, pixels. Independent
+            of ``ds_camera``'s own ``width``/``height``.
+        downsample_factor : int, default=4
+            Power-of-two mesh node spacing: nodes are sampled every
+            ``2**downsample_factor`` output pixels. Larger values give a
+            coarser, smaller LUT; smaller values a denser, more accurate one.
+        balance : float, default=0.5
+            Field-of-view/border trade-off in ``[0, 1]`` passed to
+            :func:`~ds_msp.core.pinhole.balanced_pinhole_K` to build ``K_new``;
+            ``0.0`` widest FOV, ``1.0`` tightest crop.
+
+        Returns
+        -------
+        dict
+            With keys:
+
+            - ``mesh_lut`` : ndarray of shape (mesh_h, mesh_w, 2), int16 —
+              quantized Q3 ``(h, v)`` displacements (pixels x 8, rounded).
+            - ``mesh_lut_float`` : ndarray of shape (mesh_h, mesh_w, 2), float64 —
+              the same displacements before quantization.
+            - ``K_new`` : ndarray of shape (3, 3), float64 — rectified pinhole
+              intrinsics of the undistorted output image.
+            - ``config`` : dict — the call parameters, resulting ``mesh_size``,
+              and the source Double Sphere intrinsics, for a self-describing
+              record to flash alongside the mesh.
+
+        Notes
+        -----
+        Overflow of the ``int16`` Q3 range (``[-32768, 32767]``) is **not**
+        checked or raised here — a large enough field of view produces
+        displacements that silently wrap to the wrong sign. Inspect
+        ``mesh_lut.min()``/``.max()`` after generation, especially for
+        aggressive fields of view (see the how-to guide's Warning).
         """
         K_new = self._compute_K_new(output_width, output_height, balance)
         mesh_lut_int, mesh_lut_float = self._generate_mesh(
@@ -102,6 +166,31 @@ class TI_LDC_MeshGenerator:
 class TI_LDC_PointUndistorter:
     """
     Simulates TI J7 LDC hardware displacement interpolation to undistort points.
+
+    Inverts a mesh produced by :meth:`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`
+    to recover undistorted (pinhole) coordinates for distorted input pixels, by the
+    same bilinear-interpolation + fixed-point-iteration approach the LDC hardware
+    itself performs. **Prefer the closed-form**
+    :meth:`~ds_msp.model.DoubleSphereCamera.undistort_points` for anything other
+    than reproducing hardware behavior — the mesh inverse is exact only near the
+    image center and diverges sharply toward the periphery (measured ~0.08 px
+    median disagreement overall, ~80 px at the corners in a representative
+    1920x1080 configuration; see
+    [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md)).
+
+    Parameters
+    ----------
+    mesh_lut_float : ndarray of shape (mesh_h, mesh_w, 2), float64
+        The unquantized displacement mesh, i.e. ``generate_mesh_and_intrinsics``'s
+        ``mesh_lut_float`` output.
+    K_new : ndarray of shape (3, 3)
+        The rectified pinhole intrinsics the mesh was generated for (same
+        ``generate_mesh_and_intrinsics`` call's ``K_new``).
+    downsample_factor : int
+        The power-of-two mesh node spacing used to generate ``mesh_lut_float``
+        (node spacing is ``2**downsample_factor`` output pixels).
+    output_width, output_height : int
+        Size of the undistorted (output) image the mesh targets.
     """
     def __init__(
         self,
@@ -127,7 +216,23 @@ class TI_LDC_PointUndistorter:
         Fully vectorized fixed-point solve: every point iterates together, and a
         point drops out of the active set once it converges (residual < 0.01 px)
         or its current estimate leaves the mesh. Equivalent to the per-point
-        Newton-free iteration the J7 LDC performs, but array-wide.
+        Newton-free iteration the J7 LDC performs, but array-wide. Runs at most
+        10 iterations.
+
+        Parameters
+        ----------
+        points_distorted : ndarray of shape (N, 2)
+            Distorted pixel coordinates in the original fisheye image.
+
+        Returns
+        -------
+        guess : ndarray of shape (N, 2)
+            Estimated undistorted (pinhole, ``K_new``-frame) coordinates. Rows
+            marked invalid still hold the last iterate, not NaN.
+        valid : ndarray of shape (N,), bool
+            ``False`` where the fixed-point iterate left the mesh bounds before
+            converging, or the converged result falls outside
+            ``[0, output_width) x [0, output_height)``.
         """
         pts = np.asarray(points_distorted, dtype=np.float64)
         N = len(pts)

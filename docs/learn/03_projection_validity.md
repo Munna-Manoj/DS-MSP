@@ -11,12 +11,28 @@ always has a black border.
 
 The images here come from the original Double Sphere calibration this library grew from.
 
+**You'll learn**
+- Why `z > 0` is the classic fisheye validity bug, and the correct test: a tilted
+  half-space `z > -w₂·d₁` (Usenko et al. 2018, Eq. 43–45).
+- Measure the actual valid cone of a real Double Sphere calibration:
+  **θ_max = 113.4°**, i.e. a **227°** total field of view — not the 180° a `z > 0` test
+  would give you.
+- Why a rectified pinhole view can never keep that whole cone, and how the `balance` knob
+  trades field of view against black border (147.0° / 92.5% filled at `balance=0` vs.
+  118.7° / 100% filled at `balance=1`).
+
+**Prerequisites**
+- Finish [Chapter 1](01_fisheye_and_camera_models.md) (undistortion and the `balance`
+  knob) and [Chapter 2](02_double_sphere_model.md) (the `ξ`, `α` parameters this
+  chapter's half-space test is built from).
+- Same [setup](README.md#setup-once) as Chapters 1–2; no new installs.
+
 ## 1. The boundary nobody draws
 
 Here is the camera's world from directly above — the `XZ` plane, camera at the origin
 looking along `+Z`:
 
-![Top-down Double Sphere FOV analysis](../../assets/fov_cone_diagram.jpg)
+![Top-down Double Sphere FOV analysis](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/fov_cone_diagram.jpg)
 
 The **green** region is where the model can project a ray to a pixel; the **blue** region
 below is the *invalid cone* it cannot. The black stars are real calibration keypoints — and
@@ -32,7 +48,7 @@ fisheye that is **wrong**, and it's the single most common implementation bug �
 throws away every ray past 90°, capping a >180° lens at exactly 180°.
 
 The correct test (Usenko et al. 2018, Eq. 43–45), implemented in
-[`ds_msp/models/ds_math.py`](../../ds_msp/models/ds_math.py), is a tilted half-space:
+[`ds_msp/models/ds_math.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/models/ds_math.py#L33-L45), is a tilted half-space:
 
 $$z > -w_2\, d_1, \qquad d_1 = \sqrt{x^2 + y^2 + z^2}$$
 
@@ -42,7 +58,32 @@ i.e. every ray out to
 
 $$\theta_{\max} = \arccos(-w_2)$$
 
-is valid. The example computes this for the original calibration (`ξ=0.183, α=0.809`):
+is valid. Here's that computed directly, plus a numeric check that sweeps 4000 rays and asks
+the model itself which ones it accepts — for the original calibration (`ξ=0.183, α=0.809`):
+
+```python
+import json
+import numpy as np
+from ds_msp import DoubleSphereCamera
+
+intr = json.load(open("test_config.json"))["intrinsics"]   # the bundled real calibration
+cam = DoubleSphereCamera(intr["fx"], intr["fy"], intr["cx"], intr["cy"],
+                         intr["xi"], intr["alpha"],
+                         width=intr["width"], height=intr["height"])
+xi, alpha = cam.xi, cam.alpha   # full precision: xi=0.1832, alpha=0.8086
+
+# analytic: for a unit ray (d1=1) the half-space test z > -w2*d1 becomes cos(theta) > -w2
+w1 = (1 - alpha) / alpha if alpha > 0.5 else alpha / (1 - alpha)
+w2 = (w1 + xi) / np.sqrt(2 * w1 * xi + xi * xi + 1.0)
+theta_max = np.degrees(np.arccos(-w2))
+print(f"w2 = {w2:.4f}, theta_max = {theta_max:.1f} deg")   # w2 = 0.3967, theta_max = 113.4 deg
+
+# numeric check: sweep rays from 0 to 180 deg, ask the model which ones it accepts
+thetas = np.linspace(0, np.pi, 4000)
+rays = np.stack([np.sin(thetas), np.zeros_like(thetas), np.cos(thetas)], axis=1)
+_, valid = cam.project(rays)
+print(f"numeric check: {np.degrees(thetas[valid].max()):.1f} deg")   # 113.3 deg
+```
 
 ```
 w2 (half-space coefficient) = 0.3967
@@ -59,7 +100,7 @@ matches a brute-force sweep of 4000 rays to the first decimal, so the formula is
 The top-down diagram is the geometry; here is the *same* valid region mapped back onto a
 real fisheye image:
 
-![FOV zones on a real fisheye frame](../../assets/fov_zones_augmented.jpg)
+![FOV zones on a real fisheye frame](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/fov_zones_augmented.jpg)
 
 - **Green — frontal (`θ < 90°`):** ordinary forward rays; a pinhole could handle these.
 - **Yellow — side/back (`90° ≤ θ < θ_max`):** valid in Double Sphere (`z ≤ 0`!), but
@@ -77,8 +118,25 @@ Because a **pinhole image plane is infinite at 90°**: a ray at exactly 90° pro
 `x/z → ∞`. There is no finite image that holds the yellow zone. Those pixels aren't lost to
 a bug — they are *geometrically un-pinhole-able*.
 
-So rectification forces a trade, controlled by the `balance` knob. The example measures both
-sides of it:
+So rectification forces a trade, controlled by the `balance` knob:
+
+```python
+import cv2
+import numpy as np
+
+img = cv2.imread("assets/test_image.jpg")   # the bundled real fisheye frame
+for b in [0.0, 0.5, 1.0]:
+    K_new = cam.compute_K_new(balance=b)
+    rect, _ = cam.undistort_image(img, K_new)
+    hfov = np.degrees(2 * np.arctan((cam.width / 2) / K_new[0, 0]))
+    filled = float((cv2.cvtColor(rect, cv2.COLOR_BGR2GRAY) > 0).mean()) * 100
+    print(f"balance={b:.2f}  hfov={hfov:.1f} deg  filled={filled:.1f}%")
+# balance=0.00  hfov=147.0 deg  filled=92.5%
+# balance=0.50  hfov=132.1 deg  filled=99.9%
+# balance=1.00  hfov=118.7 deg  filled=100.0%
+```
+
+The full sweep (the example also checks `0.25`/`0.75`):
 
 ```
 balance   rectified hFOV   frame filled (non-black)
@@ -87,7 +145,7 @@ balance   rectified hFOV   frame filled (non-black)
  1.00       118.7 deg        100.0 %
 ```
 
-![Fisheye rectification sweeping the balance knob](../../assets/undistort_demo.gif)
+![Fisheye rectification sweeping the balance knob](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/undistort_demo.gif)
 
 - **`balance = 0`** keeps the widest view (147° here) but leaves a **black border** — the
   corners of the output map to rays the source frame never captured.
@@ -99,7 +157,7 @@ circle is the lens's actual image footprint, and *everything outside it* (the da
 is sensor with no light, which is why a flat rectification can never fill those corners
 without zooming in:
 
-![Original fisheye with its valid image circle](../../assets/coverage_vis.jpg)
+![Original fisheye with its valid image circle](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/coverage_vis.jpg)
 
 ## 5. What you can now reason about
 

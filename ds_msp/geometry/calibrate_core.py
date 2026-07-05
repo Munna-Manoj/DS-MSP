@@ -52,8 +52,11 @@ def bundle_adjust(model_cls,
         rejects **past 50%** gross corner-detection outliers and returns a hard inlier set.
         ``kernel``/``scale``/``gnc_*`` are ignored when ``noise_bound`` is given.
 
-    Returns ``(params, Rb, t, OptResult)`` — refined intrinsics, refined base rotations,
-    translations, and the raw solver result.
+    Returns
+    -------
+    tuple
+        ``(params, Rb, t, OptResult)`` — refined intrinsics, refined base rotations,
+        translations, and the raw solver result.
     """
     cls = model_cls
     P = len(cls.param_names)
@@ -66,6 +69,7 @@ def bundle_adjust(model_cls,
               np.asarray(R0, float).copy(), np.asarray(t0, float).copy())
 
     def residual(state):
+        """Flat ``(2 * sum(sizes),)`` pixel residual ``uv_predicted - uv_observed``, image-major."""
         params, Rb, t = state
         m = cls.from_params(params)
         out = np.zeros((total,))
@@ -109,6 +113,8 @@ def bundle_adjust(model_cls,
         return r_list, A_list, B_list
 
     def retract(state, d_shared, d_local):
+        """Manifold update for ``schur_lm``/``gnc_tls_schur_solve``: intrinsics clipped to
+        bounds, each per-image rotation updated by SO(3) exp, translation updated flat."""
         params, Rb, t = state
         params = np.clip(params + d_shared, lb_i, ub_i)          # keep intrinsics valid
         Rb, t = Rb.copy(), t.copy()

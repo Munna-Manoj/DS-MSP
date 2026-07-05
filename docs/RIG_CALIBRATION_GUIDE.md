@@ -9,12 +9,16 @@ calib_param.yml`: same config schema, same output files, with one extension — 
 
 > **TL;DR**
 > ```bash
+> pip install ds-msp                                       # or: git clone + pip install -e .
 > # 1. write yourself a starter config
-> python scripts/calibrate_rig.py --init-config calib_param.yml
+> ds-msp-calibrate-rig --init-config calib_param.yml
 > # 2. edit it (number_camera, board geometry, root_path, save_path, models) — see below
 > # 3. run
-> python scripts/calibrate_rig.py --config calib_param.yml
+> ds-msp-calibrate-rig --config calib_param.yml
 > ```
+> `ds-msp-calibrate-rig` is a real console command from `pip install ds-msp` alone — no repo
+> clone needed. (A git-clone checkout can equivalently run `python scripts/calibrate_rig.py`;
+> it's the exact same CLI either way.)
 
 ---
 
@@ -33,6 +37,27 @@ The run writes MC-Calib's exact result set into `save_path/`:
 
 The console prints per-camera reprojection RMS and, if a `GroundTruth.yml` / MC-Calib `Results/`
 is found next to the data, the worst baseline error vs those references.
+
+**Loading a camera back into a ready instance.** `calibrated_cameras_data.yml` holds every
+camera in the rig, indexed 0-based (`camera_0`, `camera_1`, …) in write order. Load any one of
+them straight into a [`CameraModel`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/contracts.py) — no manual K/distortion-array
+handling:
+
+```python
+import ds_msp.rig as rig
+
+cam0 = rig.load_camera("calibrated_cameras_data.yml", 0)
+print(cam0)                       # e.g. KannalaBrandtModel(fx=..., fy=..., ...)
+uv, valid = cam0.project(points_3d)
+```
+
+This is the MC-Calib-format analogue of `ds_msp.calib.load_camera` (the single-camera
+`ds-msp-calibrate` output loader) — same one-liner ergonomics, different file shape, since
+`calibrated_cameras_data.yml` splits `camera_matrix` (fx/fy/cx/cy) and `distortion_vector`
+(model-specific length and order) into separate fields rather than Kalibr's single combined
+`intrinsics` array. `load_camera` needs the file's `camera_model` (or the legacy
+`distortion_type` int) to know which of the 8 models to reconstruct — always present in
+DS-MSP's own output.
 
 ---
 
@@ -87,10 +112,10 @@ lengths) and put it in the config.
 Generate a fully-commented starter and edit it:
 
 ```bash
-python scripts/calibrate_rig.py --init-config calib_param.yml
+ds-msp-calibrate-rig --init-config calib_param.yml
 ```
 
-This copies [`configs/calib_param.template.yml`](../configs/calib_param.template.yml). Below is
+This copies [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml). Below is
 every field that matters.
 
 ### Board geometry — *must match your printed board*
@@ -113,21 +138,21 @@ every field that matters.
 
 > **Which model?** Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default;
 > `ds`/`ucm`/`eucm` are compact sphere models; **`dsplus` (DS+)** is the most expressive for very
-> wide (≳170°) lenses. See [Choosing a model by FOV](../README.md#choosing-a-model-by-fov-from-experience)
+> wide (≳170°) lenses. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
 > and the real-data comparison in §7.
 
 ### Intrinsics (optional prior)
 | Key | Meaning |
 |-----|---------|
-| `cam_params_path` | path to an initial-intrinsics yml, or `"None"` to estimate from scratch. Schema = MC-Calib `calibrated_cameras_data`, extended with a per-camera `camera_model`. See [`configs/camera_intrinsics.template.yml`](../configs/camera_intrinsics.template.yml). |
-| `fix_intrinsic` | `0` = estimate & refine intrinsics; `1` = **hold intrinsics fixed**, solve extrinsics only (requires `cam_params_path`) |
+| `cam_params_path` | path to an initial-intrinsics yml, or `"None"` to estimate from scratch. Schema = MC-Calib `calibrated_cameras_data`, extended with a per-camera `camera_model`. See [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml). |
+| `fix_intrinsic` | `false` = estimate & refine intrinsics; `true` = **hold intrinsics fixed**, solve extrinsics only (requires `cam_params_path`) |
 
 Behaviour (verified on real data, §7):
-- **No file** + `fix_intrinsic=0` → every camera initializes from scratch.
-- **File given**, stated model **matches** the chosen model → used natively (held if `fix_intrinsic=1`).
-- **File given**, model **differs** + `fix_intrinsic=0` → a **warning** is printed and `convert()`
+- **No file** + `fix_intrinsic=false` → every camera initializes from scratch.
+- **File given**, stated model **matches** the chosen model → used natively (held if `fix_intrinsic=true`).
+- **File given**, model **differs** + `fix_intrinsic=false` → a **warning** is printed and `convert()`
   carries the *same physical lens* into the chosen model, then the bundle adjustment refines it.
-- **File given**, model **differs** + `fix_intrinsic=1` → **error** (you cannot hold a camera
+- **File given**, model **differs** + `fix_intrinsic=true` → **error** (you cannot hold a camera
   fixed in a model it was not provided in).
 
 ### Inputs
@@ -144,14 +169,15 @@ Behaviour (verified on real data, §7):
 | `number_iterations` | max non-linear refinement iterations |
 | `he_approach` | `0` bootstrapped hand-eye / `1` traditional (extrinsics init strategy) |
 | `save_path` | output directory |
-| `save_detection` / `save_reprojection` | `1` to write overlay images (needs raw images present) |
+| `save_detection` / `save_reprojection` | `true` to write overlay images (needs raw images present) |
 | `camera_params_file_name` | output cameras filename (`""` ⇒ `calibrated_cameras_data.yml`) |
+| `webviewer` | `true` (default) to launch the live browser 3D view during the run; `false` to skip it. Independent of `verbose` (terminal progress). Needs the optional `ds-msp[webviewer]` extra. |
 
 Relative paths resolve against the **config file's** directory. Override any value on the CLI
 without editing the file:
 
 ```bash
-python scripts/calibrate_rig.py --config calib_param.yml \
+ds-msp-calibrate-rig --config calib_param.yml \
     --set root_path=/abs/my_capture --set save_path=/abs/out \
     --set camera_models=kb,kb,kb,kb,radtan,radtan,kb,kb
 ```
@@ -161,7 +187,7 @@ python scripts/calibrate_rig.py --config calib_param.yml \
 ## 4. Run it
 
 ```bash
-python scripts/calibrate_rig.py --config calib_param.yml
+ds-msp-calibrate-rig --config calib_param.yml
 ```
 
 What happens internally:
@@ -171,7 +197,7 @@ What happens internally:
 3. **Initialize** per-camera intrinsics (from scratch, or from `cam_params_path`) and the
    relative extrinsics from camera-group covisibility.
 4. **Bundle-adjust** intrinsics + extrinsics + object poses jointly (staged), holding intrinsics
-   if `fix_intrinsic=1`.
+   if `fix_intrinsic=true`.
 5. **Write** the MC-Calib result set to `save_path`.
 
 The extrinsics you want are the `camera_pose_matrix` per camera in
@@ -184,16 +210,16 @@ The extrinsics you want are the `camera_pose_matrix` per camera in
 If you already have trusted intrinsics (from a prior per-camera calibration), hold them fixed and
 solve only the rig geometry:
 
-1. Put the intrinsics in a yml (see [`configs/camera_intrinsics.template.yml`](../configs/camera_intrinsics.template.yml)
+1. Put the intrinsics in a yml (see [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml)
    — one entry per model is documented; `camera_model` per camera must match what you set in
    `camera_models`).
-2. In the config: `cam_params_path: /abs/intrinsics.yml`, `fix_intrinsic: 1`, and `camera_models`
+2. In the config: `cam_params_path: /abs/intrinsics.yml`, `fix_intrinsic: true`, and `camera_models`
    matching the stated models.
 3. Run as usual. The bundle adjustment optimizes extrinsics + object poses only.
 
 Emit a starter intrinsics file with:
 ```bash
-python scripts/calibrate_rig.py --init-intrinsics camera_intrinsics.yml
+ds-msp-calibrate-rig --init-intrinsics camera_intrinsics.yml
 ```
 
 ---
@@ -209,15 +235,17 @@ seconds with different models / intrinsics / options on the *same* detections.
   detection runs — only the rig math. For multi-board rigs also pass `object_path` so the fused
   object geometry is identical across runs.
 
-A ready-made reuse config: [`configs/calib_param.keypoints.template.yml`](../configs/calib_param.keypoints.template.yml).
+A ready-made reuse config: [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml)
+(save a local copy — e.g. `reuse.yml` — from that link, or copy it out of your installed
+package with `python -c "import importlib.resources,shutil; shutil.copyfile(importlib.resources.files('ds_msp.rig')/'configs/calib_param.keypoints.template.yml', 'reuse.yml')"`).
 
 ```bash
 # run 1 — detect from images, save keypoints (uses the normal template)
-python scripts/calibrate_rig.py --config calib_param.yml \
+ds-msp-calibrate-rig --config calib_param.yml \
     --set root_path=/abs/my_capture --set save_path=/abs/out
 
 # run 2+ — reuse the saved keypoints, try a different model, fast
-python scripts/calibrate_rig.py --config configs/calib_param.keypoints.template.yml \
+ds-msp-calibrate-rig --config reuse.yml \
     --set keypoints_path=/abs/out/detected_keypoints_data.yml \
     --set object_path=/abs/out/calibrated_objects_data.yml \
     --set save_path=/abs/out_dsplus \
@@ -252,7 +280,7 @@ Takeaways (these are *measured*, not asserted):
   `kb`+`radtan` baseline. When a model under-fits, the residual shows it honestly rather than
   hiding the limitation.
 
-See [Choosing a model by FOV](../README.md#choosing-a-model-by-fov-from-experience) for how to pick a
+See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick a
 model for *your* lens before you calibrate.
 
 ---
@@ -264,15 +292,16 @@ model for *your* lens before you calibrate.
 | "config has neither keypoints_path nor root_path" | both are `"None"` — set one |
 | A camera is missing from the output | its folder wasn't found (`<cam_prefix><id+1:03d>`) or it shares no frames with the rest |
 | Frames don't line up across cameras | filenames must encode the **same frame number** for the same instant in every camera |
-| `fix_intrinsic=1` error about a missing/mismatched model | provide intrinsics for every camera with `camera_model` matching `camera_models`, or set `fix_intrinsic=0` to convert+refine |
+| `fix_intrinsic=true` error about a missing/mismatched model | provide intrinsics for every camera with `camera_model` matching `camera_models`, or set `fix_intrinsic=false` to convert+refine |
 | Large reprojection on wide lenses | the model under-fits — try `kb` or `dsplus` for those cameras (§7) |
-| Want overlays | set `save_detection: 1` / `save_reprojection: 1` **and** keep `root_path` pointing at the images |
+| Want overlays | set `save_detection: true` / `save_reprojection: true` **and** keep `root_path` pointing at the images |
+| Browser window keeps popping open | set `webviewer: false` in the config (or `--no-webviewer` on the CLI) |
 | Wrong real-world scale | `square_size` must be the **physically measured** square size |
 
 ---
 
 ### See also
-- [`configs/calib_param.template.yml`](../configs/calib_param.template.yml) — annotated base config
-- [`configs/calib_param.keypoints.template.yml`](../configs/calib_param.keypoints.template.yml) — keypoints-reuse config
-- [`configs/camera_intrinsics.template.yml`](../configs/camera_intrinsics.template.yml) — initial-intrinsics schema (all models)
+- [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml) — annotated base config
+- [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml) — keypoints-reuse config
+- [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml) — initial-intrinsics schema (all models)
 - [`docs/learn/`](learn/README.md) — the geometry curriculum (camera models, robust detection, evaluation)

@@ -146,6 +146,11 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r, d, nrm[:, 0]
 
     def residual(state):
+        """Stacked reprojection (or angular) residual vector ``(total_rows,)`` for ``state``.
+
+        Part of the :func:`core.optimize.lm_solve` callback contract; see
+        :func:`build_problem`'s docstring for the state layout.
+        """
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         r = np.zeros(total_rows)
         row = 0
@@ -161,6 +166,12 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r
 
     def jacobian(state):
+        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
+
+        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
+        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
+        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
+        """
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         J = np.zeros((total_rows, K))
         row = 0
@@ -205,6 +216,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return J
 
     def retract(state, d):
+        """Apply a tangent-space update ``d`` (K,) to ``state``: SO(3) retraction
+        ``R <- R @ so3_exp(δω)`` for every pose block, additive for translations and
+        (bounds-clipped) intrinsics. Returns a new state dict; does not mutate ``state``.
+        """
         s = {k: (v.copy() if isinstance(v, np.ndarray) else dict(v)) for k, v in state.items()}
         s["cam_R"], s["cam_t"] = dict(state["cam_R"]), dict(state["cam_t"])
         s["obj_R"], s["obj_t"] = dict(state["obj_R"]), dict(state["obj_t"])
@@ -297,6 +312,7 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return Xg, Xc
 
     def residual(state):
+        """Stacked reprojection residual, grouped by object pose (frame), for :func:`core.optimize.schur_lm`."""
         mc = _models(state)
         out = []
         for k in groups:
@@ -309,6 +325,13 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return np.concatenate(out) if out else np.zeros(0)
 
     def linearize(state):
+        """Per-group ``(r, A, B)`` blocks for :func:`core.optimize.schur_lm`.
+
+        Returns three lists (one entry per object-pose group): ``r_list[i]`` the
+        group's stacked residual, ``A_list[i]`` its Jacobian w.r.t. the shared block
+        (camera extrinsics/intrinsics), ``B_list[i]`` its Jacobian w.r.t. that
+        group's own 6-DoF local (object-pose) block.
+        """
         mc = _models(state)
         r_list, A_list, B_list = [], [], []
         for k in groups:
@@ -341,6 +364,10 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return r_list, A_list, B_list
 
     def retract(state, d_shared, d_local):
+        """Apply the shared-block update ``d_shared`` (shared_dim,) and per-group local
+        updates ``d_local`` (n_groups, 6) to ``state`` via SO(3) retraction on rotations
+        and additive updates on translations/intrinsics. Returns a new state dict.
+        """
         s = dict(state)
         s["cam_R"], s["cam_t"] = dict(state["cam_R"]), dict(state["cam_t"])
         s["obj_R"], s["obj_t"] = dict(state["obj_R"]), dict(state["obj_t"])
@@ -367,7 +394,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
            robust_kernel: str = "huber", robust_scale="auto", gnc_iters: int = 0,
            gnc_start: float = 0.0, noise_bound: Optional[float] = None,
            verbose: bool = False, sparse: bool = True,
-           residual_mode: str = "pixel") -> RigState:
+           residual_mode: str = "pixel", on_iter=None) -> RigState:
     """One BA pass. Returns a refined copy of ``rig``.
 
     ``fix_intrinsics=True`` reproduces ``refineCameraGroupAndObjects`` (poses only);
@@ -393,9 +420,19 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     ``sparse=True`` (default) Schur-eliminates the per-frame object poses
     (:func:`build_schur_problem` + :func:`core.optimize.schur_lm`); ``sparse=False`` uses
     the dense solver (kept for tests).
+
+    ``on_iter(it, max_iter, rms, cost, rig_snapshot)`` — optional live-progress callback. The
+    solver calls it with its own opaque ``state``; this function wraps it so callers see a
+    real ``RigState`` snapshot of the *current* (mid-solve) cameras/extrinsics/object poses
+    instead — reconstructed via :func:`_rig_from_state`, which is cheap (a handful of 4x4s
+    per camera/frame, no large-array copies), so this does not measurably slow the solve.
     """
     rk = dict(robust_kernel=robust_kernel, robust_scale=robust_scale,
               gnc_iters=gnc_iters, gnc_start=gnc_start)
+    wrapped_on_iter = (
+        (lambda it, max_iter, rms, cost, state:
+         on_iter(it, max_iter, rms, cost, _rig_from_state(rig, state)))
+        if on_iter is not None else None)
     barc = None if noise_bound is None else 3.03 * float(noise_bound)   # 2-DoF 99% χ² band
     if residual_mode == "angular":
         # The bearing (angular) residual is the model-agnostic, pinhole/fisheye-uniform error:
@@ -409,9 +446,10 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return rig
         if barc is not None:
             res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
-                                block=2, inner_max_iter=max_iter)
+                                block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
-            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
+            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
+                           on_iter=wrapped_on_iter, **rk)
         return _rig_from_state(rig, res.state)
     if sparse:
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
@@ -419,14 +457,17 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         if shared_dim == 0 or n_groups == 0:           # nothing shared to solve -> dense
             return refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                           fix_extrinsics=fix_extrinsics, max_iter=max_iter,
-                          noise_bound=noise_bound, verbose=verbose, sparse=False, **rk)
+                          noise_bound=noise_bound, verbose=verbose, sparse=False,
+                          on_iter=on_iter, **rk)
         if barc is not None:
             res = gnc_tls_schur_solve(state0, residual, linearize, retract, noise_bound=barc,
                                       n_groups=n_groups, shared_dim=shared_dim, local_dim=6,
-                                      block=2, inner_max_iter=max_iter)
+                                      block=2, inner_max_iter=max_iter,
+                                      on_iter=wrapped_on_iter)
         else:
             res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
-                           shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter, **rk)
+                           shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter,
+                           on_iter=wrapped_on_iter, **rk)
     else:
         state0, residual, jacobian, retract, K = build_problem(
             rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
@@ -434,9 +475,10 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return rig
         if barc is not None:
             res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
-                                block=2, inner_max_iter=max_iter)
+                                block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
-            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter, **rk)
+            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
+                           on_iter=wrapped_on_iter, **rk)
     if verbose:
         print(f"  BA: rms {res.rms:.4f}px iters={res.iterations} "
               f"intr={'free' if not fix_intrinsics else 'fixed'} "
@@ -452,6 +494,13 @@ def refine_groups(rig: RigState, object_obs: List[ObjectObs], groups: List[List[
     observe — holding intrinsics fixed, with the same analytic-Jacobian BA. For a single
     connected group this refines the whole rig; for several groups it warm-starts each one
     before they are fused, exactly MC-Calib's hierarchy. ``kw`` forwards robust-kernel opts.
+
+    ``on_iter``, if present in ``kw``, is called with a **full-rig** snapshot even though each
+    group is solved on a cameras-only-in-that-group sub-``RigState`` internally: cameras and
+    object poses outside the group currently being solved are filled in from ``out`` (already-
+    refined groups' latest values; not-yet-processed groups' pre-refine values) so a live
+    viewer never sees cameras vanish just because they aren't part of the group being updated
+    this instant.
     """
     if len(groups) <= 1:
         return refine(rig, object_obs, fix_intrinsics=True, **kw)
@@ -459,6 +508,7 @@ def refine_groups(rig: RigState, object_obs: List[ObjectObs], groups: List[List[
     out.T_c_g = dict(rig.T_c_g)
     out.object_poses = dict(rig.object_poses)
     out.cameras = dict(rig.cameras)
+    caller_on_iter = kw.pop("on_iter", None)
     for grp in groups:
         grp_set = set(grp)
         sub_obs = [o for o in object_obs if o.cam_id in grp_set]
@@ -470,7 +520,19 @@ def refine_groups(rig: RigState, object_obs: List[ObjectObs], groups: List[List[
         sub.T_c_g = {c: out.T_c_g[c] for c in grp}
         sub.object_poses = {k: out.object_poses[k] for k in sub_keys}
         sub.ref_cam_id = grp[0]                         # anchor the group at its first camera
-        ref = refine(sub, sub_obs, fix_intrinsics=True, **kw)
+
+        def _merged_on_iter(it, max_iter, rms, cost, partial_rig, _out=out):
+            merged = copy.copy(_out)
+            merged.cameras = dict(_out.cameras)
+            merged.cameras.update(partial_rig.cameras)
+            merged.T_c_g = dict(_out.T_c_g)
+            merged.T_c_g.update(partial_rig.T_c_g)
+            merged.object_poses = dict(_out.object_poses)
+            merged.object_poses.update(partial_rig.object_poses)
+            caller_on_iter(it, max_iter, rms, cost, merged)
+
+        ref = refine(sub, sub_obs, fix_intrinsics=True,
+                    on_iter=(_merged_on_iter if caller_on_iter is not None else None), **kw)
         for c in grp:
             out.T_c_g[c] = ref.T_c_g[c]
         for k in sub_keys:
@@ -583,6 +645,13 @@ def _per_obs_errors(rig: RigState, object_obs: List[ObjectObs]) -> Dict[int, np.
         errs.setdefault(o.cam_id, []).append(
             np.linalg.norm(uv[valid] - o.pts_2d[valid], axis=1))
     return {c: np.concatenate(v) if v else np.zeros(0) for c, v in errs.items()}
+
+
+def per_observation_errors(rig: RigState, object_obs: List[ObjectObs]) -> Dict[int, np.ndarray]:
+    """Public per-camera array of per-point reprojection errors (px) — the raw distribution
+    behind :func:`reprojection_rms` / :func:`reprojection_metrics`, for callers (e.g.
+    :mod:`.report`) that need the full mean/median/p95/max picture, not just one number."""
+    return _per_obs_errors(rig, object_obs)
 
 
 def reprojection_rms(rig: RigState, object_obs: List[ObjectObs]) -> Dict[int, float]:

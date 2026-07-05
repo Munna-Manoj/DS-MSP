@@ -25,7 +25,7 @@ import glob
 import os
 import threading
 import warnings
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
@@ -81,7 +81,7 @@ def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners
 def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec], *,
                             cam_prefix: str = "Cam_", legacy: bool = True,
                             min_corners: int = 6, subpix: bool = False, tuned: bool = False,
-                            workers: Optional[int] = None
+                            workers: Optional[int] = None, progress_cb=None
                             ) -> Tuple[List[BoardObs], Dict[int, Tuple[int, int]]]:
     """Detect per-board ChArUco corners over ``<root>/<cam_prefix><cam+1:03d>/`` — the raw,
     *object-free* detections needed to reconstruct the fused object. Returns
@@ -90,22 +90,50 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
 
     Detection is **parallelised across cameras** (one thread per camera; OpenCV's detector
     releases the GIL, so threads scale near-linearly with cores) — the dominant end-to-end
-    cost, cut ~3.5x on an 8-camera rig. ``subpix`` adds ``cv2.cornerSubPix`` refinement."""
+    cost, cut ~3.5x on an 8-camera rig. ``subpix`` adds ``cv2.cornerSubPix`` refinement.
+
+    ``progress_cb(cam_id, i, n, path)``, if given, fires once per completed image (serialized
+    under a lock, same contract as ``detect.charuco.detect_rig``) — this path used to run
+    completely silently (no progress at all) despite being the one every raw-image multi-board
+    config actually hits, which read as "detection went sequential/stuck" even though the
+    underlying work was already parallel. Tasks are also **round-robin interleaved across
+    cameras** rather than grouped camera-by-camera: a flat per-camera-block task list drains
+    camera 0's whole directory before camera 1 is ever touched, so the live progress readout
+    showed a strictly sequential "cam 0 done, then cam 1 starts, ..." sweep even though the
+    wall-clock work underneath was genuinely parallel — honest progress needs honest ordering."""
     if workers is None:
         workers = (os.cpu_count() or 4)
-    # flat (camera, image) task list — image-level balancing keeps all cores busy despite the
-    # 2592px vs 640px size imbalance across cameras.
-    tasks = []
+    files_by_cam: Dict[int, List[str]] = {}
     for c in cam_ids:
         cam_dir = os.path.join(root_path, f"{cam_prefix}{c + 1:03d}")
         if not os.path.isdir(cam_dir):
             continue
-        for path in sorted(f for f in glob.glob(os.path.join(cam_dir, "*"))
-                           if f.lower().endswith(_IMG_EXT)):
-            tasks.append((c, path))
+        files = sorted(f for f in glob.glob(os.path.join(cam_dir, "*"))
+                       if f.lower().endswith(_IMG_EXT))
+        if files:
+            files_by_cam[c] = files
+    # round-robin (image-index-major, not camera-major) so parallel progress is visibly
+    # interleaved across cameras instead of draining one camera's directory before the next.
+    tasks = []
+    i = 0
+    while True:
+        row = [(c, files[i]) for c, files in files_by_cam.items() if i < len(files)]
+        if not row:
+            break
+        tasks.extend(row)
+        i += 1
+
+    counts = Counter(c for c, _ in tasks)
+    seen = Counter()
+    lock = threading.Lock()
 
     def _do(t):
-        return _detect_one_image(root_path, t[0], t[1], specs, cam_prefix, legacy,
+        c, path = t
+        if progress_cb is not None:
+            with lock:
+                seen[c] += 1
+                progress_cb(c, seen[c], counts[c], path)
+        return _detect_one_image(root_path, c, path, specs, cam_prefix, legacy,
                                  min_corners, subpix, tuned)
 
     if workers and workers > 1 and len(tasks) > 1:
@@ -279,13 +307,16 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
 
 def reconstruct_from_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec], *,
                             cam_prefix: str = "Cam_", legacy: bool = True,
-                            min_corners: int = 6, init_models: Optional[Dict[int, object]] = None
+                            min_corners: int = 6, init_models: Optional[Dict[int, object]] = None,
+                            progress_cb=None
                             ) -> Tuple[Object3D, List[ObjectObs], Dict[int, Tuple[int, int]]]:
     """Raw image folder -> ``(fused object, object_obs, img_size)`` for a multi-board rig.
     ``init_models`` resects boards with the native per-camera model (see
-    :func:`reconstruct_object`) — needed for a wide-FOV fisheye rig."""
+    :func:`reconstruct_object`) — needed for a wide-FOV fisheye rig. ``progress_cb`` is
+    forwarded to :func:`detect_board_obs_images` -- see its docstring."""
     board_obs, img_size = detect_board_obs_images(
-        root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy, min_corners=min_corners)
+        root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
+        min_corners=min_corners, progress_cb=progress_cb)
     obj = reconstruct_object(board_obs, specs, img_size, init_models=init_models)
     return obj, object_obs_from_board_obs(board_obs, obj), img_size
 

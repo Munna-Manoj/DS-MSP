@@ -1,0 +1,149 @@
+/* ============================================================================
+   DS-MSP living-book design system — "clean technical" (FastAPI/Stripe feel).
+   Built on Material's CSS variables so it adapts to light/dark automatically.
+   ========================================================================== */
+
+:root {
+  --ds-accent: #5b6cff;          /* primary accent */
+  --ds-accent-soft: #eef0ff;     /* accent tint (light) */
+  --ds-radius: 12px;
+  --ds-border: var(--md-default-fg-color--lightest);
+}
+[data-md-color-scheme="slate"] {
+  --ds-accent: #8a97ff;
+  --ds-accent-soft: rgba(138, 151, 255, 0.12);
+  --ds-border: rgba(255, 255, 255, 0.12);
+}
+
+/* --- Readable measure & rhythm ------------------------------------------- */
+.md-typeset {
+  line-height: 1.72;
+}
+.md-typeset p,
+.md-typeset li {
+  max-width: 46rem;             /* hold a comfortable reading measure */
+}
+.md-typeset h2 {
+  margin-top: 3rem;
+  padding-bottom: .35rem;
+  border-bottom: 2px solid var(--ds-accent-soft);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.md-typeset h3 {
+  margin-top: 2rem;
+  letter-spacing: -0.01em;
+}
+
+/* Lead paragraph: the first paragraph after the H1 reads as a deck. */
+.md-typeset h1 + p {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--md-default-fg-color--light);
+  max-width: 48rem;
+}
+
+/* --- Stat chips: pull proved numbers OUT of prose ----------------------- */
+.ds-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .9rem;
+  margin: 1.6rem 0 2rem;
+}
+.ds-stat {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  padding: 1rem 1.1rem;
+  background: var(--md-default-bg-color);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.ds-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(91, 108, 255, 0.12);
+  border-color: var(--ds-accent);
+}
+.ds-stat__value {
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ds-accent);
+  font-variant-numeric: tabular-nums;
+}
+.ds-stat__label {
+  display: block;
+  margin-top: .35rem;
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--md-default-fg-color--light);
+}
+
+/* --- Figures: centered, framed, captioned ------------------------------- */
+.md-typeset figure {
+  margin: 2rem auto;
+}
+.md-typeset figure img,
+.md-typeset p > img {
+  border-radius: var(--ds-radius);
+  border: 1px solid var(--ds-border);
+  background: var(--md-default-bg-color);
+  max-width: 100%;
+}
+.md-typeset figcaption {
+  margin-top: .6rem;
+  font-size: .76rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+/* --- Material grid cards: subtle lift ----------------------------------- */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border-radius: var(--ds-radius);
+  border: 1px solid var(--ds-border);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+  border-color: var(--ds-accent);
+}
+
+/* --- Admonitions / callouts: a touch more room -------------------------- */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--ds-radius);
+  border-left-width: 3px;
+}
+
+/* --- Code blocks: rounded, a little breathing room ---------------------- */
+.md-typeset pre > code {
+  border-radius: var(--ds-radius);
+}
+
+/* --- Tables: subtle zebra, no heavy borders ----------------------------- */
+.md-typeset table:not([class]) {
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+}
+.md-typeset table:not([class]) tr:nth-child(2n) {
+  background: var(--md-default-fg-color--lightest);
+}
+
+/* --- "Next / prev" and prerequisite chips ------------------------------- */
+.ds-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .6rem;
+  border-radius: 999px;
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent);
+  font-size: .72rem;
+  font-weight: 600;
+}

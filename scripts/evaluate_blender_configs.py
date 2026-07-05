@@ -4,15 +4,15 @@ This is the *fully config-driven* counterpart to ``evaluate_rig_datasets.py``: i
 calling the pipeline in-process with random models, it **writes a real MC-Calib-compatible
 ``calib_param.yml`` per scenario per mode** into ``Blender_Images/configs/`` and runs each
 through :func:`ds_msp.rig.calib_param.calibrate_from_config` — exactly what a user does with
-``python scripts/calibrate_rig.py --config <file>``. It then tabulates a single big table.
+``ds-msp-calibrate-rig --config <file>``. It then tabulates a single big table.
 
 Two modes are run for every scenario, mirroring the two questions a user asks of the [rig]:
 
   * **given**  — *use the default given intrinsics, no intrinsics optimization.*
                  ``camera_models: radtan`` + ``cam_params_path`` (the scenario's prior
-                 MC-Calib intrinsics) + ``fix_intrinsic: 1``. Extrinsics-only solve.
+                 MC-Calib intrinsics) + ``fix_intrinsic: true``. Extrinsics-only solve.
   * **dsplus** — *calibrate from scratch with DS+.* ``camera_models: dsplus`` +
-                 ``cam_params_path: None`` + ``fix_intrinsic: 0``. Intrinsics + extrinsics
+                 ``cam_params_path: None`` + ``fix_intrinsic: false``. Intrinsics + extrinsics
                  estimated from scratch.
 
 Both modes reuse the already-detected 2D keypoints (``keypoints_path``) so the rig *math*
@@ -53,9 +53,9 @@ SCENARIOS = {
 #                  -> convert() seeds DS+ from the original radtan lens, then intrinsics +
 #                  extrinsics are refined jointly. Directly comparable to `given` on extrinsics.
 MODES = {
-    "given":         dict(model="radtan", fix=1, use_params=True),
-    "dsplus":        dict(model="dsplus", fix=0, use_params=False),
-    "dsplus_seeded": dict(model="dsplus", fix=0, use_params=True),
+    "given":         dict(model="radtan", fix="true", use_params=True),
+    "dsplus":        dict(model="dsplus", fix="false", use_params=False),
+    "dsplus_seeded": dict(model="dsplus", fix="false", use_params=True),
 }
 
 _CFG_TMPL = """%YAML:1.0
@@ -78,7 +78,7 @@ number_camera: {ncam}
 refine_corner: 1
 min_perc_pts: 0.5
 cam_params_path: "{cam_params}"   # given intrinsics ("None" => estimate from scratch)
-fix_intrinsic: {fix}              # 1 => hold given intrinsics; 0 => estimate/refine
+fix_intrinsic: "{fix}"            # true => hold given intrinsics; false => estimate/refine
 ######################################## Images Parameters ##################################
 root_path: "None"                # 2D keypoints reused below instead of raw images
 cam_prefix: "Cam_"
@@ -90,8 +90,8 @@ number_iterations: 1000
 he_approach: 0
 ######################################## Output Parameters ##################################
 save_path: "{save}"
-save_detection: 0
-save_reprojection: 0
+save_detection: "false"
+save_reprojection: "false"
 camera_params_file_name: ""
 """
 
@@ -247,7 +247,7 @@ def main(root="Blender_Images", modes=None):
 def _print_table(summary):
     hdr = ("dataset", "ncam", "mode", "model", "fix", "max_rms", "mean_rms",
            "base%GT", "foc%GT(max)", "foc%GT(med)")
-    fmt = "{:11s} {:>4} {:7s} {:7s} {:>3} {:>8} {:>8} {:>8} {:>11} {:>11}"
+    fmt = "{:11s} {:>4} {:7s} {:7s} {:>5} {:>8} {:>8} {:>8} {:>11} {:>11}"
     print("\n" + fmt.format(*hdr))
     print("-" * 92)
     for s in summary:
@@ -263,12 +263,12 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
     L = ["# DS-MSP[rig] — config-driven evaluation on MC-Calib Blender datasets", "",
          "Every row is produced by writing a real MC-Calib-compatible `calib_param.yml` "
          "(under `Blender_Images/configs/`) and running it through "
-         "`python scripts/calibrate_rig.py --config <file>` — no in-process shortcuts. "
+         "`ds-msp-calibrate-rig --config <file>` — no in-process shortcuts. "
          "Two modes per scenario:", "",
          "* **given** — use the default *given* intrinsics with **no intrinsics optimization** "
-         "(`camera_models: radtan`, `cam_params_path` set, `fix_intrinsic: 1`); extrinsics-only.",
+         "(`camera_models: radtan`, `cam_params_path` set, `fix_intrinsic: true`); extrinsics-only.",
          "* **dsplus** — calibrate **from scratch with DS+** "
-         "(`camera_models: dsplus`, `cam_params_path: None`, `fix_intrinsic: 0`); "
+         "(`camera_models: dsplus`, `cam_params_path: None`, `fix_intrinsic: false`); "
          "intrinsics + extrinsics estimated jointly.", "",
          "Both reuse the pre-detected 2D keypoints (`keypoints_path`) so the rig reconstruction "
          "+ bundle-adjustment math is what is exercised. `base%GT` = worst inter-camera baseline "
@@ -316,8 +316,8 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
         L += ["", "## Extrinsics: original intrinsics *held fixed* vs DS+ *seeded-from-original + "
               "optimized*", "",
               "Both runs start from the **same authors' original intrinsics**. `given` holds them "
-              "fixed (radtan, `fix_intrinsic: 1`) and solves extrinsics only; `dsplus_seeded` "
-              "selects DS+ with `fix_intrinsic: 0`, so `convert()` seeds DS+ from that original "
+              "fixed (radtan, `fix_intrinsic: true`) and solves extrinsics only; `dsplus_seeded` "
+              "selects DS+ with `fix_intrinsic: false`, so `convert()` seeds DS+ from that original "
               "lens and the bundle adjustment then refines intrinsics **and** extrinsics. "
               "`base%GT` = worst inter-camera baseline error vs ground-truth extrinsics "
               "(lower = better).", "",

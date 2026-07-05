@@ -38,11 +38,16 @@ def random_model_assignment(cam_ids: List[int], *, kind: str = "pinhole",
 
 
 def make_fixed_intrinsic_front_end(cameras: Dict[int, object]):
-    """Front-end for ``fix_intrinsic=1``: use the *given* per-camera intrinsics and only
+    """Front-end for ``fix_intrinsic=true``: use the *given* per-camera intrinsics and only
     estimate per-frame object poses (robust gated PnP). No intrinsic calibration — the
     global BA then refines extrinsics with these intrinsics held fixed, mirroring MC-Calib's
     fixed-intrinsic mode (which needs initial intrinsics and never refines them)."""
     def front_end(obj, obs_by_cam, img_size):
+        """Seed per-frame object poses by robust PnP; intrinsics are the fixed ``cameras``.
+
+        Matches the ``front_end(obj, obs_by_cam, img_size) -> {cam_id: CameraModel}``
+        signature :func:`~ds_msp.rig.calibrate.calibrate_rig` expects.
+        """
         for cam_id, obs in obs_by_cam.items():
             model = cameras[cam_id]
             for o in obs:
@@ -59,7 +64,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        image_root: Optional[str] = None,
                        cam_prefix: str = "Cam_", he_approach: int = 0,
                        refine_structure: bool = False,
-                       noise_bound: Optional[float] = None) -> Dict:
+                       noise_bound: Optional[float] = None,
+                       verbose: bool = False, on_iter=None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -68,7 +74,11 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     refining front-end's focal / principal point from a known intrinsics file (MC-Calib's
     ``cam_params_path`` initialization) — essential for a real strong-fisheye / mixed-resolution
     rig. When ``image_root`` is given, MC-Calib-style reprojection overlay images are written
-    too. Returns ``{rig, models, paths, metrics}``.
+    too. ``verbose=True`` prints per-stage progress (front-end, groups, each BA pass) as it
+    runs instead of staying silent until the final result. ``on_iter(it, max_iter, rms, cost,
+    rig_snapshot)`` fires once per solver iteration across every stage, with a real
+    ``RigState`` snapshot of the mid-solve geometry — the hook a live progress display (or a
+    3D terminal animator) drives from. Returns ``{rig, models, paths, metrics}``.
     """
     if init_cameras is not None:
         # Start from the provided per-camera models (MC-Calib's cam_params_path init): the
@@ -83,21 +93,32 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
                         fix_intrinsics=fix_intrinsics, front_end=front_end,
                         he_approach=he_approach, refine_structure=refine_structure,
-                        noise_bound=noise_bound)
+                        noise_bound=noise_bound, verbose=verbose, on_iter=on_iter)
     # keep the (possibly structure-refined) object the rig actually solved with
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
 
     paths = {}
     if save_dir is not None:
+        if on_iter is not None and hasattr(on_iter, "set_stage"):
+            on_iter.set_stage("(save) writing MC-Calib output")
         paths = save_mccalib_results(rig, save_dir, object3d=refined_object,
                                      object_obs=scn.object_obs,
                                      camera_params_file_name=camera_params_file_name,
                                      image_root=image_root, cam_prefix=cam_prefix)
         if image_root is not None:
+            # both used to run fully serially, silently, *after* the BA had already
+            # converged -- the live view's most visible "it's just sitting there" gap. Now
+            # parallel (see io/mccalib.py) and, if the caller carries a save_progress hook
+            # (WebLive3DAnimator), reported live instead of going dark.
+            save_cb = getattr(on_iter, "save_progress", None)
+            if on_iter is not None and hasattr(on_iter, "set_stage"):
+                on_iter.set_stage("(save) reprojection overlays")
             nr = save_reprojection_images(rig, scn.object_obs, image_root, save_dir,
-                                          cam_prefix=cam_prefix)
+                                          cam_prefix=cam_prefix, progress_cb=save_cb)
+            if on_iter is not None and hasattr(on_iter, "set_stage"):
+                on_iter.set_stage("(save) detection overlays")
             nd = save_detection_images(scn.object_obs, image_root, save_dir,
-                                       cam_prefix=cam_prefix)
+                                       cam_prefix=cam_prefix, progress_cb=save_cb)
             paths["reprojection_images"] = f"Reprojection/ ({nr} images)"
             paths["detection_images"] = f"Detection/ ({nd} images)"
     metrics = _scenario_metrics(rig, scn)
@@ -161,6 +182,14 @@ def _scenario_metrics(rig: RigState, scn: Scenario) -> Dict:
     ref = rig.ref_cam_id
 
     def worst_baseline(ref_poses: Dict[int, np.ndarray], invert: bool) -> Optional[float]:
+        """Largest inter-camera baseline error (%) vs a reference pose set.
+
+        Compares each non-reference camera's baseline relative to ``ref`` (from
+        ``rig.T_c_g``) against the same relative baseline in ``ref_poses``.
+        ``invert=True`` treats ``ref_poses`` as camera->world (GT/MC-Calib
+        convention) and inverts before comparing. Returns ``None`` if ``ref`` has
+        no entry in ``ref_poses`` or there is no overlapping camera to compare.
+        """
         common = [c for c in rig.T_c_g if c in ref_poses and c != ref] if ref in ref_poses else []
         if not common:
             return None

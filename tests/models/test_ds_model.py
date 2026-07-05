@@ -3,11 +3,13 @@ DoubleSphereModel unit tests: it must agree with the standalone ds_math and with
 the legacy DoubleSphereCamera, and its conversion seed must be sane.
 """
 
+import warnings
+
 import pytest
 import numpy as np
 
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.models.ds_math import ds_project
+from ds_msp.models.ds_math import ds_project, ds_unproject
 from ds_msp.model import DoubleSphereCamera
 from ds_msp.testing import sample_forward_points
 
@@ -55,6 +57,22 @@ def test_initialize_seed_is_reasonable():
     lb, ub = DoubleSphereModel.param_bounds()
     assert (seed.params >= lb).all() and (seed.params <= ub).all()
     assert 0.0 <= seed.alpha <= 1.0
+
+
+def test_unproject_alpha_one_boundary_ray_is_finite_and_invalid_not_a_warning():
+    """Regression: alpha=1.0 is a legal optimizer bound (calib_param.py's alpha in [0,1]);
+    combined with a ray exactly at the sphere-intersection edge (r2 = 1/(2*alpha-1)) the
+    closed-form unprojection's denominator hits exactly 0/0. Must be flagged invalid and
+    return a finite (zeroed) ray, not silently warn and/or leak a NaN under valid=True."""
+    fx = fy = 500.0
+    cx = cy = 320.0
+    u = cx + fx * 1.0                       # mx=1, my=0 -> r2=1 -> the alpha=1 boundary
+    pts = np.array([[u, cy]])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ray, valid = ds_unproject(pts, fx, fy, cx, cy, xi=0.5, alpha=1.0)
+    assert not valid[0]
+    assert np.all(np.isfinite(ray))
 
 # Traceability: links this suite to the requirement(s) it verifies.
 pytestmark = pytest.mark.req("NFR-NUM-005")

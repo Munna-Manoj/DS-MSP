@@ -22,13 +22,13 @@ with both a clean implementation *and* a chapter that explains them.
   Double Sphere model reproducing TUM-VI's published calibration to 0.025 px.
 - **Capstone**: calibrate a real fisheye end-to-end from AprilGrid footage
   (`detect → correspond → bundle-adjust`) and match the published intrinsics to
-  0.003% focal / 0.08 px median (multi-scale, periphery-robust detection — see the
+  ~0.02% focal / 0.08 px median (multi-scale, periphery-robust detection — see the
   [deep-dive](learn/robust_aprilgrid_detection.md)). AprilGrid detection adds `ds_msp/calib/{targets,detect}.py`
   and the `[calib]` extra.
 - **Model-choice deep-dives** ✅ — a measurable framework for picking a camera model
-  ([choosing a camera model](learn/choosing_a_camera_model.md): capacity, Jacobian-conditioning
+  ([choosing a camera model](explain/choosing_a_camera_model.md): capacity, Jacobian-conditioning
   identifiability, parameter redundancy, cost, FOV weighting) and an honest worked case study
-  applying it ([EUCM⁺ vs DS⁺ vs KB](learn/case_study_eucmplus_dsplus_kb.md) — including a
+  applying it ([EUCM⁺ vs DS⁺ vs KB](explain/case_study_eucmplus_dsplus_kb.md) — including a
   retracted hypothesis), both runnable via `examples/10_evaluating_camera_models.py`.
 
 ## Next (learning curriculum)

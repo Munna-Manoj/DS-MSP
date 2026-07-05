@@ -20,6 +20,18 @@ Notes:
   unified ``alpha``; converted on the fly.
 - Kalibr radtan has only 4 coeffs: a non-zero ``k3`` is dropped on export (with a
   warning), since the on-disk format cannot represent it.
+
+DS-MSP EXTENSION (DS⁺ / EUCM⁺ have no Kalibr-native equivalent -- these are DS-MSP's own
+published models, not part of Kalibr's camera-model set, the same way ``ds_msp.rig`` already
+extends MC-Calib's own format with ``camera_models``). Round-trips through this module, but a
+real Kalibr installation will not recognize these two ``camera_model`` strings:
+
+  ===========  ==============  ==================  ==============================  ==============================
+  model        camera_model    distortion_model    intrinsics order                distortion_coeffs
+  ===========  ==============  ==================  ==============================  ==============================
+  DS⁺          ds_plus         ds_plus_div_tilt    [alpha, fx, fy, cx, cy]         [lambda1, lambda2, tau_x, tau_y]
+  EUCM⁺        eucm_plus       eucm_plus_div_tilt  [alpha, beta, fx, fy, cx, cy]   [lambda1, tau_x, tau_y]
+  ===========  ==============  ==================  ==============================  ==============================
 """
 
 from __future__ import annotations
@@ -31,7 +43,9 @@ import numpy as np
 import yaml
 
 from ..models.double_sphere import DoubleSphereModel
+from ..models.dsplus import DSPlusModel
 from ..models.eucm import EUCMModel
+from ..models.eucmplus import EUCMPlusModel
 from ..models.kb import KannalaBrandtModel
 from ..models.radtan import RadTanModel
 from ..models.ucm import UCMModel
@@ -65,6 +79,16 @@ def to_kalibr_cam(model, width: int, height: int) -> dict:
         block = dict(camera_model="omni",
                      intrinsics=[xi_mei, model.fx, model.fy, model.cx, model.cy],
                      distortion_model="none", distortion_coeffs=[])
+    elif name == "dsplus":
+        block = dict(camera_model="ds_plus",
+                     intrinsics=[model.alpha, model.fx, model.fy, model.cx, model.cy],
+                     distortion_model="ds_plus_div_tilt",
+                     distortion_coeffs=[model.lambda1, model.lambda2, model.tau_x, model.tau_y])
+    elif name == "eucmplus":
+        block = dict(camera_model="eucm_plus",
+                     intrinsics=[model.alpha, model.beta, model.fx, model.fy, model.cx, model.cy],
+                     distortion_model="eucm_plus_div_tilt",
+                     distortion_coeffs=[model.lambda1, model.tau_x, model.tau_y])
     else:
         raise ValueError(f"No Kalibr mapping for model '{name}'")
     block["resolution"] = [int(width), int(height)]
@@ -90,6 +114,14 @@ def from_kalibr_cam(block: dict):
             raise NotImplementedError("omni + distortion is not representable by UCMModel")
         alpha = xi_mei / (1.0 + xi_mei)
         return UCMModel(fx, fy, cx, cy, alpha)
+    if cm == "ds_plus":
+        alpha, fx, fy, cx, cy = intr
+        lambda1, lambda2, tau_x, tau_y = D
+        return DSPlusModel(fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y)
+    if cm == "eucm_plus":
+        alpha, beta, fx, fy, cx, cy = intr
+        lambda1, tau_x, tau_y = D
+        return EUCMPlusModel(fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y)
     if cm == "pinhole":
         fx, fy, cx, cy = intr
         if dm == "equidistant":
@@ -143,6 +175,25 @@ def load_kalibr(path: str, cam: str = "cam0"):
 
 
 def load_kalibr_with_resolution(path: str, cam: str = "cam0") -> Tuple[object, Tuple[int, int]]:
+    """Read a model and its image resolution from a Kalibr camchain YAML file.
+
+    Parameters
+    ----------
+    path : str
+        Path to a Kalibr camchain YAML file.
+    cam : str, default "cam0"
+        Stanza key to read (e.g. ``"cam0"``, ``"cam1"``). If ``cam`` is not present
+        in the file, falls back to the alphabetically first ``camN`` key found.
+
+    Returns
+    -------
+    model : CameraModel
+        The reconstructed DS-MSP camera model (see the module docstring for the
+        camera-model mapping table).
+    resolution : tuple of int
+        ``(width, height)`` in pixels, read from the stanza's ``resolution`` field;
+        ``(0, 0)`` if absent.
+    """
     with open(path, "r") as f:
         data = yaml.safe_load(f)
     if cam not in data:

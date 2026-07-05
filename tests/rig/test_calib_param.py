@@ -1,16 +1,22 @@
 """MC-Calib calib_param.yml parsing + the single-file ``calibrate_from_config`` entry."""
+import importlib.resources
 import os
 import textwrap
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from ds_msp.rig.calib_param import calibrate_from_config, load_config
 
-_TEMPLATE = Path(__file__).parents[2] / "configs" / "calib_param.template.yml"
-_INTRINSICS_TEMPLATE = Path(__file__).parents[2] / "configs" / "camera_intrinsics.template.yml"
-_KEYPOINTS_TEMPLATE = Path(__file__).parents[2] / "configs" / "calib_param.keypoints.template.yml"
+# Resolved the same way the shipped CLI resolves them (ds_msp/rig/cli.py's --init-config /
+# --init-intrinsics), not a path relative to the test file -- these templates live inside the
+# ds_msp package (ds_msp/rig/configs/) specifically so they ship as package data with
+# `pip install ds-msp`; resolving them the same way here means a test failure here would also
+# have caught them going missing from a real wheel.
+_CONFIGS_DIR = importlib.resources.files("ds_msp.rig") / "configs"
+_TEMPLATE = _CONFIGS_DIR / "calib_param.template.yml"
+_INTRINSICS_TEMPLATE = _CONFIGS_DIR / "camera_intrinsics.template.yml"
+_KEYPOINTS_TEMPLATE = _CONFIGS_DIR / "calib_param.keypoints.template.yml"
 
 
 @pytest.mark.req("FR-RIG-004")
@@ -45,6 +51,179 @@ def _write_cfg(tmp_path, body):
     p = tmp_path / "calib_param.yml"
     p.write_text("%YAML:1.0\n" + textwrap.dedent(body))
     return str(p)
+
+
+# --- true/false config booleans (replacing the old, confusing 0/1 numeric convention) ---
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_fields_accept_true_false(tmp_path):
+    """The new, intuitive form: every genuinely-boolean field written as true/false."""
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        fix_intrinsic: true
+        save_detection: true
+        save_reprojection: false
+        verbose: false
+        webviewer: false
+    """)
+    cfg = load_config(cfgp)
+    assert cfg.fix_intrinsic is True
+    assert cfg.save_detection is True
+    assert cfg.save_reprojection is False
+    assert cfg.verbose is False
+    assert cfg.webviewer is False
+
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_fields_still_accept_legacy_0_1_and_match_true_false(tmp_path):
+    """Backward compatibility: older config files wrote these as 0/1. Both forms must parse to
+    the identical RigConfig, so no existing config file breaks when DS-MSP is upgraded."""
+    legacy_dir, modern_dir = tmp_path / "legacy", tmp_path / "modern"
+    legacy_dir.mkdir()
+    modern_dir.mkdir()
+    legacy = _write_cfg(legacy_dir, """
+        number_camera: 1
+        fix_intrinsic: 1
+        save_detection: 1
+        save_reprojection: 0
+        verbose: 0
+        webviewer: 0
+    """)
+    modern = _write_cfg(modern_dir, """
+        number_camera: 1
+        fix_intrinsic: true
+        save_detection: true
+        save_reprojection: false
+        verbose: false
+        webviewer: false
+    """)
+    cfg_legacy = load_config(legacy)
+    cfg_modern = load_config(modern)
+    for field in ("fix_intrinsic", "save_detection", "save_reprojection", "verbose", "webviewer"):
+        assert isinstance(getattr(cfg_legacy, field), bool)
+        assert getattr(cfg_legacy, field) == getattr(cfg_modern, field)
+
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_field_strips_a_trailing_inline_comment(tmp_path):
+    """cv2.FileStorage does NOT strip a trailing `# comment` from an unquoted bareword value
+    (verified against the real parser -- it does for numeric 0/1, not for true/false), so a
+    real config file like configs/calib_param.template.yml, with `webviewer: true  # ...`,
+    must still parse correctly rather than choking on 'true  # ...' as an unrecognized value."""
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        fix_intrinsic: false               # comment on the same line, exactly like the templates
+        webviewer: true    # another inline comment
+    """)
+    cfg = load_config(cfgp)
+    assert cfg.fix_intrinsic is False
+    assert cfg.webviewer is True
+
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_field_errors_clearly_on_a_colon_in_an_unquoted_inline_comment(tmp_path):
+    """A much more severe, previously-hidden cv2.FileStorage quirk: an unquoted true/false whose
+    trailing comment contains a ':' (e.g. `false: refine // true: hold fixed`, exactly the
+    style this repo's own templates originally used) makes the parser misread the VALUE as a
+    nested mapping (isMap() true, not isString()) -- _scalar then silently falls through to a
+    DBL_MAX sentinel, which `bool(int(...))` turns into a wrong `True` with NO error at all. This
+    must instead raise a clear, actionable error (the real fix: quote the value)."""
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        fix_intrinsic: false   # false: refine  //  true: hold fixed
+    """)
+    with pytest.raises(ValueError, match="quote"):
+        load_config(cfgp)
+
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_field_quoted_value_is_safe_even_with_a_colon_in_the_comment(tmp_path):
+    """The documented, templates-wide fix for the colon-in-comment quirk: quoting the value
+    sidesteps it entirely, regardless of what the trailing comment says."""
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        fix_intrinsic: "false"   # false: refine  //  true: hold fixed
+    """)
+    cfg = load_config(cfgp)
+    assert cfg.fix_intrinsic is False
+
+
+@pytest.mark.req("FR-RIG-015")
+def test_bool_config_field_rejects_an_unrecognized_value(tmp_path):
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        fix_intrinsic: maybe
+    """)
+    with pytest.raises(ValueError, match="fix_intrinsic"):
+        load_config(cfgp)
+
+
+@pytest.mark.req("FR-RIG-014")
+def test_webviewer_defaults_true_and_is_independent_of_verbose(tmp_path):
+    """`webviewer` must default to the pre-existing always-on behavior (no silent UX change for
+    configs that don't mention it), and must be settable independently of `verbose` -- a headless
+    run wants webviewer=false with verbose still true (terminal progress, no browser)."""
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        verbose: true
+    """)
+    cfg = load_config(cfgp)
+    assert cfg.webviewer is True                # default, even though verbose was set explicitly
+    assert cfg.verbose is True
+
+    other_dir = tmp_path / "b"
+    other_dir.mkdir()
+    cfgp2 = _write_cfg(other_dir, """
+        number_camera: 1
+        verbose: true
+        webviewer: false
+    """)
+    cfg2 = load_config(cfgp2)
+    assert cfg2.verbose is True and cfg2.webviewer is False
+
+
+@pytest.mark.req("FR-RIG-014")
+def test_calibrate_from_config_constructs_animator_from_webviewer_not_verbose(tmp_path, monkeypatch):
+    """The live browser view must be gated by `webviewer`, decoupled from `verbose` (terminal
+    progress lines) -- this is the exact wiring bug this test would have caught: passing
+    `verbose=cfg.verbose` to WebLive3DAnimator would silently re-couple the two.
+
+    ``calibrate_from_config`` does ``from .web3d import WebLive3DAnimator`` as a *function-local*
+    import (deliberately, so importing ``ds_msp.rig.calib_param`` alone never pulls in the
+    http.server/webbrowser machinery) -- so the patch target is ``ds_msp.rig.web3d``, the module
+    the name is actually resolved from at call time, not ``calib_param``'s own namespace."""
+    import ds_msp.rig.calib_param as calib_param_mod
+    import ds_msp.rig.web3d as web3d_mod
+
+    captured = {}
+
+    class _StopHere(Exception):
+        pass
+
+    class _FakeAnimator:
+        def __init__(self, *a, verbose=True, **k):
+            captured["verbose"] = verbose
+
+        def bind_scene(self, *a, **k):
+            pass
+
+    def _boom(*a, **k):
+        raise _StopHere()
+
+    monkeypatch.setattr(web3d_mod, "WebLive3DAnimator", _FakeAnimator)
+    monkeypatch.setattr(calib_param_mod, "_detect_obs", _boom)
+    monkeypatch.setattr(calib_param_mod, "_try_load_object", lambda cfg: None)
+    monkeypatch.setattr(calib_param_mod, "_reconstruct", _boom)
+
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        number_board: 1
+        verbose: true
+        webviewer: false
+    """)
+    with pytest.raises(_StopHere):
+        calibrate_from_config(cfgp)
+    assert captured["verbose"] is False           # cfg.webviewer, NOT cfg.verbose (which was True)
 
 
 @pytest.mark.req("FR-RIG-002", "FR-RIG-005")

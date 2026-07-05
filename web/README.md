@@ -4,7 +4,7 @@ A small Vite + React + TypeScript + three.js app that teaches wide-FOV camera
 projection live: pick any of the six models the library ships, drag a 3D point,
 and step its projection onto a sphere / cylinder / plane.
 
-**Live demo:** https://munna-manoj.github.io/DS-MSP/
+**Live demo:** https://munna-manoj.github.io/DS-MSP/studio/
 
 ## Not part of the Python package
 

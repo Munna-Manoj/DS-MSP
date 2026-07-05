@@ -9,7 +9,10 @@ present (``rig.handeye``).
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
@@ -19,6 +22,7 @@ from ..calib.bundle import calibrate as _calibrate_single
 from ..geometry.resection import intrinsics_seed, ransac_pnp_normalized
 from ..core.contracts import CameraModel
 from ..models.radtan import RadTanModel
+from ..models.registry import seed_from_K as _seed_from_K
 from . import bundle
 from .extrinsics import init_camera_groups
 from .pose_init import (average_object_pose_in_group, robust_pose_irls)
@@ -48,7 +52,14 @@ def _robust_pinhole(objpts, imgpts, w, h):
     seed = RadTanModel(K[0, 0], K[1, 1], K[0, 2], K[1, 2], 0.0, 0.0, 0.0, 0.0, 0.0)
     vis = [np.ones(len(o), bool) for o in op]
     try:
-        res = _calibrate_single(seed, op, ip, vis, loss="cauchy", f_scale=1.0, max_nfev=80)
+        # force_multistart=True: RadTan's own accuracy doesn't need multi-start (that's
+        # exactly what lets the front-end's Two-start step skip it — NFR-PERF-001), but THIS
+        # seed feeds every downstream model, including the sphere models whose fit is
+        # documented to be chaotically sensitive to which "equally good" focal a restart
+        # lands on (measured: a skipped restart here flipped a DS fit between the UCM-collapse
+        # basin and a genuine xi solution on real synthetic data). Keep the full sweep.
+        res = _calibrate_single(seed, op, ip, vis, loss="cauchy", f_scale=1.0, max_nfev=80,
+                                force_multistart=True)
         Kr = res["model"].K
         if np.isfinite(Kr).all() and Kr[0, 0] > 0 and Kr[1, 1] > 0:
             K = Kr
@@ -121,30 +132,6 @@ def _front_end_opencv(obj: Object3D, obs_by_cam: Dict[int, List[ObjectObs]],
     return cameras
 
 
-# Neutral seed values per intrinsic parameter name — a generic, GT-free starting point
-# for from-scratch single-camera calibration of any model. Distortion/shape params not
-# listed here seed to 0.0 (see ``_seed_from_K``), so any model — including DS+/EUCM+ whose
-# extra terms (lambda1/lambda2 division-distortion, tau_x/tau_y tilt) are neutral at 0 —
-# is supported without enumerating every parameter name.
-_NEUTRAL = {"alpha": 0.5, "xi": 0.0, "beta": 1.0, "k1": 0.0, "k2": 0.0, "k3": 0.0,
-            "k4": 0.0, "p1": 0.0, "p2": 0.0,
-            "lambda1": 0.0, "lambda2": 0.0, "tau_x": 0.0, "tau_y": 0.0}
-
-
-def _seed_from_K(model_cls, K: np.ndarray) -> CameraModel:
-    """Build a seed instance of ``model_cls`` from a pinhole ``K`` (focal + principal
-    point) with neutral distortion — the from-scratch starting point for any model."""
-    if not set(model_cls.param_names) >= {"fx", "fy"}:
-        # Non-pinhole-parameterized model (e.g. OCam: cx,cy + projection polynomial). It
-        # has no fx/fy; seed cx,cy + a focal-scaled leading polynomial term and let
-        # `initialize_from_correspondences` fit the rest from rays.
-        return model_cls(K[0, 2], K[1, 2])
-    vals = {"fx": K[0, 0], "fy": K[1, 1], "cx": K[0, 2], "cy": K[1, 2], **_NEUTRAL}
-    # Unknown shape/distortion params seed to 0.0 (neutral) so any model is supported.
-    vec = np.array([vals.get(n, 0.0) for n in model_cls.param_names], float)
-    return model_cls.from_params(vec)
-
-
 def paraxial_focal(model: CameraModel) -> Tuple[float, float]:
     """The *model-independent* focal length f_eff = dr/dθ|₀ (paraxial focal), in pixels.
 
@@ -201,6 +188,96 @@ def _model_aware_seed(model_cls, Kp, ge6, obj) -> CameraModel:
     return seed, Xcal, uvcal
 
 
+def _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
+    """One camera's independent intrinsic pre-calibration — the front-end's parallelizable
+    unit of work (no dependency on any other camera). Returns ``dict(model=.., cls=..)``,
+    the exact per-camera result the serial loop used to build inline. Pulled out to a
+    top-level function so it is picklable for :class:`~concurrent.futures.ProcessPoolExecutor`
+    (see :func:`make_bundle_front_end`'s ``n_jobs``)."""
+    ge6 = [o for o in obs if len(o.point_rows) >= 6]   # views usable for intrinsics
+    objpts = [obj.pts_3d[o.point_rows].astype(np.float32) for o in ge6]
+    imgpts = [o.pts_2d.astype(np.float32) for o in ge6]
+    # Focal / principal-point seed: the provided intrinsics if given (MC-Calib's
+    # cam_params_path init), else a from-scratch robust pinhole pre-calibration.
+    if init_K_cam is not None:
+        Kp = np.asarray(init_K_cam, float)
+    else:
+        Kp, _distp = _robust_pinhole(objpts, imgpts, w, h)
+    # Model-aware seed + RANSAC-inlier correspondences (so gross outliers neither
+    # corrupt the per-model distortion solve nor wreck calibrate()'s pose seeding).
+    seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, obj)
+    if len(Xcal) >= 3:
+        vis = [np.ones(len(x), bool) for x in Xcal]
+        # Two-start: the model-aware distortion solve helps low-order models (DS/
+        # UCM/EUCM α) but a high-order fit (KB's 4-term θ-polynomial) from slightly
+        # biased pinhole bearings can seed *worse* than neutral. Calibrate from both
+        # and keep the lower-RMS fit, so the geometry-aware seed is used only when it
+        # actually helps and never degrades a model whose fx is already paraxial.
+        # A model whose ``initialize_from_correspondences`` is a neutral-distortion
+        # no-op (RadTan, OCam's affine terms) makes ``seed_ma`` byte-identical to
+        # ``_seed_from_K`` — solving that seed twice is deterministic, wasted work,
+        # not a second opinion, so skip the duplicate candidate entirely.
+        start_seeds = [seed_ma]
+        seed_k = _seed_from_K(model_cls, Kp)
+        if not np.array_equal(seed_ma.params, seed_k.params):
+            start_seeds.append(seed_k)
+        cands = [_calibrate_single(s, Xcal, uvcal, vis, loss=loss, f_scale=f_scale,
+                                   max_nfev=max_nfev)
+                 for s in start_seeds]
+        # Focal-collapse anchor: the robust pinhole pre-calibration (RANSAC DLT) gives
+        # a reliable paraxial focal even under gross outliers, but the per-model Cauchy
+        # refine can still slide into a tiny-focal local minimum that absorbs surviving
+        # blunders into distortion (a low-RMS but wrong fit). Reject any candidate whose
+        # paraxial focal departs the seed by >2x; if both collapse, fall back to the
+        # seed focal with neutral distortion and let the global BA fit distortion
+        # through the rigid-rig constraint. The band is wide enough never to fire on a
+        # genuine fisheye (its f_eff still tracks the perspective seed near the axis),
+        # and being per-camera + absolute it survives an all-cameras collapse that the
+        # median-based consensus guard below cannot.
+        foc_seed = 0.5 * (Kp[0, 0] + Kp[1, 1])
+
+        def _focal_ok(m):
+            fx, fy = paraxial_focal(m)
+            return (0.5 * foc_seed < fx < 2.0 * foc_seed
+                    and 0.5 * foc_seed < fy < 2.0 * foc_seed)
+
+        ok = [r for r in cands if _focal_ok(r["model"])]
+        model = (min(ok, key=lambda r: r["rms_px"])["model"] if ok
+                else _seed_from_K(model_cls, Kp))
+    else:
+        model = seed_ma
+    return dict(model=model, cls=model_cls)
+
+
+def _init_pool_worker(obj: Object3D) -> None:
+    """``ProcessPoolExecutor`` initializer for the front-end's per-camera pool.
+
+    Two jobs, both done once per **worker process**, not once per camera:
+    1. Force single-threaded BLAS (same fix as CI's ``OMP_NUM_THREADS=1`` for pytest-xdist —
+       see ``.github/workflows/ci.yml``) so N worker processes don't each also fan out into M
+       BLAS threads and oversubscribe the machine. Must happen before any BLAS-backed NumPy
+       call in this fresh interpreter, which is exactly what an initializer guarantees.
+    2. Stash the (potentially large, shared, read-only) fused ``Object3D`` in a module global
+       so it is pickled to each worker **once**, not once per camera — the difference between
+       O(workers) and O(cameras) serialization at 100s-1000s of cameras.
+    """
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+               "NUMEXPR_NUM_THREADS"):
+        os.environ[var] = "1"
+    global _POOL_OBJ
+    _POOL_OBJ = obj
+
+
+_POOL_OBJ: Optional[Object3D] = None
+
+
+def _fit_one_camera_pooled(cam_id, model_cls, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
+    """Pool task: identical to :func:`_fit_one_camera` but reads the shared ``Object3D`` from
+    the worker-local global set by :func:`_init_pool_worker` instead of a per-task argument."""
+    r = _fit_one_camera(model_cls, _POOL_OBJ, obs, w, h, init_K_cam, loss, f_scale, max_nfev)
+    return cam_id, r
+
+
 def _resolve_model_map(model_spec, cam_ids) -> Dict[int, type]:
     """Resolve ``model_spec`` to a ``{cam_id: model_cls}`` map.
 
@@ -219,7 +296,8 @@ def _resolve_model_map(model_spec, cam_ids) -> Dict[int, type]:
 
 
 def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 1.0,
-                          max_nfev: int = 150, init_K: Optional[Dict[int, np.ndarray]] = None):
+                          max_nfev: int = 150, init_K: Optional[Dict[int, np.ndarray]] = None,
+                          n_jobs: Optional[int] = -1):
     """Build a front-end that calibrates each camera with its chosen model.
 
     ``model_spec`` is either one model (class or name) used for **every** camera, or a
@@ -239,86 +317,93 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
     consensus median is meaningless across a mixed-resolution rig, e.g. 2592 + 640 px cameras).
     The chosen model still fits its native distortion and the global BA still refines unless
     intrinsics are fixed.
+
+    ``n_jobs`` — every camera's intrinsic pre-calibration (and, once intrinsics are known,
+    every camera's per-frame pose seeding) is independent of every other camera, so it runs
+    across a :class:`~concurrent.futures.ProcessPoolExecutor`: ``-1`` (default) uses all CPU
+    cores (capped at the camera count — never more workers than cameras), a positive int caps
+    the worker count, ``1`` forces the original serial loop (useful for debugging or a
+    single-camera rig, where pool startup would only add overhead). This is **pure
+    parallelism, not an approximation** — same seeds, same solver, same deterministic result,
+    it just runs concurrently instead of one-camera-at-a-time; it therefore speeds up *every*
+    camera model and distortion level equally, and the benefit grows with the camera count
+    (unlike the model-specific redundancy fixes elsewhere in this module).
     """
     def front_end(obj, obs_by_cam, img_size):
+        """Per-camera intrinsic calibration + pose seeding front-end.
+
+        Matches the ``front_end(obj, obs_by_cam, img_size) -> {cam_id: CameraModel}``
+        signature :func:`calibrate_rig` expects; see :func:`make_bundle_front_end`'s
+        docstring for the seeding/parallelism strategy.
+        """
         model_map = _resolve_model_map(model_spec, list(obs_by_cam))
         seeded = set(init_K) if init_K else set()
-        raw = {}
-        for cam_id, obs in obs_by_cam.items():
-            model_cls = model_map[cam_id]
+        cam_ids = list(obs_by_cam)
+        workers = (os.cpu_count() or 1) if n_jobs is None or n_jobs < 0 else max(1, n_jobs)
+        workers = min(workers, len(cam_ids))
+
+        def _args(cam_id):
+            obs = obs_by_cam[cam_id]
             w, h = img_size[cam_id]
-            ge6 = [o for o in obs if len(o.point_rows) >= 6]   # views usable for intrinsics
-            objpts = [obj.pts_3d[o.point_rows].astype(np.float32) for o in ge6]
-            imgpts = [o.pts_2d.astype(np.float32) for o in ge6]
-            # Focal / principal-point seed: the provided intrinsics if given (MC-Calib's
-            # cam_params_path init), else a from-scratch robust pinhole pre-calibration.
-            if cam_id in seeded:
-                Kp = np.asarray(init_K[cam_id], float)
+            init_K_cam = np.asarray(init_K[cam_id], float) if cam_id in seeded else None
+            return model_map[cam_id], obs, w, h, init_K_cam, loss, f_scale, max_nfev
+
+        # One pool spans both independent-per-camera stages below (intrinsic fit, then pose
+        # seeding once intrinsics are known) so process start-up is paid once, not twice.
+        pool = (ProcessPoolExecutor(max_workers=workers, initializer=_init_pool_worker,
+                                    initargs=(obj,)) if workers > 1 else nullcontext())
+        with pool as ex:
+            raw = {}
+            if ex is not None:
+                futs = [ex.submit(_fit_one_camera_pooled, cam_id, *_args(cam_id))
+                       for cam_id in cam_ids]
+                for fut in futs:
+                    cam_id, r = fut.result()
+                    raw[cam_id] = dict(r, obs=obs_by_cam[cam_id])
             else:
-                Kp, _distp = _robust_pinhole(objpts, imgpts, w, h)
-            # Model-aware seed + RANSAC-inlier correspondences (so gross outliers neither
-            # corrupt the per-model distortion solve nor wreck calibrate()'s pose seeding).
-            seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, obj)
-            if len(Xcal) >= 3:
-                vis = [np.ones(len(x), bool) for x in Xcal]
-                # Two-start: the model-aware distortion solve helps low-order models (DS/
-                # UCM/EUCM α) but a high-order fit (KB's 4-term θ-polynomial) from slightly
-                # biased pinhole bearings can seed *worse* than neutral. Calibrate from both
-                # and keep the lower-RMS fit, so the geometry-aware seed is used only when it
-                # actually helps and never degrades a model whose fx is already paraxial.
-                cands = [_calibrate_single(s, Xcal, uvcal, vis, loss=loss, f_scale=f_scale,
-                                           max_nfev=max_nfev)
-                         for s in (seed_ma, _seed_from_K(model_cls, Kp))]
-                # Focal-collapse anchor: the robust pinhole pre-calibration (RANSAC DLT) gives
-                # a reliable paraxial focal even under gross outliers, but the per-model Cauchy
-                # refine can still slide into a tiny-focal local minimum that absorbs surviving
-                # blunders into distortion (a low-RMS but wrong fit). Reject any candidate whose
-                # paraxial focal departs the seed by >2x; if both collapse, fall back to the
-                # seed focal with neutral distortion and let the global BA fit distortion
-                # through the rigid-rig constraint. The band is wide enough never to fire on a
-                # genuine fisheye (its f_eff still tracks the perspective seed near the axis),
-                # and being per-camera + absolute it survives an all-cameras collapse that the
-                # median-based consensus guard below cannot.
-                foc_seed = 0.5 * (Kp[0, 0] + Kp[1, 1])
+                for cam_id in cam_ids:
+                    model_cls, obs, w, h, init_K_cam, *rest = _args(cam_id)
+                    r = _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, *rest)
+                    raw[cam_id] = dict(r, obs=obs_by_cam[cam_id])
 
-                def _focal_ok(m):
-                    fx, fy = paraxial_focal(m)
-                    return (0.5 * foc_seed < fx < 2.0 * foc_seed
-                            and 0.5 * foc_seed < fy < 2.0 * foc_seed)
+            # Consensus guard: a camera that views the target near-planar (e.g. an obliquely
+            # angled camera seeing one board) hits the focal ambiguity and calibrates to a
+            # wrong / anamorphic focal. Detect such cameras by deviation from the per-rig
+            # median *paraxial* focal (the model-independent f_eff — comparing raw fx across a
+            # model with non-trivial axial terms is meaningless), reset to the consensus, and
+            # let the global BA refine them through the rigid-rig constraint.
+            feff = {c: paraxial_focal(raw[c]["model"]) for c in raw}
+            med_fx = float(np.median([feff[c][0] for c in raw]))
+            med_fy = float(np.median([feff[c][1] for c in raw]))
 
-                ok = [r for r in cands if _focal_ok(r["model"])]
-                model = (min(ok, key=lambda r: r["rms_px"])["model"] if ok
-                         else _seed_from_K(model_cls, Kp))
+            cameras = {}
+            pnp_args = {}
+            for cam_id, r in raw.items():
+                fx, fy = feff[cam_id]
+                if (cam_id not in seeded and len(raw) >= 2
+                        and (abs(fx - med_fx) > 0.25 * med_fx
+                             or abs(fy - med_fy) > 0.25 * med_fy)):
+                    w, h = img_size[cam_id]
+                    Kc = np.array([[med_fx, 0, w / 2.0], [0, med_fy, h / 2.0], [0, 0, 1.0]])
+                    model = _seed_from_K(r["cls"], Kc)
+                else:
+                    model = r["model"]
+                cameras[cam_id] = model
+                pnp_args[cam_id] = [(o.point_rows, o.pts_2d) for o in r["obs"]]
+
+            # All object poses via robust gated PnP (keeps every point downstream; the global
+            # BA does the IRLS weighting, no per-point rejection in the answer) — independent
+            # per camera exactly like the intrinsic fit above, so it shares the same pool.
+            if ex is not None:
+                futs = [ex.submit(_pnp_poses_pooled, cam_id, cameras[cam_id], pnp_args[cam_id])
+                       for cam_id in cam_ids]
+                poses = dict(fut.result() for fut in futs)
             else:
-                model = seed_ma
-            raw[cam_id] = dict(model=model, obs=obs, cls=model_cls)
-
-        # Consensus guard: a camera that views the target near-planar (e.g. an obliquely
-        # angled camera seeing one board) hits the focal ambiguity and calibrates to a wrong
-        # / anamorphic focal. Detect such cameras by deviation from the per-rig median
-        # *paraxial* focal (the model-independent f_eff — comparing raw fx across a model
-        # with non-trivial axial terms is meaningless), reset to the consensus, and let the
-        # global BA refine them through the rigid-rig constraint.
-        feff = {c: paraxial_focal(raw[c]["model"]) for c in raw}
-        med_fx = float(np.median([feff[c][0] for c in raw]))
-        med_fy = float(np.median([feff[c][1] for c in raw]))
-
-        cameras = {}
-        for cam_id, r in raw.items():
-            fx, fy = feff[cam_id]
-            if (cam_id not in seeded and len(raw) >= 2
-                    and (abs(fx - med_fx) > 0.25 * med_fx
-                         or abs(fy - med_fy) > 0.25 * med_fy)):
-                w, h = img_size[cam_id]
-                Kc = np.array([[med_fx, 0, w / 2.0], [0, med_fy, h / 2.0], [0, 0, 1.0]])
-                model = _seed_from_K(r["cls"], Kc)
-            else:
-                model = r["model"]
-            cameras[cam_id] = model
-            # all object poses via robust gated PnP (keeps every point downstream; the
-            # global BA does the IRLS weighting, no per-point rejection in the answer).
-            for o in r["obs"]:
-                o.T_c_o = _gated_pnp(model, obj.pts_3d[o.point_rows], o.pts_2d)
+                poses = {cam_id: _pnp_poses_one_camera(cameras[cam_id], obj, pnp_args[cam_id])
+                         for cam_id in cam_ids}
+        for cam_id in cam_ids:
+            for o, T in zip(raw[cam_id]["obs"], poses[cam_id]):
+                o.T_c_o = T
         return cameras
     return front_end
 
@@ -356,13 +441,28 @@ def _gated_pnp(model, X, uv, max_rms_px: float = 2.0):
                             studentize=True)
 
 
+def _pnp_poses_one_camera(model, obj: Object3D, obs_light):
+    """Per-frame pose seeding for one camera's observations — independent of every other
+    camera once ``model`` (its calibrated intrinsics) is known. ``obs_light`` is
+    ``[(point_rows, pts_2d), ...]``; returns the matching list of ``T_cam_obj`` (or ``None``).
+    """
+    X_all = obj.pts_3d
+    return [_gated_pnp(model, X_all[point_rows], uv) for point_rows, uv in obs_light]
+
+
+def _pnp_poses_pooled(cam_id, model, obs_light):
+    """Pool task counterpart of :func:`_pnp_poses_one_camera`, reading the shared
+    ``Object3D`` from the worker-local global set by :func:`_init_pool_worker`."""
+    return cam_id, _pnp_poses_one_camera(model, _POOL_OBJ, obs_light)
+
+
 def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   img_size: Dict[int, Tuple[int, int]],
                   *, fix_intrinsics: bool = False, verbose: bool = False,
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
-                  noise_bound: Optional[float] = None) -> RigState:
+                  noise_bound: Optional[float] = None, on_iter=None) -> RigState:
     """Calibrate a multi-camera rig from fused-object observations.
 
     Returns a :class:`RigState` with per-camera intrinsics, ``T_c_g`` extrinsics
@@ -376,6 +476,10 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     primitive defaults to ``None`` (legacy path); the config-driven product entry
     :func:`~ds_msp.rig.calib_param.calibrate_from_config` supplies a ``noise_bound`` (config
     default ``1.0`` px) so a real calibration is robust by default.
+
+    ``on_iter(it, max_iter, rms, cost, rig_snapshot)`` — optional live-progress callback,
+    forwarded to every stage's underlying solver (:func:`bundle.refine` / ``core.optimize.lm_solve`` /
+    ``schur_lm``); fires once per solver iteration across every stage in sequence.
     """
     obs_by_cam: Dict[int, List[ObjectObs]] = defaultdict(list)
     for o in object_obs:
@@ -387,6 +491,12 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #    cv2.calibrateCamera path (`_front_end_opencv`), which collapses the focal under
     #    gross outliers — so a direct calibrate_rig caller gets the robust behaviour the
     #    high-level entry points already use, without having to know to pass front_end.
+    #    This has no on_iter callback of its own (multi-start seed dispersion runs 2 full
+    #    per-camera solves each -- NFR-PERF-001 -- measured ~19s on an 8-camera real rig) so
+    #    a live view would otherwise sit frozen on the previous stage's label for that whole
+    #    stretch; set_stage still fires here even without per-iteration progress inside it.
+    if on_iter is not None and hasattr(on_iter, "set_stage"):
+        on_iter.set_stage("(0) per-camera front-end intrinsics")
     fe = front_end or make_bundle_front_end(RadTanModel)
     cameras = fe(obj, obs_by_cam, img_size)
     if verbose:
@@ -420,22 +530,32 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #    (a) per-object — refine each frame's object pose with cameras+intrinsics fixed
     #        (estimatePoseAllObjects / computeAllObjPoseInCameraGroup): a metric BA warm-up
     #        of the closed-form averaged object poses before any extrinsic moves.
+    if on_iter is not None and hasattr(on_iter, "set_stage"):
+        on_iter.set_stage("(a) per-object pose warm-up")
     rig = bundle.refine(rig, object_obs, fix_intrinsics=True, fix_extrinsics=True,
-                    robust_kernel="huber", robust_scale="auto", verbose=verbose)
+                    robust_kernel="huber", robust_scale="auto", verbose=verbose,
+                    on_iter=on_iter)
     #    (b) per-camera-group — refine each group's extrinsics + its object poses, intrinsics
     #        fixed (calibrateCameraGroup / refineAllCameraGroupAndObjects). Single group ->
     #        whole-rig poses-only; multiple groups -> each independently before the joint pass.
+    if on_iter is not None and hasattr(on_iter, "set_stage"):
+        on_iter.set_stage("(b) per-camera-group extrinsics" if len(groups) > 1
+                           else "(b) rig extrinsics")
     rig = bundle.refine_groups(rig, object_obs, groups,
-                           robust_kernel="huber", robust_scale="auto", verbose=verbose)
+                           robust_kernel="huber", robust_scale="auto", verbose=verbose,
+                           on_iter=on_iter)
     #    (c) global joint — full rig + (optionally) intrinsics with a redescending Cauchy
     #        kernel and a short GNC anneal (refineAllCameraGroupAndObjectsAndIntrinsics).
     # Graduated non-convexity: anneal the robust scale from ``gnc_start``×MAD down. A wider
     # start + more steps escapes the bad-data basin under heavy (≈50%) gross-outlier
     # contamination, where a MAD scale is itself corrupted — measurably more robust at the
     # breakdown point with negligible cost on clean data.
+    if on_iter is not None and hasattr(on_iter, "set_stage"):
+        on_iter.set_stage("(c) global joint BA" + (" + intrinsics" if fix_intrinsics is False
+                                                     else ""))
     rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
                     robust_scale="auto", gnc_iters=gnc_iters, gnc_start=gnc_start,
-                    noise_bound=noise_bound, verbose=verbose)
+                    noise_bound=noise_bound, verbose=verbose, on_iter=on_iter)
 
     #    (d) object-structure refinement (MC-Calib's refineObject), multi-board only: alternate
     #        re-triangulating the fused object's 3-D points (gauge anchored on the reference
@@ -444,14 +564,16 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        structure removes it — the dominant reprojection win on a real multi-board target.
     if refine_structure and len(obj.board_ids) > 1:
         prev = float("inf")
-        for _ in range(structure_rounds):
+        for round_i in range(structure_rounds):
             rig = bundle.refine_object_structure(rig, object_obs)
             # a light joint polish each round (no GNC, capped iters): the structure step did
             # the heavy lifting, so the BA only has to absorb it — full-length GNC passes here
             # were ~80% of total runtime for <0.5% extra accuracy.
+            if on_iter is not None and hasattr(on_iter, "set_stage"):
+                on_iter.set_stage(f"(d) structure refinement {round_i + 1}/{structure_rounds}")
             rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", max_iter=25,
-                            verbose=verbose)
+                            verbose=verbose, on_iter=on_iter)
             cur = max(bundle.reprojection_rms(rig, object_obs).values())
             if prev - cur < 0.003 * prev:           # converged -> stop early
                 break
