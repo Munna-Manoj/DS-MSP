@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ⚠ BREAKING CHANGES
+
+* **models:** remove the EUCM+ camera model — `EUCMPlusModel`, the `"eucmplus"`/`"eucm+"` registry aliases, and Kalibr `eucm_plus` I/O are gone (ADR-0010).
+* **license:** relicense the whole project to plain MIT — drops the PolyForm Noncommercial 1.0.0 tier that previously covered DS+ and the robust calibrate/convert engine (ADR-0010).
+
 ## [0.9.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.9.0...v0.9.1) (2026-07-05)
 
 

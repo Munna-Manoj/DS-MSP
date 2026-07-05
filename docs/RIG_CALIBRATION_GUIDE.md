@@ -8,7 +8,7 @@ images, driven by a single config.
 This is the multi-camera analogue of [`ds_msp[calib]`](CALIBRATE_GUIDE.md)'s config-driven
 pattern: the same schema style as MC-Calib's own `./calibrate calib_param.yml`, the same output
 files, with one extension — pick a *different camera model per camera*
-(`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`, `eucmplus`).
+(`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`).
 
 **Prerequisites**
 
@@ -87,7 +87,7 @@ shape.
 `intrinsics` array.
 
 `load_camera` needs the file's `camera_model` (or the legacy `distortion_type` int) to know
-which of the 8 models to reconstruct — always present in DS-MSP's own output.
+which of the 7 models to reconstruct — always present in DS-MSP's own output.
 
 ---
 
@@ -169,7 +169,7 @@ every field that matters.
 | `number_camera` | number of cameras in the rig |
 | `distortion_model` | global default: `0` = Brown→`radtan` (pinhole), `1` = Kannala→`kb` (fisheye) |
 | `distortion_per_camera` | per-camera `0/1` list overriding the global, length = `number_camera` |
-| `camera_models` *(DS-MSP extension, highest precedence)* | per-camera model **name** — `[ kb, kb, kb, kb, radtan, radtan, kb, kb ]`. Choose from `radtan, ucm, eucm, ds, kb, ocam, dsplus, eucmplus`. Overrides the two keys above. |
+| `camera_models` *(DS-MSP extension, highest precedence)* | per-camera model **name** — `[ kb, kb, kb, kb, radtan, radtan, kb, kb ]`. Choose from `radtan, ucm, eucm, ds, kb, ocam, dsplus`. Overrides the two keys above. |
 
 /// tip | Which model?
 Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default; `ds`/`ucm`/`eucm`

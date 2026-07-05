@@ -1,6 +1,6 @@
 # `ds_msp.models`
 
-The eight camera models, each implementing the [`CameraModel`](core.md) contract. Pick by FOV
+The seven camera models, each implementing the [`CameraModel`](core.md) contract. Pick by FOV
 and required accuracy — see [Choosing a camera model](../explain/choosing_a_camera_model.md).
 
 ## Double Sphere
@@ -14,10 +14,6 @@ and required accuracy — see [Choosing a camera model](../explain/choosing_a_ca
 ## Extended Unified Camera Model (EUCM)
 
 ::: ds_msp.models.EUCMModel
-
-## EUCM⁺
-
-::: ds_msp.models.EUCMPlusModel
 
 ## Kannala-Brandt (KB)
 

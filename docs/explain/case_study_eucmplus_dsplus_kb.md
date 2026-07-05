@@ -1,9 +1,19 @@
 # A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt
 
+/// note | Historical record — EUCM⁺ has since been removed
+This page's own finding — **EUCM⁺ is strictly Pareto-dominated** (Question 1 below) — is the
+measured reason EUCM⁺ was later removed from the shipped library entirely (see
+[ADR-0010](../process/architecture/decisions/ADR-0010-mit-relicense-and-eucmplus-removal.md)).
+The numbers and analysis below are kept as the real, reproducible-at-the-time record that led
+to that decision. `examples/10_evaluating_camera_models.py` now compares **EUCM vs DS⁺** only
+(EUCM⁺ is no longer importable), so the EUCM⁺ rows here can no longer be reproduced verbatim —
+they were captured from the version of the script that still had it.
+///
+
 > **Run alongside this:** `python examples/10_evaluating_camera_models.py` (core install
 > only). This page applies the [model-evaluation framework](choosing_a_camera_model.md) to a
-> real question: should we ship these extended models, and do they beat the standard one? Read
-> this, then read the printed numbers.
+> real question that was live at the time: should we ship EUCM⁺ as a default, and does DS⁺ beat
+> the standard model? Read this, then read the printed numbers.
 
 The library ships two **extended** wide-<abbr title="Field Of View — the angular extent of the
 scene a lens captures.">FOV</abbr> models — **DS⁺** and **EUCM⁺**.
@@ -164,7 +174,7 @@ A finite algebraic unproject (no Newton loop) buys things throughput numbers don
 analytic invertibility (differentiable / deterministic pipelines). KB wins on raw
 unproject/undistort throughput (~2×), and ties on project.
 
-Pick DS⁺ when you need a differentiable or closed-form unproject at best-in-class accuracy.
+Pick DS⁺ when you need a differentiable or closed-form unproject at the accuracy edge measured above.
 Pick KB — or EUCM on a benign lens — when unproject throughput dominates your cost.
 
 ---
@@ -188,13 +198,15 @@ A camera-model evaluation is only worth as much as its willingness to publish th
 didn't want.
 
 ## Try it yourself
-1. Reproduce the retraction: in the framework script, look at diagnostic D on the demanding
-   lens. EUCM unbounded still can't reach EUCM⁺ — that one block is the whole "λ₁ is real
-   capacity" proof.
+1. In the current framework script, diagnostic D shows the same shape of proof for DS⁺ that
+   originally cleared EUCM⁺: unbounding EUCM's α helps a little but plateaus far short of the
+   richer model's RMS — that gap is what "real radial capacity, not a redundant parameter"
+   looks like as a number.
 2. Force DS⁺'s λ₂ to 0 and re-time its unproject. It drops to the cheap quadratic branch — now
    compare against KB. (You've just traded the demanding-lens accuracy for KB-class speed; that
    trade *is* the design space.)
-3. Add your own lens and decide, with A–F, whether you'd deprecate EUCM⁺ for *your* camera too.
+3. Add your own lens and run diagnostics A–F on EUCM vs DS⁺ — the same procedure that led to
+   this page's EUCM⁺ verdict works for deciding between any two candidates on your camera.
 
 **Built on:** [the model-evaluation framework](choosing_a_camera_model.md). **Related:**
 [Are two models the same camera?](are_two_models_the_same_camera.md) ·

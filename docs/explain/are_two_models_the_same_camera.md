@@ -236,7 +236,7 @@ as their data reached, and no farther.
 **Next:** if two models can describe the same camera, *which one should you actually pick?*
 That's a measurable question — see
 [Is this model right for my lens?](choosing_a_camera_model.md) and the worked
-[EUCM⁺ vs DS⁺ vs KB case study](case_study_eucmplus_dsplus_kb.md).
+[EUCM⁺ vs DS⁺ vs KB case study (historical)](case_study_eucmplus_dsplus_kb.md).
 
 **Back to:** the [capstone](../learn/capstone_calibrating_a_real_camera.md), or the
 [robust-loss deep-dive](../learn/robust_losses_and_evaluation.md).

@@ -28,7 +28,7 @@ with both a clean implementation *and* a chapter that explains them.
 - **Model-choice deep-dives** ✅ — a measurable framework for picking a camera model
   ([choosing a camera model](explain/choosing_a_camera_model.md): capacity, Jacobian-conditioning
   identifiability, parameter redundancy, cost, FOV weighting) and an honest worked case study
-  applying it ([EUCM⁺ vs DS⁺ vs KB](explain/case_study_eucmplus_dsplus_kb.md) — including a
+  applying it ([EUCM⁺ vs DS⁺ vs KB (historical)](explain/case_study_eucmplus_dsplus_kb.md) — including a
   retracted hypothesis), both runnable via `examples/10_evaluating_camera_models.py`.
 
 ## Next (learning curriculum)

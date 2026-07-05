@@ -5,8 +5,8 @@
 [![PyPI](https://img.shields.io/pypi/v/ds-msp)](https://pypi.org/project/ds-msp/)
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
-[![License](https://img.shields.io/badge/license-MIT%20%2B%20PolyForm--NC-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)
-![Tests](https://img.shields.io/badge/tests-645%20passing-brightgreen)
+[![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSE)
+![Tests](https://img.shields.io/badge/tests-608%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/studio/)
 
 A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras.
@@ -96,7 +96,7 @@ Inverse-projection error across all undistort modes is < 0.00003 px. → [Multi-
 
 ### 2D/3D pose
 
-`cam.solve_pnp` is a **model-agnostic convenience, not a new algorithm**: it unprojects your pixels through whichever of the 8 models you use, then calls the standard `cv2.solvePnP` on the undistorted points — literally `unproject → cv2.solvePnP(K=I, dist=None)`.
+`cam.solve_pnp` is a **model-agnostic convenience, not a new algorithm**: it unprojects your pixels through whichever of the 7 models you use, then calls the standard `cv2.solvePnP` on the undistorted points — literally `unproject → cv2.solvePnP(K=I, dist=None)`.
 
 `cv2.solvePnP` itself is correct here. OpenCV already ships `cv2.fisheye.solvePnP` for **Kannala-Brandt** lenses — the value of `cam.solve_pnp` is that the *same one call* also covers DS / UCM / EUCM / OCam / DS+.
 
@@ -132,7 +132,7 @@ Measured PnP + reprojection RMS on bundled real images: 0.43 px / 0.85 px. → [
 
 ### Calibrate from scratch
 
-`calibrate()` is **model-agnostic** — the *same* call fits any of the 8 models from a generic seed; only the seed class changes.
+`calibrate()` is **model-agnostic** — the *same* call fits any of the 7 models from a generic seed; only the seed class changes.
 
 It runs manifold Levenberg–Marquardt with analytic Jacobians and an optional robust loss (`huber` / `cauchy`); per-view poses are re-seeded internally, so a rough focal is fine.
 
@@ -250,7 +250,7 @@ mesh_lut, K_new = res["mesh_lut"], res["K_new"]
 
 ## Choosing a model
 
-All 8 models live behind one `CameraModel` contract with analytic Jacobians, `convert`, and Kalibr + MC-Calib I/O.
+All 7 models live behind one `CameraModel` contract with analytic Jacobians, `convert`, and Kalibr + MC-Calib I/O.
 
 | model | params | role |
 |---|---|---|
@@ -260,30 +260,26 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 | `eucm` | 6 | Enhanced UCM |
 | `ds` | 6 | **Double Sphere** (Usenko 2018); exact >180° half-space validity |
 | `dsplus` | 9 | **DS+** — best accuracy, closed-form-invertible, differentiable |
-| `eucmplus` | 9 | EUCM+ — evaluated and **deprecated as a default** (see below) |
 | `ocam` | 10 | OCamCalib (Scaramuzza) |
 
 #### Rule of thumb (directional, not a guarantee)
 
 - **≥170° FOV** → start with Double Sphere (the cheapest closed form that fits).
-- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB, or DS+/EUCM+ when you need a closed-form inverse.
+- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB, or DS+ when you need a closed-form inverse.
 - **Always confirm with the median reprojection error**, not the model class.
 
-#### About DS+ and EUCM+
+#### About DS+
 
 - DS+ is the best-accuracy model tested and the only closed-form-invertible model that matches KB on hard lenses (~21% win on a demanding 158° full-FOV lens: 0.224 vs KB 0.285 px). The trade-off: its unproject is **~2× slower than KB** (Ferrari quartic). Pick it when you need a differentiable / closed-form unproject with deterministic latency — not for raw throughput.
 - KB stays the right default when unproject throughput rules and an iterative inverse is acceptable.
-- EUCM+ is Pareto-dominated by DS+ at equal parameter count and is deprecated as a default:
-  - Use EUCM when 2 distortion DOF suffice.
-  - Reach for DS+ when they don't.
 
-→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
+→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study (historical)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
 ---
 
 ## Verify it
 
-Every claim is backed by a number you can reproduce — **645 tests passing**, CI green.
+Every claim is backed by a number you can reproduce — **608 tests passing**, CI green.
 
 - Inverse projection (all undistort modes): mean error **< 0.00003 px**.
 - 3D reconstruction of checkerboard corners: **0.835 mm** mean; recovered **20.00 cm** square (target 20.00).
@@ -304,7 +300,7 @@ python benchmarks/benchmark.py
 
 ## Learn
 
-DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the DS+/EUCM+/KB case study.
+DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the DS+/KB case study.
 
 That case study openly documents a hypothesis the authors had to retract. Start at the [Learn index](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md).
 
@@ -324,8 +320,7 @@ DS-MSP stands on prior work, and credit stays prominent:
 
 ## License
 
-Dual-licensed (see [LICENSING.md](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)):
-- **MIT** for the generic library.
-- **PolyForm-Noncommercial-1.0.0** for the DS+/EUCM+ models and the robust calibration/conversion engine — free for research, academic, and other noncommercial use with attribution to Munna-Manoj; commercial use requires a separate license.
+MIT-licensed (see [LICENSING.md](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)):
+- **MIT** for the whole project — the generic library, the DS+ model, and the robust calibration/conversion engine.
 
-SPDX: `MIT AND LicenseRef-PolyForm-Noncommercial-1.0.0`. Please cite via [CITATION.cff](https://github.com/Munna-Manoj/DS-MSP/blob/main/CITATION.cff).
+SPDX: `MIT`. Please cite via [CITATION.cff](https://github.com/Munna-Manoj/DS-MSP/blob/main/CITATION.cff).

@@ -23,7 +23,6 @@ value-object class.
 | UCM | `UCMModel` | `fx, fy, cx, cy, alpha` | unified (single sphere) = DS with ξ=0 |
 | EUCM | `EUCMModel` | `fx, fy, cx, cy, alpha, beta` | enhanced UCM |
 | DS+ | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt |
-| EUCM+ | `EUCMPlusModel` | `fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y` | EUCM core + division radial + 2-axis tilt, sqrt-only closed form |
 | Kannala-Brandt | `KannalaBrandtModel` | `fx, fy, cx, cy, k1..k4` | **= OpenCV `cv2.fisheye`** |
 | RadTan / pinhole | `RadTanModel` | `fx, fy, cx, cy, k1, k2, p1, p2, k3` | **= OpenCV `cv2.projectPoints`** (narrow FOV) |
 | OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial |
@@ -33,9 +32,9 @@ KB project matches `cv2.fisheye` and RadTan matches `cv2.projectPoints` to ~1e-1
 Every model's analytic Jacobian is gradient-checked against finite differences.
 
 /// note
-DS+ and EUCM+ are DS-MSP's own extensions, not part of any external calibration
+DS+ is DS-MSP's own extension, not part of any external calibration
 toolchain's convention. See
-[A fair fight — EUCM⁺ vs DS⁺ vs Kannala-Brandt](explain/case_study_eucmplus_dsplus_kb.md)
+[A fair fight — EUCM⁺ vs DS⁺ vs Kannala-Brandt (historical)](explain/case_study_eucmplus_dsplus_kb.md)
 for where each one earns its extra parameters.
 ///
 
@@ -49,7 +48,7 @@ distortion they apply along the way:
   shift, `alpha` = blend). Handles >180° FOV with a closed-form unprojection.
 - **UCM** — a single sphere (DS with `xi=0`); one `alpha` controls curvature.
 - **EUCM** — UCM with a `beta` that stretches the radial term, fitting more lenses.
-- **DS+ / EUCM+** — a UCM/EUCM core plus a division-model radial layer and a
+- **DS+** — a UCM core plus a division-model radial layer and a
   2-axis tilt homography, for lenses the plain sphere models can't bend to fit.
 - **Kannala-Brandt** — equidistant: distorts the *angle* `θ` from the axis by an odd
   polynomial `θ + k1θ³ + k2θ⁵ + k3θ⁷ + k4θ⁹`. This is OpenCV's `cv2.fisheye`.
@@ -237,7 +236,7 @@ runnable bundled example, and the `ds-msp-calibrate` CLI walkthrough are in
 
 `ds_msp.io` reads and writes the standard Kalibr `camchain` format, with the exact
 (source-verified) per-model field orderings — five model families (DS, EUCM, KB,
-RadTan, UCM), plus the DS-MSP-only DS+/EUCM+ extensions.
+RadTan, UCM), plus the DS-MSP-only DS+ extension.
 
 [Read/write Kalibr YAML](how-to/read_write_kalibr.md) has the full field-ordering
 table, a save/round-trip recipe verified to machine precision, and how to read

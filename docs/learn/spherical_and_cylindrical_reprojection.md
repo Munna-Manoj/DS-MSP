@@ -103,7 +103,7 @@ Pinhole — the pixel already *is* a ray:
 
 $$\big(\tfrac{u-c_x}{f_p},\,\tfrac{v-c_y}{f_p},\,1\big)$$
 
-Two things to notice, because they *are* the answer to your question:
+Two things to notice here:
 
 1. **Sphere and cylinder share the column law exactly.** Both store azimuth linearly:
 

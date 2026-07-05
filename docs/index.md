@@ -1,7 +1,7 @@
 # DS-MSP
 
 A tested wide-<abbr title="Field of View">FOV</abbr> (fisheye / Double Sphere) camera library —
-project and unproject through 8 camera models to **~1e-13 px** round-trip.
+project and unproject through 7 camera models to **~1e-13 px** round-trip.
 
 It doubles as a guided course in the geometry behind
 <abbr title="Simultaneous Localization And Mapping">SLAM</abbr> and

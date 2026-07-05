@@ -14,7 +14,7 @@ camera models, single-camera and multi-camera-rig calibration, model conversion,
 (two-view geometry, wide-FOV stereo, monocular visual odometry), plus interop with the SLAM/SfM
 ecosystem (Kalibr, COLMAP, nerfstudio, MC-Calib) and an OpenCV-compatible drop-in API.
 
-**In scope:** the camera-model contract and eight models; calibration and conversion; the 3D
+**In scope:** the camera-model contract and seven models; calibration and conversion; the 3D
 capabilities and pipelines above; IO formats; embedded export (TI Jacinto LDC mesh).
 **Out of scope:** dense multi-view reconstruction, learned/neural calibration, GUI tooling, and any
 internal research-process tooling (kept local and out of the tracked tree — CON-06).

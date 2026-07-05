@@ -7,7 +7,7 @@ This is the single-camera analogue of [`ds_msp[rig]`](RIG_CALIBRATION_GUIDE.md)'
 config-driven pattern. Pick a board type
 (checkerboard / <abbr title="A chessboard with ArUco markers embedded in each square, so
 corners stay identifiable even partially occluded.">ChArUco</abbr> / AprilGrid) and a camera
-model (`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`, `eucmplus`). Detection is a
+model (`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`). Detection is a
 swappable front end — every board type feeds the same tested, model-agnostic
 bundle-adjustment backend.
 
@@ -136,7 +136,7 @@ Below is every field that matters.
 
 | Key | Meaning |
 |-----|---------|
-| `camera_model` | `radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`, or `eucmplus` |
+| `camera_model` | `radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, or `dsplus` |
 
 See [Choosing a model](explain/choosing_a_camera_model.md) for how to pick one for your
 lens's FOV.
@@ -220,7 +220,7 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 ```
 
 `load_camera` works for every model calibration can produce with `output_format: kalibr`:
-`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`, `eucmplus`.
+`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`.
 
 /// note
 `ocam`'s polynomial parameterization has no Kalibr-native or DS-MSP-extended representation
