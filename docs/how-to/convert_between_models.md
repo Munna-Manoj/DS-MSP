@@ -16,23 +16,27 @@ downstream tool an OpenCV-ready Kannala-Brandt model instead.
 `convert(source, target_class, width=..., height=...)` returns the fitted target
 model and a quality report. Pass the source *instance* and the target *class*:
 
-```python
-from ds_msp import DoubleSphereModel, KannalaBrandtModel, convert
+{* docs_src/how_to/convert_between_models/convert_in_one_call.py hl[14:16] *}
 
-ds = DoubleSphereModel.sample()        # the bundled DS calibration (no file needed)
-
-kb, report = convert(ds, KannalaBrandtModel, width=1920, height=1080)
-print(report["rms_px"])                # -> 0.00021  (pixels of disagreement, RMS)
-print(report["converged"])             # -> True
+<!-- termynal -->
+```
+$ python -m docs_src.how_to.convert_between_models.convert_in_one_call
+rms_px=0.00021
+converged=True
 ```
 
 `kb` is a `KannalaBrandtModel` whose `project`/`unproject` reproduce the original
-Double Sphere camera. `report["rms_px"]` is the RMS pixel disagreement between the
-two models, sampled across the image. Here it reads **0.00021 px**, far below one
+Double Sphere camera.
+
+`report["rms_px"]` is the
+<abbr title="Root Mean Square">RMS</abbr> pixel disagreement between the two
+models, sampled across the image. Here it reads **0.00021 px**, far below one
 pixel, so the conversion is effectively lossless.
 
-> **Notice:** you pass `KannalaBrandtModel` (the class), not an instance. The
-> converter constructs and fits the target itself.
+/// tip
+You pass `KannalaBrandtModel` (the class), not an instance. The converter
+constructs and fits the target itself.
+///
 
 ## Read the quality report
 
@@ -40,13 +44,16 @@ The report tells you whether the conversion is faithful and over what field of
 view. Always check it. Some conversions are lossy, and the report is how you catch
 that — a conversion never fails silently.
 
-```python
-# continues from the setup above
-print(report["median_px"])         # 0.00018   typical pixel error (half the samples below this)
-print(report["max_px"])            # 0.00099   worst-case pixel error
-print(report["fov_covered_deg"])   # 179.9     FOV the fit actually covered
-print(report["source_model"])      # 'ds'
-print(report["target_model"])      # 'kb'
+{* docs_src/how_to/convert_between_models/quality_report.py hl[15:19] *}
+
+<!-- termynal -->
+```
+$ python -m docs_src.how_to.convert_between_models.quality_report
+median_px=0.00018
+max_px=0.00099
+fov_covered_deg=179.9
+source_model='ds'
+target_model='kb'
 ```
 
 | Field | Meaning |
@@ -54,7 +61,7 @@ print(report["target_model"])      # 'kb'
 | `rms_px` | RMS pixel disagreement between source and target across the image. Your headline accuracy number. |
 | `max_px` | Worst single-sample error — catches edge-of-image blow-ups. |
 | `median_px` | Median pixel error. |
-| `fov_covered_deg` | Full-angle FOV the fit covered. A narrow target shrinks this. |
+| `fov_covered_deg` | Full-angle <abbr title="Field of View">FOV</abbr> the fit covered. A narrow target shrinks this. |
 | `converged` | `True` if the nonlinear least-squares refine (trust-region reflective) converged. |
 | `source_model` / `target_model` | The two models' names. |
 
@@ -75,16 +82,20 @@ bundled Double Sphere calibration (1920×1080):
 | RadTan @ 120° | `RadTanModel` | 0.768 | lossy — pinhole cannot hold a wide FOV |
 
 Supported models: **UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib, Double Sphere**.
-All implement the same contract, so any can be a source *or* a target. (OCamCalib,
-class `OCamModel`, is supported but left out of the table above; it converts well —
-`rms_px` ≈ 0.55 — but the four rows shown are enough to make the expressiveness point.)
+All implement the same contract, so any can be a source *or* a target.
 
-```python
-from ds_msp import DoubleSphereModel, EUCMModel, convert
-ds = DoubleSphereModel.sample()
+/// note
+OCamCalib (class `OCamModel`) is supported but left out of the table above — it
+converts well (`rms_px` ≈ 0.55) — the four rows shown are enough to make the
+expressiveness point.
+///
 
-eucm, report = convert(ds, EUCMModel, width=1920, height=1080)
-print(report["rms_px"])            # -> 0.014
+{* docs_src/how_to/convert_between_models/pick_target_model.py hl[12:13] *}
+
+<!-- termynal -->
+```
+$ python -m docs_src.how_to.convert_between_models.pick_target_model
+rms_px=0.014
 ```
 
 ## Restrict the FOV for narrow targets
@@ -93,26 +104,30 @@ Pinhole-style models (RadTan) cannot represent a >180° fisheye. Converting one 
 limiting the field of view lets rays the target can never reproduce drag down the fit.
 Pass `max_fov_deg` to fit and report only the representable region:
 
-```python
-from ds_msp import DoubleSphereModel, RadTanModel, convert
-ds = DoubleSphereModel.sample()
+{* docs_src/how_to/convert_between_models/restrict_fov.py hl[14:16] *}
 
-rt, report = convert(ds, RadTanModel, width=1920, height=1080, max_fov_deg=120.0)
-print(report["rms_px"])            # -> 0.768  over the covered 120°
-print(report["fov_covered_deg"])   # -> 119.9
+<!-- termynal -->
+```
+$ python -m docs_src.how_to.convert_between_models.restrict_fov
+rms_px=0.768
+fov_covered_deg=119.9
 ```
 
 `max_fov_deg` is the **full** angle. The report now reflects the 120° cone the
 pinhole model is meant to cover, instead of being dominated by unrepresentable
 peripheral rays.
 
-Notice that `fov_covered_deg` reads 119.9, just under the 120.0 you requested. The
-fit samples a discrete pixel grid, so the widest sampled ray lands a fraction of a
-degree inside the cap rather than exactly on it.
+/// tip
+`fov_covered_deg` reads 119.9, just under the 120.0 requested. The fit samples a
+discrete pixel grid, so the widest sampled ray lands a fraction of a degree inside
+the cap rather than exactly on it.
+///
 
-> **Warning:** a low `rms_px` over a restricted FOV does not mean the conversion is
-> lossless — it means it is faithful *within that FOV*. Check `fov_covered_deg`
-> against the field of view your application actually uses.
+/// warning
+A low `rms_px` over a restricted FOV does not mean the conversion is lossless — it
+means it is faithful *within that FOV*. Check `fov_covered_deg` against the field
+of view your application actually uses.
+///
 
 ## Use the converted model everywhere
 
@@ -120,20 +135,12 @@ The converted model is a first-class camera model. Every service in DS-MSP depen
 only on the model contract, so pose estimation, undistortion, and the rest work on
 it unchanged. Converting is a one-line swap in your pipeline:
 
-```python
-import numpy as np
-from ds_msp import DoubleSphereModel, KannalaBrandtModel, convert, solve_pnp
+{* docs_src/how_to/convert_between_models/use_everywhere.py hl[21:22] *}
 
-ds = DoubleSphereModel.sample()
-kb, _ = convert(ds, KannalaBrandtModel, width=1920, height=1080)   # DS -> OpenCV fisheye
-
-object_points = np.array([[0, 0, 0], [0.1, 0, 0],          # (N, 3) known 3D points, metres
-                          [0, 0.1, 0], [0.1, 0.1, 0]], dtype=float)
-image_points = np.array([[610, 480], [720, 470],           # (N, 2) their pixels
-                         [600, 590], [715, 580]], dtype=float)
-
-ok, rvec, tvec = solve_pnp(kb, object_points, image_points)   # same call as for the DS model
-print(ok)                                                    # -> True   the pose solve succeeded
+<!-- termynal -->
+```
+$ python -m docs_src.how_to.convert_between_models.use_everywhere
+ok=True
 ```
 
 Because KB and RadTan use exactly OpenCV's distortion conventions, the converted
@@ -144,9 +151,17 @@ KB) go directly into `cv2.fisheye.*`.
 
 The recipe above used `DoubleSphereModel.sample()` so it runs with no files. To
 convert a calibration you produced, load it with `from_dict` and pass your real
-image size. This snippet needs your own JSON file to run — `results/calibration_params.json`
-is a placeholder path, not a bundled file, so copy-pasting as-is raises `FileNotFoundError`
-until you point it at a real one:
+image size.
+
+/// warning
+This snippet needs your own JSON file to run. `results/calibration_params.json` is
+a placeholder path, not a bundled file — copy-pasting it as-is raises
+`FileNotFoundError` until you point it at a real one. That is also why it stays a
+hand-authored excerpt here rather than a `docs_src/` file: `docs_src/` files must
+run unconditionally with no external input (see
+[`docs_src/README.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs_src/README.md)),
+and there is no such thing as a bundled fixture for *your* camera.
+///
 
 ```python
 import json

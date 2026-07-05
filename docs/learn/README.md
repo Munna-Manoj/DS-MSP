@@ -91,9 +91,9 @@ graph LR
 | 2 | [The Double Sphere model](02_double_sphere_model.md) | derive DS projection, read it in code, and reproduce a published calibration with it | `examples/02_double_sphere_tumvi.py` |
 | 3 | [Projection validity & the >180° cone](03_projection_validity.md) | explain why `z>0` is the classic bug, and *measure* the >180° valid cone (227° here) | `examples/07_fov_and_validity.py` |
 | 4 | Analytic Jacobians vs autodiff *(coming soon)* | derive a Jacobian and gradient-check it | `ds_msp/model.py` |
-| 5 | Calibration by Levenberg–Marquardt *(coming soon)* | calibrate from corner detections | `ds_msp/calib/bundle.py` |
-| 6 | One model to another: conversion *(coming soon)* | turn a DS calib into KB/EUCM without re-shooting | `ds_msp/adapt/` |
-| 7 | Reproducing a published calibration *(coming soon)* | match TUM-VI / EuRoC reference numbers with your own code | `ds_msp/io/kalibr.py` |
+| 5 | Calibration by Levenberg–Marquardt *(deep-dive coming soon — the recipe itself already runs)* | calibrate from corner detections | [capstone](capstone_calibrating_a_real_camera.md), [how-to](../how-to/calibrate_any_model.md) → `ds_msp/calib/bundle.py` |
+| 6 | [One model to another: conversion](../how-to/convert_between_models.md) | turn a DS calib into KB/EUCM without re-shooting | `ds_msp/adapt/` |
+| 7 | Reproducing a published calibration *(TUM-VI done via the capstone; EuRoC coming soon)* | match TUM-VI / EuRoC reference numbers with your own code | [capstone](capstone_calibrating_a_real_camera.md) → `ds_msp/io/kalibr.py` |
 
 ### 🏆 The capstone (runnable now)
 

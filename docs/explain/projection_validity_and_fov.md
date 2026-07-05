@@ -4,7 +4,9 @@ Why does a rectified fisheye image always have a black border, and why are some
 pixels impossible to keep? This page explains the geometry behind the Double Sphere
 model's field of view: the exact half-space test that decides which 3D rays are
 projectable, why that boundary sits *past* 90°, and why no single pinhole image can
-hold the result. It is the "why" companion to the hands-on
+hold the result.
+
+It is the "why" companion to the hands-on
 [Chapter 3 tutorial](../learn/03_projection_validity.md); read this when you want the
 derivation and the proof, not the recipe.
 
@@ -25,7 +27,7 @@ silently discards every ray past 90°, capping a lens designed for more than 180
 exactly 180°.
 
 The exact projectability condition (Usenko et al. 2018, Eq. 43–45) is a **tilted
-half-space**:
+<abbr title="the set of points lying on one side of a plane">half-space</abbr>**:
 
 $$z > -w_2\, d_1, \qquad d_1 = \sqrt{x^2 + y^2 + z^2}$$
 
@@ -43,9 +45,10 @@ w_2 = \frac{w_1 + \xi}{\sqrt{2\, w_1 \xi + \xi^2 + 1}}
 $$
 
 This is exactly what `ds_project` computes: the piecewise $w_1$, then $w_2$, then the
-mask `valid = (z > -w2 * d1) & (den > 1e-8)`. The second clause only guards the
-projection denominator against a near-zero divide. The geometry lives entirely in the
-tilted half-space $z > -w_2 d_1$.
+mask `valid = (z > -w2 * d1) & (den > 1e-8)`.
+
+The second clause only guards the projection denominator against a near-zero divide.
+The geometry lives entirely in the tilted half-space $z > -w_2 d_1$.
 
 The crucial consequence follows from the sign of the tilt. Because
 
@@ -54,8 +57,10 @@ $$w_2 > 0,$$
 the test admits points with $z \le 0$ — rays that point slightly *behind* the camera's
 own side. That is precisely why the model represents a field of view greater than 180°.
 
-A $z > 0$ test would reject those rays and quietly cap the FOV at a hemisphere. This
-library does not make that mistake; the comment in `ds_project` says so explicitly.
+A $z > 0$ test would reject those rays and quietly cap the
+<abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>
+at a hemisphere. This library does not make that mistake; the comment in `ds_project`
+says so explicitly.
 
 ## Reading the half-space as a maximum incidence angle
 
@@ -201,7 +206,7 @@ full for reference.
 
 ## What this lets you reason about
 
-- A fisheye's "can I see it?" test is a **tilted half-space $z > -w_2 d_1$**, not
+- A fisheye's "can I see it?" test is a tilted half-space $z > -w_2 d_1$, not
   $z > 0$ — and the tilt is what buys the extra-hemispheric field of view.
 - That half-space is equivalently a **maximum incidence angle** $\theta_{\max} =
   \arccos(-w_2)$; here $\approx 227°$ of total FOV.

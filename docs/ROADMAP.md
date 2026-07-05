@@ -39,10 +39,13 @@ code and a runnable real-data script:
   measures the 227° valid cone + the balance/coverage trade (`examples/07_fov_and_validity.py`)
 - **Ch.4** Analytic Jacobians vs autodiff — derive, then gradient-check
 - **Ch.5** Calibration by Levenberg–Marquardt from corner detections — the theory behind
-  the **[capstone](learn/capstone_calibrating_a_real_camera.md)** (already runnable)
-- **Ch.6** Model conversion without re-shooting images
+  the **[capstone](learn/capstone_calibrating_a_real_camera.md)** (already runnable) and the
+  **[how-to recipe](how-to/calibrate_any_model.md)** (already shipped)
+- **Ch.6** Model conversion without re-shooting images — the practical recipe is **already
+  shipped** as the **[how-to guide](how-to/convert_between_models.md)** ✅; this chapter would
+  add the narrative "why" derivation
 - **Ch.7** Reproducing a *published* calibration — the capstone already does this for
-  TUM-VI; chapter writes up the method and extends to EuRoC
+  TUM-VI ✅; chapter writes up the method and extends to EuRoC
 
 ## Later (capability — geometry → systems)
 Extensions that turn "camera models" into "perception systems", each laptop-runnable on

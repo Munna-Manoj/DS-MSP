@@ -2,9 +2,10 @@
 
 Formal companion to [`ds_msp/mvg/two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/mvg/two_view.py). Every
 claim here is checked by a named test in [`tests/mvg/test_two_view.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/tests/mvg/test_two_view.py),
-so the math and the code can't drift. For the hands-on, runnable version of this material —
-recovering pose from a real image pair — see
-[Chapter 8, Two-view geometry on rays](../learn/08_two_view_geometry_on_rays.md).
+so the math and the code can't drift.
+
+For the hands-on, runnable version of this material — recovering pose from a real image pair —
+see [Chapter 8, Two-view geometry on rays](../learn/08_two_view_geometry_on_rays.md).
 
 ## Setup and conventions
 
@@ -59,7 +60,8 @@ The code normalizes the singular values to $(1, 1, 0)$, since scale is unrecover
 
 **Algebraic characterization (Huang–Faugeras).** A real $3\times3$ matrix is essential **iff**
 $$2\,E E^\top E - \operatorname{tr}(E E^\top)\,E = 0 .$$
-This is the polynomial form of "two equal singular values and one zero." Take the SVD:
+This is the polynomial form of "two equal singular values and one zero." Take the
+<abbr title="Singular Value Decomposition">SVD</abbr>:
 $$E = U\,\mathrm{diag}(a,b,c)\,V^\top .$$
 The equation then reduces (up to permutation) to
 $$a = b, \qquad c = 0 .$$
@@ -183,16 +185,20 @@ error on clustered rays: for a forward cone at $\sigma = 3$ mrad, from $10.5°$ 
 
 The $\varepsilon I$ term (with $\varepsilon = 10^{-2}\lambda_{\max}$) is **load-bearing**. For a
 *very* narrow cone $\mathrm{Cov}$ is near-singular, so an unregularized $\mathrm{Cov}^{-1/2}$
-amplifies the degenerate axis and makes the estimate *worse*. The regularization caps that.
-Whitening helps for moderate clustering and is safe otherwise.
+amplifies the degenerate axis and makes the estimate *worse*.
+
+The regularization caps that. Whitening helps for moderate clustering and is safe otherwise.
 
 *Tests:* `test_spherical_normalization_is_exact_in_the_noise_free_limit`,
 `test_spherical_normalization_improves_conditioning_on_clustered_rays`.
 
 **Robust estimation.** A few mismatched rays break the least-squares eight-point. So
-`ransac_relative_pose` wraps it in RANSAC scored by the **angular Sampson residual** (radians,
-tangent-plane gradients), with an adaptive iteration count. On 30 % outliers it recovers the
-pose exactly, where the naïve eight-point lands more than $13°$ off.
+`ransac_relative_pose` wraps it in <abbr title="Random Sample Consensus">RANSAC</abbr>, scored by
+the **angular Sampson residual** (radians, tangent-plane gradients), with an adaptive iteration
+count.
+
+On 30 % outliers it recovers the pose exactly, where the naïve eight-point lands more than
+$13°$ off.
 
 *Tests:* `test_ransac_recovers_pose_under_30pct_outliers`,
 `test_ransac_beats_naive_eight_point_with_outliers`.
@@ -208,13 +214,17 @@ up at small $\sigma$ (e.g. $10^{-4}$ rad gives $\sim0.01°$).
 **Degeneracy — pure rotation ($t \to 0$).** As $t \to 0$ the essential matrix collapses:
 $$E = [t]_\times R \to 0 .$$
 The translation direction is then undefined — it is the null singular vector of an essentially
-arbitrary matrix. Detect it via a small ratio of the two non-zero singular values of the *raw*
+arbitrary matrix.
+
+Detect it via a small ratio of the two non-zero singular values of the *raw*
 $\hat E$, or a tiny median parallax, and fall back to a rotation-only (homography) estimate.
 
 **Degeneracy — planar / collinear scene.** When all points are coplanar, the calibrated two-view
 problem has a **two-fold ambiguity** and the eight-point becomes unreliable (a planar test scene
-here lands several degrees off). Use a plane-aware (homography-decomposition) path, or ensure
-non-degenerate 3D coverage — the same "the data must exercise the geometry" lesson as the
+here lands several degrees off).
+
+Use a plane-aware (homography-decomposition) path, or ensure non-degenerate 3D coverage — the
+same "the data must exercise the geometry" lesson as the
 [calibration FOV-coverage](are_two_models_the_same_camera.md) point.
 
 ## Manifold-correct refinement
@@ -222,15 +232,20 @@ non-degenerate 3D coverage — the same "the data must exercise the geometry" le
 The nonlinear refinement (`mvg.refine_two_view`) and the calibration bundle do **not** optimize an
 absolute axis-angle vector (biased >30°, singular at `‖r‖=π`). They optimize a **local
 perturbation** retracted through the exponential map, `R ← R₀·Exp([δω]_×)` with `δω` starting at
-`0`, using the SO(3) `exp`/`log` and **right Jacobian** in
+`0`.
+
+This uses the SO(3) `exp`/`log` and **right Jacobian** in
 [`ds_msp/core/lie.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/lie.py)
 (`∂(Exp(w)v)/∂w = -Exp(w)[v]_× J_r(w)`, verified by finite difference). The calibrator's analytic
-extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)`. The result matches the flat
-parameterization in benign regimes and stays stable at large rotation.
+extrinsic Jacobian is then `∂Xc/∂δω = -R[Xw]_× J_r(δω)`.
+
+The result matches the flat parameterization in benign regimes and stays stable at large
+rotation.
 
 ## What this unlocks
 
-Relative pose + triangulation on rays is the front end of **Structure-from-Motion**: chain
+Relative pose + triangulation on rays is the front end of **Structure-from-Motion**. Chain
 two-view poses, triangulate a point cloud, and refine by manifold bundle adjustment with the
-**angular reprojection residual** — all without ever flattening the fisheye to a pinhole, with
-a robust wrapper (RANSAC + spherical normalization) on top.
+**angular reprojection residual** — all without ever flattening the fisheye to a pinhole.
+
+A robust wrapper (RANSAC + spherical normalization) sits on top of the whole pipeline.

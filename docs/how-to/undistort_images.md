@@ -21,119 +21,118 @@ Build the camera, ask for a new pinhole intrinsic matrix, then remap. `ds_msp.cv
 [`cv2.fisheye`](https://docs.opencv.org/4.x/db/d58/group__calib3d__fisheye.html) function
 signatures, so it drops into existing OpenCV pipelines.
 
-```python
-import cv2
-import numpy as np
-from ds_msp import DoubleSphereCamera
-import ds_msp.cv as ds_cv
+{* docs_src/how_to/undistort_images/estimate_and_undistort.py hl[20,21,28,29] *}
 
-# A calibrated Double Sphere camera (1920x1080 fisheye).
-cam = DoubleSphereCamera(fx=711.57, fy=711.24, cx=949.18, cy=518.81,
-                         xi=0.183, alpha=0.809, width=1920, height=1080)
-
-img = cv2.imread("assets/test_image.jpg")     # (1080, 1920, 3) BGR
-K, D = cam.K, cam.D                            # K: (3,3); D = [xi, alpha] = [0.183, 0.809]
-
-# balance=0.0 -> widest FOV (keeps the most scene; leaves black borders)
-K_new = ds_cv.estimateNewCameraMatrixForUndistortRectify(K, D, (1920, 1080), balance=0.0)
-img_undist = ds_cv.undistortImage(img, K, D, Knew=K_new)   # (1080, 1920, 3)
-
-cv2.imwrite("undistorted.jpg", img_undist)
-print(img_undist.shape)          # -> (1080, 1920, 3)
-print(round(K_new[0, 0], 2))     # -> 284.56  (new focal length, px)
+<!-- termynal -->
+```
+$ python3 -m docs_src.how_to.undistort_images.estimate_and_undistort
+D = [0.183, 0.809]
+(1080, 1920, 3)
+284.56
 ```
 
-You get a straight-line pinhole image: edges that curved in the fisheye are now straight. The
-new focal length (`284.56 px`) is shorter than the original (`711.57 px`) because `balance=0.0`
-zooms out to keep the widest possible view.
+You get a straight-line pinhole image: edges that curved in the fisheye are now straight.
 
-> **Note** — `estimateNewCameraMatrixForUndistortRectify` returns a single new matrix `K_new`
-> with `fx_new == fy_new` (it uses the average of `fx` and `fy` so nothing is stretched).
-> Pass that exact `K_new` to `undistortImage` via `Knew=` so the map and the matrix agree.
+The new focal length (`284.56 px`) is shorter than the original (`711.57 px`) because
+`balance=0.0` zooms out to keep the widest possible view.
+
+/// note
+`estimateNewCameraMatrixForUndistortRectify` returns a single new matrix `K_new` with
+`fx_new == fy_new` (it uses the average of `fx` and `fy` so nothing is stretched). Pass that
+exact `K_new` to `undistortImage` via `Knew=` so the map and the matrix agree.
+///
 
 ## Or use the object API
 
 Hold a `DoubleSphereCamera` already? `undistort_image` does the same job in one call and hands
 back the matrix it chose. Called with `K_new=None`, it builds a balanced matrix at `balance=0.5`.
 
-```python
-# continues from the setup above (cam, img)
-img_undist, K_new = cam.undistort_image(img)   # K_new=None -> built at balance=0.5
-
-print(img_undist.shape)          # -> (1080, 1920, 3)
-print(round(K_new[0, 0], 2))     # -> 426.84  (between the widest and tightest focals)
-```
-
-`undistort_image` takes no `balance` argument — `cam.undistort_image(img, balance=0.3)` raises
-`TypeError`. To pick a different balance, build the matrix with
+`undistort_image` takes no `balance` argument — passing one raises `TypeError`. To pick a
+different balance instead, build the matrix with
 `estimateNewCameraMatrixForUndistortRectify(..., balance=...)` and pass it as `K_new=`:
 
-```python
-# continues from the setup above (cam, img)
-K_tight = ds_cv.estimateNewCameraMatrixForUndistortRectify(
-    cam.K, cam.D, (1920, 1080), balance=1.0)
-img_tight, _ = cam.undistort_image(img, K_new=K_tight)
-print(round(K_tight[0, 0], 2))   # -> 569.12  (tightest crop, no borders)
+{* docs_src/how_to/undistort_images/object_api.py hl[21,27,32:34] *}
+
+<!-- termynal -->
+```
+$ python3 -m docs_src.how_to.undistort_images.object_api
+(1080, 1920, 3)
+426.84
+TypeError: DoubleSphereCamera.undistort_image() got an unexpected keyword argument 'balance'
+569.12
 ```
 
-The two APIs are equivalent. Use the OpenCV-style functions to slot into a `cv2.fisheye`
-pipeline, or the object method when you already have the camera.
+The two APIs are equivalent:
+
+- OpenCV-style functions slot straight into an existing `cv2.fisheye` pipeline.
+- The object method is the shorter path when you already hold the camera.
 
 ## Control the FOV-vs-border trade-off with `balance`
 
-`balance` slides between two extremes of the same image. Lower keeps more of the scene at the
-cost of black corners; higher crops in until the borders are gone.
+`balance` slides between two extremes of the same image:
+
+- **Lower** `balance` keeps more of the scene, at the cost of black corners.
+- **Higher** `balance` crops in until the borders are gone.
 
 | `balance` | New focal `fx_new` | Black-border fraction | What you get |
 | :-- | :-- | :-- | :-- |
-| `0.0` | `284.56 px` | `0.075` | Widest FOV — the most scene, with black corners |
-| `0.5` | `426.84 px` | between the two | Compromise (object-API default) |
+| `0.0` | `284.56 px` | `0.075` | Widest <abbr title="Field of View">FOV</abbr> — the most scene, with black corners |
+| `0.5` | `426.84 px` | `0.001` | Compromise (object-API default) |
 | `1.0` | `569.12 px` | `0.000` | Tightest crop — no borders, least scene |
 
-Measure the trade-off yourself. The "black-border fraction" is the share of output pixels that
-fell outside the fisheye's coverage and were filled with black:
+#### Measure the trade-off yourself
 
-```python
-# continues from the setup above (cam, img)
-def black_fraction(im):
-    """Fraction of pixels that are pure black (outside the fisheye coverage)."""
-    return float(np.mean(np.all(im == 0, axis=2)))
+The "black-border fraction" is the share of output pixels that fell outside the fisheye's
+coverage and were filled with black. Measure it directly instead of trusting the table:
 
-K0 = ds_cv.estimateNewCameraMatrixForUndistortRectify(cam.K, cam.D, (1920, 1080), balance=0.0)
-K1 = ds_cv.estimateNewCameraMatrixForUndistortRectify(cam.K, cam.D, (1920, 1080), balance=1.0)
-und0 = ds_cv.undistortImage(img, cam.K, cam.D, Knew=K0)
-und1 = ds_cv.undistortImage(img, cam.K, cam.D, Knew=K1)
+{* docs_src/how_to/undistort_images/balance_tradeoff.py hl[27:34] *}
 
-print(round(black_fraction(und0), 3))   # -> 0.075   (balance=0.0: visible borders)
-print(round(black_fraction(und1), 3))   # -> 0.000   (balance=1.0: no borders)
+<!-- termynal -->
+```
+$ python3 -m docs_src.how_to.undistort_images.balance_tradeoff
+balance=0.0  fx_new=284.56 px  black_fraction=0.075
+balance=0.5  fx_new=426.84 px  black_fraction=0.001
+balance=1.0  fx_new=569.12 px  black_fraction=0.000
+fx_new(1.0) / fx_new(0.0) = 2.00
+midpoint(0.0, 1.0) = 426.84  (balance=0.5 gives 426.84)
 ```
 
-Notice that going from `balance=0.0` to `balance=1.0` drops the black-border fraction from
-`0.075` to `0.000` while the focal length exactly doubles (`284.56 px` -> `569.12 px`, a
-0.4x-to-0.8x-of-average-focal scale factor). You trade visible scene for a clean frame.
+Going from `balance=0.0` to `balance=1.0` drops the black-border fraction from `0.075` to
+`0.000`. Over the same range the focal length exactly doubles: `284.56 px` to `569.12 px`.
 
-Notice also that `balance=0.5`'s `426.84 px` is exactly the midpoint of `284.56` and `569.12`
-— `balance` interpolates the focal linearly, so you can predict where any intermediate value
-lands without computing it.
+/// tip | `balance` interpolates linearly
+`balance=0.5`'s `426.84 px` is exactly the midpoint of `284.56` and `569.12`. `balance`
+interpolates the focal linearly, so you can predict where any intermediate value lands
+without computing it.
+
+You trade visible scene for a clean frame — there's no value of `balance` that gives you both.
+///
 
 ## Troubleshooting: my undistorted image has black borders
 
-Black borders are expected, not a bug — tune `balance` to control them. Raise it toward `1.0`
-to crop the empty corners away, or lower it toward `0.0` to keep more scene. For why the
-trade-off is geometric and no value removes the borders without losing FOV, see
+Black borders are expected, not a bug. Tune `balance` to control them:
+
+- Raise it toward `1.0` to crop the empty corners away.
+- Lower it toward `0.0` to keep more scene.
+
+For why the trade-off is geometric — no value removes the borders without losing FOV — see
 [Projection validity and FOV](../explain/projection_validity_and_fov.md).
+
+/// warning | A missing image fails loudly, not silently
+If `cv2.imread` returns `None`, `undistortImage` errors with `AttributeError: 'NoneType'
+object has no attribute 'shape'` before you ever get to `black_fraction`. The image path
+didn't resolve — run from the repo root so `assets/test_image.jpg` is found.
+///
 
 ## Try it yourself
 
 Set `balance=0.3` in `estimateNewCameraMatrixForUndistortRectify`. Before you run it, predict:
-will the black-border fraction be closer to `0.075` or to `0.000`, and will `fx_new` land
-between `284.56` and `569.12`? Then wire the resulting `K_new` through `undistortImage(img,
-cam.K, cam.D, Knew=K_new)` (same pattern as the setup snippet) and check your guess with
-`black_fraction(...)` on that result.
 
-If `cv2.imread` returns `None`, `undistortImage` errors with `AttributeError: 'NoneType'
-object has no attribute 'shape'` before you ever get to `black_fraction` — the image path
-didn't resolve. Run from the repo root so `assets/test_image.jpg` is found.
+- Will the black-border fraction be closer to `0.075` or to `0.000`?
+- Will `fx_new` land between `284.56` and `569.12`?
+
+Then wire the resulting `K_new` through `undistortImage(img, cam.K, cam.D, Knew=K_new)` (same
+pattern as the setup snippet) and check your guess with `black_fraction(...)` on that result.
 
 ## Next steps
 
