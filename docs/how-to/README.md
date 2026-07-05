@@ -1,8 +1,8 @@
 # How-to guides
 
 Task-oriented recipes: each page solves one concrete problem with the library, start to finish,
-no theory. For the why, follow the links to [Explanation](../explain/README.md); a generated
-API reference is coming soon.
+no theory. For the why, follow the links to [Explanation](../explain/README.md); for complete
+signatures, see the [API Reference](../reference/index.md).
 
 Six recipes are available now:
 

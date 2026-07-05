@@ -170,7 +170,7 @@ The fix is a detector that matches the board: the pure-Python
 But that's only half the battle — **off-centre boards still lose most of their tags** (a
 fully-visible corner board can drop to 4 of 36), because the fisheye shrinks peripheral tags
 below the detector's size gate. Those are the wide-FOV corners that constrain the distortion,
-so losing them is exactly what kept the focal at ~0.7% instead of 0.003%. The fix —
+so losing them is exactly what kept the focal at ~0.7% instead of ~0.02%. The fix —
 **multi-scale detection** plus two subpixel/pixel-centre subtleties that decide whether the
 recovered corners *help or hurt* — is its own deep-dive:
 **[detecting every AprilGrid tag](robust_aprilgrid_detection.md)**. It's why this capstone now

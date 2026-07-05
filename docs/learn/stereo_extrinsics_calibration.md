@@ -254,7 +254,7 @@ The critical scale subtlety — the one thing readers get wrong — is this:
 | **Rotation (0.062°)** | Comes from *directions* only; never needs metric size. | Unconditional. It would hold even if you'd guessed the tag size wrong by 10%. |
 | **Translation (0.25 mm / ~0.2%)** | Carries the scale you assumed (`tag_size=0.088`). Get that wrong by 1% and every distance scales by 1%. | Proof that 88 mm is the right tag size *and* a proxy for overall measurement fidelity. |
 
-This is why the example phrases the result as "rotation to a fifth of a degree, baseline to ~1%": the two numbers are trustworthy for *different* reasons and speak to different kinds of error.
+This is why the example phrases the result as "rotation to a sixteenth of a degree, baseline to ~0.2%": the two numbers are trustworthy for *different* reasons and speak to different kinds of error.
 
 ## Recap
 

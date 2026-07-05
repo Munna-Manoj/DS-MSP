@@ -22,7 +22,7 @@ with both a clean implementation *and* a chapter that explains them.
   Double Sphere model reproducing TUM-VI's published calibration to 0.025 px.
 - **Capstone**: calibrate a real fisheye end-to-end from AprilGrid footage
   (`detect → correspond → bundle-adjust`) and match the published intrinsics to
-  0.003% focal / 0.08 px median (multi-scale, periphery-robust detection — see the
+  ~0.02% focal / 0.08 px median (multi-scale, periphery-robust detection — see the
   [deep-dive](learn/robust_aprilgrid_detection.md)). AprilGrid detection adds `ds_msp/calib/{targets,detect}.py`
   and the `[calib]` extra.
 - **Model-choice deep-dives** ✅ — a measurable framework for picking a camera model

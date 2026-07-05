@@ -21,7 +21,7 @@ finding that out on real data and fixing it, with a number at every step. The fi
   mismapping upscaled corners back without the pixel-centre convention (0.03 px vs. 0.83 px
   principal-point error).
 - See the payoff on the full capstone calibration: corners 5,180 → 14,460 and focal-length
-  agreement 0.7% → 0.003%.
+  agreement 0.7% → ~0.02%.
 
 **Prerequisites**
 - Finish the [capstone](capstone_calibrating_a_real_camera.md) — this deep-dive puts its

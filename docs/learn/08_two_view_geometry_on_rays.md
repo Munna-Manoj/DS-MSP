@@ -432,7 +432,8 @@ it affects the pose estimate:
 You recovered relative pose from bearing rays with `recover_pose`, proved it exact on a
 synthetic Double Sphere scene (**~1e-6°**, CI-asserted `< 1e-3°`), made it robust with
 `ransac_relative_pose` (**0.107°** under 30% outliers), and ran the whole thing on a real
-TUM-VI fisheye pair (**~97% inliers, ~0.035° residual**).
+TUM-VI fisheye pair (**~90.9% inliers, ~1.1° residual** — an order of magnitude looser than
+the synthetic exercises, because real KLT corners carry real subpixel noise).
 
 The pose here is a closed-form two-view estimate. The next step is to **refine** it.
 `refine_two_view` runs iterative Levenberg–Marquardt on the rotation–translation manifold (SO(3) × S²),

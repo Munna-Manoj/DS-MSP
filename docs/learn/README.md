@@ -78,15 +78,15 @@ on top of the shipped, tested library.*
 | 2 | [The Double Sphere model](02_double_sphere_model.md) | derive DS projection, read it in code, and reproduce a published calibration with it | `examples/02_double_sphere_tumvi.py` |
 | 3 | [Projection validity & the >180° cone](03_projection_validity.md) | explain why `z>0` is the classic bug, and *measure* the >180° valid cone (227° here) | `examples/07_fov_and_validity.py` |
 | 4 | Analytic Jacobians vs autodiff *(coming soon)* | derive a Jacobian and gradient-check it | `ds_msp/model.py` |
-| 5 | Calibration by Levenberg–Marquardt *(coming soon)* | calibrate from corner detections | `calibrate.py`, `ds_msp/calib/` |
+| 5 | Calibration by Levenberg–Marquardt *(coming soon)* | calibrate from corner detections | `ds_msp/calib/bundle.py` |
 | 6 | One model to another: conversion *(coming soon)* | turn a DS calib into KB/EUCM without re-shooting | `ds_msp/adapt/` |
 | 7 | Reproducing a published calibration *(coming soon)* | match TUM-VI / EuRoC reference numbers with your own code | `ds_msp/io/kalibr.py` |
 
 ### 🏆 The capstone (runnable now)
 **[Calibrate a real fisheye camera and match the published numbers](capstone_calibrating_a_real_camera.md)**
 — detect AprilGrid corners in TUM-VI's raw footage, bundle-adjust the intrinsics from
-scratch, and land on the calibration the dataset authors published to **0.003%** focal
-(0.081 px median reprojection). This is the artifact the chapters build toward; you can run
+scratch, and land on the calibration the dataset authors published to **~0.02%** focal
+(0.080 px median reprojection). This is the artifact the chapters build toward; you can run
 it after Chapter 2. Code: `examples/03_calibrate_tumvi_aprilgrid.py`.
 
 ### Capstone companions — go deeper on one piece of the pipeline
@@ -97,7 +97,7 @@ order — they don't depend on each other.
 
 | Chapter | You'll be able to… | Code anchor |
 |---------|--------------------|--------------|
-| [Detecting every AprilGrid tag, even at the fisheye periphery](robust_aprilgrid_detection.md) | explain why a fully-visible board drops to 4/36 tags off-centre, and apply the multi-scale + board-guided recovery fix that takes recall 36%→94% and tightens the focal fit 0.7%→0.003% | `examples/03_calibrate_tumvi_aprilgrid.py` |
+| [Detecting every AprilGrid tag, even at the fisheye periphery](robust_aprilgrid_detection.md) | explain why a fully-visible board drops to 4/36 tags off-centre, and apply the multi-scale + board-guided recovery fix that takes recall 36%→94% and tightens the focal fit 0.7%→~0.02% | `examples/03_calibrate_tumvi_aprilgrid.py` |
 | [Robust losses vs hard rejection — and why naive RMS lies](robust_losses_and_evaluation.md) | apply a Cauchy loss that down-weights bad corners without discarding them, derive the IRLS weighting, and score a robust fit by median / inlier RMS instead of RMS | `examples/04_robust_vs_rejection.py` |
 | [Stereo extrinsics: recovering a rig's camera-to-camera transform](stereo_extrinsics_calibration.md) | recover a rig's camera-to-camera transform from a shared board, average per-frame poses (chordal mean + median), and score it against a published reference (**0.062° rotation, 0.25 mm baseline**, ~0.2%) | `examples/06_stereo_extrinsics_tumvi.py` |
 | [Sphere, cylinder, pinhole: one camera, three images, and the pixel math that links them](spherical_and_cylindrical_reprojection.md) | derive the exact pixel↔pixel maps between three charts of the same camera (verified to 1e-13 px round-trip), and find where the cylinder silently drops the polar cone | `examples/08_reproject_sphere_cylinder.py` |

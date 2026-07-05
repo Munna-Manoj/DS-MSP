@@ -131,7 +131,7 @@ result = calibrate(seed, X_world, keypoints, visibility, loss="huber", f_scale=1
 print(result["model"], result["rms_px"])           # calibrated model + reprojection RMS
 ```
 
-On the capstone (real TUM-VI fisheye + AprilGrid) this matches the *published* intrinsics to **0.003% focal** at **0.08 px median**. → [Calibration capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md)
+On the capstone (real TUM-VI fisheye + AprilGrid) this matches the *published* intrinsics to **~0.02% focal** at **0.08 px median**. → [Calibration capstone](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/capstone_calibrating_a_real_camera.md)
 
 **Just have a folder of images, no correspondences yet?** `ds-msp-calibrate` is a real console
 command from `pip install ds-msp` alone — detection (checkerboard / ChArUco / AprilGrid) +
@@ -240,10 +240,10 @@ All 8 models live behind one `CameraModel` contract with analytic Jacobians, `co
 Every claim is backed by a number you can reproduce — **567 tests passing**, CI green.
 
 - Inverse projection (all undistort modes): mean error **< 0.00003 px**.
-- 3D reconstruction of checkerboard corners: **1.168 mm** mean; recovered **20.01 cm** square (target 20.00).
+- 3D reconstruction of checkerboard corners: **0.835 mm** mean; recovered **20.00 cm** square (target 20.00).
 - PnP + reprojection RMS on real test images: **0.43 px / 0.85 px**.
 - KB / RadTan vs OpenCV: agree to **~1e-13**.
-- Bundled DS calibration converges to fx≈711.6, fy≈711.2, cx≈949.2, cy≈518.8, xi≈0.183, alpha≈0.809 at **0.64 px** RMS.
+- Bundled DS calibration (both test views) converges to fx≈733.9, fy≈733.0, cx≈951.7, cy≈517.9, xi≈0.230, alpha≈0.817 at **0.57 px** RMS — the reference intrinsics for this bundled data are fx≈711.6, xi≈0.183; a single-view or two-view planar fit doesn't fully pin the DS focal/xi/alpha gauge (see [are two models the same camera?](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/are_two_models_the_same_camera.md)), so judge this by reprojection RMS, not raw parameter recovery.
 
 ```bash
 pytest
