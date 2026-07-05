@@ -45,9 +45,12 @@ centre). Such a camera is **completely** described by a one-to-one map between
 
 That's the whole object. A camera *model* is just a formula for that map (project) and its
 inverse (unproject). The flat image plane is one **storage convention** for the bijection —
-and a bad one past 90°, where the projection $\tan\theta \to \infty$. The unit sphere has no
-such edge, which is exactly why fisheye models (Double Sphere included) put the sphere at
-their core.
+and a bad one past 90°, where the projection diverges:
+
+$$\tan\theta \to \infty$$
+
+The unit sphere has no such edge, which is exactly why fisheye models (Double Sphere included)
+put the sphere at their core.
 
 So "projecting onto a sphere" isn't a trick — it's writing the bijection on its natural
 domain. The cylinder and the pinhole are two *other* charts of the same rays.
@@ -59,32 +62,58 @@ $$\underbrace{\lambda = \operatorname{atan2}(x,\, z)}_{\text{azimuth (longitude)
 \qquad
 \underbrace{\psi = \operatorname{atan2}\!\big(-y,\, \sqrt{x^2+z^2}\big)}_{\text{elevation (latitude)}}$$
 
-with the inverse $\;(x, y, z) = (\cos\psi \sin\lambda,\; -\sin\psi,\; \cos\psi \cos\lambda)$.
+with the inverse
+
+$$(x, y, z) = (\cos\psi \sin\lambda,\; -\sin\psi,\; \cos\psi \cos\lambda)$$
 
 ## 2. Three charts, three sets of intrinsics
 
 Each representation is a different rule for turning a ray's two angles into a pixel. All three
 have honest *intrinsics* — a focal-like scale $f$ (pixels per radian, or per unit) and a
-centre $(c_x, c_y)$. Here they are, forward (ray → pixel) and inverse (pixel → ray):
+centre $(c_x, c_y)$. Here are the forward laws (ray → pixel); the inverse laws (pixel → ray)
+follow in the breakout just below:
 
-| Chart | Column law (azimuth) | Row law (elevation) | Inverse | Valid range |
-|-------|----------------------|---------------------|---------|-------------|
-| **Sphere** (equirectangular) | $u = c_x + f\,\lambda$ | $v = c_y - f\,\psi$ | $\lambda=\frac{u-c_x}{f},\ \psi=\frac{c_y-v}{f}$ | full $S^2$ |
-| **Cylinder** | $u = c_x + f\,\lambda$ | $v = c_y - f\,\tan\psi$ | $\lambda=\frac{u-c_x}{f},\ \psi=\arctan\!\frac{c_y-v}{f}$ | $\lvert\psi\rvert<90°$ |
-| **Pinhole** (gnomonic) | $u = c_x + f_p\,\dfrac{x}{z}$ | $v = c_y + f_p\,\dfrac{y}{z}$ | $\big(\tfrac{u-c_x}{f_p},\,\tfrac{v-c_y}{f_p},\,1\big)$ | $z>0$ |
+| Chart | Column law (azimuth) | Row law (elevation) | Valid range |
+|-------|----------------------|---------------------|-------------|
+| **Sphere** (equirectangular) | $u = c_x + f\,\lambda$ | $v = c_y - f\,\psi$ | full $S^2$ |
+| **Cylinder** | $u = c_x + f\,\lambda$ | $v = c_y - f\,\tan\psi$ | $\lvert\psi\rvert<90°$ |
+| **Pinhole** (gnomonic) | $u = c_x + f_p\,\dfrac{x}{z}$ | $v = c_y + f_p\,\dfrac{y}{z}$ | $z>0$ |
+
+**Inverse laws (pixel → ray).** Each forward law inverts as follows.
+
+Sphere:
+
+$$\lambda = \frac{u-c_x}{f}$$
+$$\psi = \frac{c_y-v}{f}$$
+
+Cylinder:
+
+$$\lambda = \frac{u-c_x}{f}$$
+$$\psi = \arctan\!\frac{c_y-v}{f}$$
+
+Pinhole — the pixel already *is* a ray:
+
+$$\big(\tfrac{u-c_x}{f_p},\,\tfrac{v-c_y}{f_p},\,1\big)$$
 
 Two things to notice, because they *are* the answer to your question:
 
 1. **Sphere and cylinder share the column law exactly.** Both store azimuth linearly:
-   $u = c_x + f\lambda$. They differ in **one place only** — the row. The sphere is linear in
-   the elevation angle $\psi$; the cylinder is linear in $\tan\psi$ (the height where the ray
-   pierces a unit cylinder). So *the cylinder is the sphere with a vertical $\tan$ warp* — same
-   azimuth, re-spaced rows.
 
-2. **The pinhole bends both axes through $\tan$.** Using the angles, $x/z = \tan\lambda$ and
-   $y/z = -\tan\psi/\cos\lambda$. The vertical *couples* to azimuth (that $1/\cos\lambda$) —
-   which is why straight world lines stay straight in a pinhole but the periphery balloons,
-   and why it dies at $z=0$ ($\lambda$ or $\psi \to 90°$).
+    $$u = c_x + f\lambda$$
+
+    They differ in **one place only** — the row. The sphere is linear in the elevation angle
+    $\psi$; the cylinder is linear in $\tan\psi$ (the height where the ray pierces a unit
+    cylinder). So *the cylinder is the sphere with a vertical $\tan$ warp* — same azimuth,
+    re-spaced rows.
+
+2. **The pinhole bends both axes through $\tan$.** Using the angles:
+
+    $$x/z = \tan\lambda$$
+    $$y/z = -\tan\psi/\cos\lambda$$
+
+    The vertical *couples* to azimuth (that $1/\cos\lambda$) — which is why straight world
+    lines stay straight in a pinhole but the periphery balloons, and why it dies at $z=0$
+    ($\lambda$ or $\psi \to 90°$).
 
 ## 3. The maps that move a pixel between charts
 
@@ -184,12 +213,14 @@ top/bottom punch out to black: the >90° cone has nowhere to land on a flat plan
 ## 5. Proof on a real board: every corner survives every conversion
 
 Pretty pictures aren't proof. The bundled fisheye has a checkerboard with **30 known corner
-pixels** (`anns.json`) — a perfect ground-truth probe. We push each raw corner through the
-conversion math, `raw pixel → DS-unproject → ray → chart pixel`, and draw it on each
-representation. If the maps are right, every dot must land **exactly** on the checkerboard
-corner you can see in that image — even though the board is shaped completely differently in
-each chart. The green grid connects the corners so you can watch the board bend while the dots
-stay put:
+pixels** (`anns.json`) — a perfect ground-truth probe.
+
+We push each raw corner through the conversion math, `raw pixel → DS-unproject → ray → chart
+pixel`, and draw it on each representation. If the maps are right, every dot must land
+**exactly** on the checkerboard corner you can see in that image — even though the board is
+shaped completely differently in each chart.
+
+The green grid connects the corners so you can watch the board bend while the dots stay put:
 
 | Raw fisheye | Pinhole (gnomonic) |
 |---|---|
@@ -212,17 +243,22 @@ Now the numbers. Round-trip every corner all the way back —
 | Pinhole (gnomonic) | 7.4e-14 px | 1.6e-13 px | 30 / 30 |
 
 1e-13 px is float64 round-off: a corner detected in the fisheye returns to within an atom's
-width of itself after a full trip through *any* representation. The pictures and the table
-agree — the conversions move pixels between charts without losing a thing, which is exactly the
-property you need before trusting a representation for real 2D/3D work.
+width of itself after a full trip through *any* representation.
+
+The pictures and the table agree — the conversions move pixels between charts without losing a
+thing, which is exactly the property you need before trusting a representation for real 2D/3D
+work.
 
 ## 6. So — can you do 2D/3D tasks on these? Yes, with one caveat
 
 Because every chart is just a relabelling of the *same rays*, anything ray-based is
 representation-agnostic and transfers directly:
 
-- **Epipolar geometry** still holds: $\mathbf{x}_2^\top E\,\mathbf{x}_1 = 0$ on bearing vectors.
-  On the sphere image an epipolar *line* becomes an epipolar *great circle*.
+- **Epipolar geometry** still holds on bearing vectors:
+
+    $$\mathbf{x}_2^\top E\,\mathbf{x}_1 = 0$$
+
+    On the sphere image an epipolar *line* becomes an epipolar *great circle*.
 - **Triangulation, PnP, bundle adjustment** operate on rays, so they don't care whether you
   stored the measurement as a sphere, cylinder, or pinhole pixel. Spherical SfM and spherical
   stereo are standard for exactly this reason.

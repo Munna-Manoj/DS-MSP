@@ -57,6 +57,7 @@ CI fails if this file is out of sync with the registry and the test suite.
 | NFR-ARCH-002 | NFR | ARCH | ARC-CORE | `ds_msp` | `tests/contract/test_independence.py::test_math_foundation_is_cv2_and_scipy_free` | implemented | no | tests/contract/test_independence.py (module) |
 | NFR-ARCH-003 | NFR | ARCH | ARC-CORE | `ds_msp/core/contracts.py` | `tests/contract/test_camera_model_contract.py` | implemented | no | tests/contract/test_camera_model_contract.py (module) |
 | NFR-DOCS-001 | NFR | DOCS | ARC-DOCS | `mkdocs.yml;docs` | `tests/docs/test_docs_build.py` | implemented | no | tests/docs/test_docs_build.py (module) |
+| NFR-DOCS-002 | NFR | DOCS | ARC-DOCS | `docs_src;tests/docs_src` | `tools/check_docs_src_coverage.py` | implemented | no | — |
 | NFR-NUM-001 | NFR | NUM | ARC-MODELS | `ds_msp/models` | `tests/contract/test_gradcheck.py` | implemented | no | tests/contract/test_gradcheck.py (module) |
 | NFR-NUM-002 | NFR | NUM | ARC-MODELS | `ds_msp/models` | `tests/test_ds_camera_cv.py` | implemented | no | tests/test_ds_camera_cv.py (module) |
 | NFR-NUM-003 | NFR | NUM | ARC-OPS | `ds_msp/ops/reproject.py` | `tests/ops/test_reproject.py` | implemented | no | tests/ops/test_reproject.py (module) |
