@@ -18,7 +18,6 @@ from ds_msp.testing import gradcheck_project, gradcheck_retraction
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
-from ds_msp.models.eucmplus import EUCMPlusModel
 from ds_msp.models.kb import KannalaBrandtModel
 from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
@@ -36,7 +35,6 @@ _FACTORIES = [
     ("radtan", RadTanModel.sample),
     ("ocam", OCamModel.sample),
     ("dsplus", DSPlusModel.sample),
-    ("eucmplus", EUCMPlusModel.sample),
 ]
 
 

@@ -325,7 +325,7 @@ def test_intrinsics_template_states_and_round_trips_every_model():
     assert _INTRINSICS_TEMPLATE.exists(), f"missing intrinsics template at {_INTRINSICS_TEMPLATE}"
     cams, _ = _load_cameras(str(_INTRINSICS_TEMPLATE))
     expect = {0: "radtan", 1: "kb", 2: "ucm", 3: "eucm",
-              4: "ds", 5: "dsplus", 6: "eucmplus", 7: "ocam"}
+              4: "ds", 5: "dsplus", 6: "ocam"}
     assert set(cams) == set(expect)
     for c, name in expect.items():
         assert _provided_model_name(cams[c]) == name          # model read from the file's statement

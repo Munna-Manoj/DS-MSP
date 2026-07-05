@@ -293,7 +293,6 @@ _DISTORTION_LAYOUT: Dict[str, Tuple[str, ...]] = {
     "radtan": ("k1", "k2", "p1", "p2", "k3"),
     "ucm": ("alpha",),
     "eucm": ("alpha", "beta"),
-    "eucmplus": ("alpha", "beta", "lambda1", "tau_x", "tau_y"),
     "ocam": ("c", "d", "e", "a0", "a1", "a2", "a3", "a4"),
 }
 

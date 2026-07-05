@@ -69,7 +69,7 @@ def _provided_model_name(cam) -> str:
 
     Uses the model the file explicitly states (``camera_model`` string or ``distortion_type``
     int, parsed into ``cam.model_name``) when present — this is the only reliable signal for the
-    sphere/poly models (ucm/eucm/ds/dsplus/eucmplus) whose distortion length overlaps. For a
+    sphere/poly models (ucm/eucm/ds/dsplus) whose distortion length overlaps. For a
     plain MC-Calib file that states nothing, falls back to the historical length heuristic:
     4 coeffs ⇒ KB (fisheye), anything else ⇒ RadTan/Brown."""
     if getattr(cam, "model_name", None):

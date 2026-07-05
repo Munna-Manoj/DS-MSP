@@ -9,7 +9,7 @@ import numpy as np
 from ds_msp.models import (
     DoubleSphereModel, UCMModel, EUCMModel,
     KannalaBrandtModel, RadTanModel, OCamModel,
-    DSPlusModel, EUCMPlusModel,
+    DSPlusModel,
 )
 
 # Same defaults as web/src/lib/cameras.ts
@@ -22,8 +22,6 @@ MODELS = {
     "ocam":     OCamModel(cx=320, cy=320, c=1, d=0, e=0, a0=-230, a1=0, a2=0.0016, a3=0, a4=0),
     "dsplus":   DSPlusModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6,
                             lambda1=0.0, lambda2=0.0, tau_x=0.0, tau_y=0.0),
-    "eucmplus": EUCMPlusModel(fx=180, fy=180, cx=320, cy=320, alpha=0.6, beta=1.0,
-                              lambda1=0.0, tau_x=0.0, tau_y=0.0),
 }
 
 # directions spanning front hemisphere and wide angles

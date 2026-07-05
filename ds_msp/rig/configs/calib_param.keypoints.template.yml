@@ -46,7 +46,7 @@ distortion_model: 1          # 0:Brown(radtan)  //  1:Kannala(kb). Used only if 
 distortion_per_camera: [1,1,1,1,0,0,1,1]   # per-camera 0/1 override of distortion_model
 
 # --- DS-MSP EXTENSION (highest precedence): per-camera model, any of
-#     {radtan, ucm, eucm, ds, kb, ocam, dsplus, eucmplus}. This is the knob you change between
+#     {radtan, ucm, eucm, ds, kb, ocam, dsplus}. This is the knob you change between
 #     reuse runs to compare models on the SAME detections. ---
 # camera_models: [ ds, ds, ds, ds, radtan, radtan, ds, ds ]
 

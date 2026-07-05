@@ -40,7 +40,7 @@ distortion_model: 0          # 0:Brown (radtan / perspective)  //  1: Kannala (k
 distortion_per_camera: []    # per-camera 0/1; empty => all use `distortion_model`. Length must equal number_camera.
 
 # --- DS-MSP EXTENSION (highest precedence; comment out to use distortion_model/_per_camera) ---
-# Per-camera model name from {radtan, ucm, eucm, ds, kb, ocam, dsplus, eucmplus}.
+# Per-camera model name from {radtan, ucm, eucm, ds, kb, ocam, dsplus}.
 # Overrides distortion_model / distortion_per_camera when present.
 # camera_models: [ kb, kb, radtan ]
 
