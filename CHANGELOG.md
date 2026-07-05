@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.9.0...v0.9.1) (2026-07-05)
+
+
+### Bug Fixes
+
+* **ci:** add .nojekyll to the merged Pages artifact; retrigger a stuck deploy ([#44](https://github.com/Munna-Manoj/DS-MSP/issues/44)) ([7421759](https://github.com/Munna-Manoj/DS-MSP/commit/7421759696e5e54de3157f2e5ccfe63acb03135e))
+
 ## [0.9.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.8.0...v0.9.0) (2026-07-01)
 
 
