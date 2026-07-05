@@ -33,6 +33,8 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))  # so the console-script import check works without a real
+                               # `pip install` -- this script is meant to run pure-stdlib
 
 
 def _excluded_packages() -> set[str]:

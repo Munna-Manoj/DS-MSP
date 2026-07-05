@@ -89,7 +89,9 @@ jobs:
   # Always runs (no path gate): the governance checks validate the docs/process tree and the
   # packaging contract — requirements traceability, tree hygiene, and that the docs never
   # advertise a subpackage the wheel excludes (the "rig documented but not shipped" guard).
-  # Pure stdlib, no install, ~seconds — so a docs-only PR is exactly when they matter most.
+  # traceability/tree-hygiene are pure stdlib; the packaging check actually imports each
+  # [project.scripts] entry point (the only reliable way to catch a broken/renamed target),
+  # so it needs ds_msp installed — a docs-only PR is exactly when these checks matter most.
   governance:
     name: governance (traceability + hygiene + packaging)
     runs-on: ubuntu-latest
@@ -99,12 +101,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
       - name: traceability (requirements <-> tests <-> ADRs in sync)
         run: python tools/check_traceability.py --check
       - name: tree hygiene (no tracked local-only / leak content)
         run: python tools/check_tree_hygiene.py
       - name: packaging (docs match the wheel — no advertised-but-excluded subpackage)
-        run: python tools/check_packaging.py
+        run: |
+          pip install -e .
+          python tools/check_packaging.py
 
   # Docs-site build check: runs on any docs/** or mkdocs.yml change (a "docs-only" PR is
   # exactly when this matters, so it is NOT gated off by the code-only fast path above) AND on
