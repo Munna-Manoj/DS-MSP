@@ -51,13 +51,16 @@ points projected through a Double Sphere model into fisheye pixels, then recover
 
 {* docs_src/how_to/solve_pnp_on_fisheye/solve_pnp_basic.py hl[33,34] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_basic
 True 40
 rotation error: 0.00e+00 deg
 translation error: 7.77e-16 m
 ```
+
+</div>
 
 All 40 points survive the front-facing filter, and the recovered pose matches ground truth to
 the float64 round-off floor.
@@ -78,13 +81,16 @@ measurement is a correctness check, not a noise-robustness one.
 
 {* docs_src/how_to/solve_pnp_on_fisheye/solve_pnp_cv_wrapper.py hl[31,32] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_cv_wrapper
 True (3, 1) (3, 1)
 rotation error: 0.00e+00 deg
 translation error: 7.77e-16 m
 ```
+
+</div>
 
 Same scene, same solve, identical error — the wrapper is a thin shim over `cam.solve_pnp`,
 not a different algorithm.
@@ -104,12 +110,15 @@ wrong model:
 
 {* docs_src/how_to/solve_pnp_on_fisheye/pinhole_contrast.py hl[29,31] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.solve_pnp_on_fisheye.pinhole_contrast
 cv2 rotation error: 0.57 deg
 cv2 translation error: 1.37 m
 ```
+
+</div>
 
 A `0.57°` rotation and `1.37 m` translation error from the *same* data — that gap is the
 fisheye distortion that `cv2.solvePnP` cannot model.

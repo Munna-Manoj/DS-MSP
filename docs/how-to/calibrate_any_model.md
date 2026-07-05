@@ -112,13 +112,16 @@ runs standalone with no dataset download:
 
 {* docs_src/how_to/calibrate_any_model/bundle_adjust.py hl[30:33] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.calibrate_any_model.bundle_adjust
 True
 0.5768
 DoubleSphereModel(fx=737.994, fy=737.123, cx=951.364, cy=517.716, xi=0.2350, alpha=0.8203)
 ```
+
+</div>
 
 `result` is a dict with `model` (the fitted model), `poses` (a `(rvec, tvec)` per image),
 `rms_px` (reprojection <abbr title="Root Mean Square">RMS</abbr> over valid corners, the same
@@ -164,12 +167,15 @@ It works for checkerboard, ChArUco, or AprilGrid boards, and any of the eight ca
 
 ### 1. Write and edit a config
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ pip install ds-msp
 $ ds-msp-calibrate --init-config calib_config.yml
 wrote base calib_config template to: calib_config.yml
 ```
+
+</div>
 
 `opencv-python` (the checkerboard/ChArUco detector) ships with the base install, so this needs
 no extras.
@@ -197,8 +203,9 @@ save_path: "Results_dsmsp_calib_charuco"
 This is the real, verified output of that exact config against a 58-image, 2592×1800 fisheye
 capture of a 6×6 ChArUco board:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --config calib_config.yml --quiet
 === charuco / kb: 58 images, 2592x1800 ===
 
@@ -211,6 +218,8 @@ verdict: PASS  median 0.286px, p95 0.963px <= 1.00/3.00px
 
 wrote Results_dsmsp_calib_charuco/camchain.yaml
 ```
+
+</div>
 
 That's the same two things recipe 1 gives you: a fitted model and a reprojection-error number.
 

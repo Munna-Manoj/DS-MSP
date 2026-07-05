@@ -315,6 +315,7 @@ DS-MSP stands on prior work, and credit stays prominent:
 - **Double Sphere** — Usenko, Demmel, Cremers, 3DV 2018 (arXiv:1807.08957; basalt-headers).
 - **Kannala-Brandt** (2006), **RadTan / Brown-Conrady** (1966), **OCamCalib** (Scaramuzza), **EUCM** (Khomutenko et al. 2016), **UCM** (Geyer & Daniilidis / Mei & Rives).
 - **Kalibr** (Furgale et al.), **dscamera**, and **Muhammadjon Boboev** (the original Python DS calibration this project grew from).
+- **[Termynal](https://github.com/fastapi/typer)** — Ines Montani, MIT. Powers the animated terminal blocks in these docs; vendored from Typer, whose docs also inspired this site's style.
 
 ---
 

@@ -23,13 +23,16 @@ signatures, so it drops into existing OpenCV pipelines.
 
 {* docs_src/how_to/undistort_images/estimate_and_undistort.py hl[20,21,28,29] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.undistort_images.estimate_and_undistort
 D = [0.183, 0.809]
 (1080, 1920, 3)
 284.56
 ```
+
+</div>
 
 You get a straight-line pinhole image: edges that curved in the fisheye are now straight.
 
@@ -53,14 +56,17 @@ different balance instead, build the matrix with
 
 {* docs_src/how_to/undistort_images/object_api.py hl[21,27,32:34] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.undistort_images.object_api
 (1080, 1920, 3)
 426.84
 TypeError: DoubleSphereCamera.undistort_image() got an unexpected keyword argument 'balance'
 569.12
 ```
+
+</div>
 
 The two APIs are equivalent:
 
@@ -87,8 +93,9 @@ coverage and were filled with black. Measure it directly instead of trusting the
 
 {* docs_src/how_to/undistort_images/balance_tradeoff.py hl[27:34] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.undistort_images.balance_tradeoff
 balance=0.0  fx_new=284.56 px  black_fraction=0.075
 balance=0.5  fx_new=426.84 px  black_fraction=0.001
@@ -96,6 +103,8 @@ balance=1.0  fx_new=569.12 px  black_fraction=0.000
 fx_new(1.0) / fx_new(0.0) = 2.00
 midpoint(0.0, 1.0) = 426.84  (balance=0.5 gives 426.84)
 ```
+
+</div>
 
 Going from `balance=0.0` to `balance=1.0` drops the black-border fraction from `0.075` to
 `0.000`. Over the same range the focal length exactly doubles: `284.56 px` to `569.12 px`.

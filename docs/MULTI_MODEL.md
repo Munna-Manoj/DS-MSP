@@ -119,14 +119,17 @@ KannalaBrandtModel, ...)`, or for any other model class, and nothing else change
 
 {* docs_src/guides/multi_model/project_unproject.py hl[17,22] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.multi_model.project_unproject
 [[979.227, 518.81], [1028.735, 479.051]]
 [True, True]
 [[0.049938, 0.0, 0.998752], [0.131876, -0.065938, 0.989071]]
 [1.0, 1.0]
 ```
+
+</div>
 
 `valid` flags points the model cannot represent (e.g. behind a narrow lens, or
 outside a fisheye's FOV). Always mask by it. Every unprojected ray is unit-norm —
@@ -136,12 +139,15 @@ the last printed line confirms it.
 
 {* docs_src/guides/multi_model/undistort_image.py hl[17:19] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.multi_model.undistort_image
 (1080, 1920, 3)
 426.84
 ```
+
+</div>
 
 `balance` slides from `0.0` (widest FOV, black borders) to `1.0` (tightest crop, no
 borders); see [Undistort images](how-to/undistort_images.md) for the full
@@ -151,14 +157,17 @@ trade-off, measured.
 
 {* docs_src/guides/multi_model/undistort_distort_points.py hl[21,26] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.multi_model.undistort_distort_points
 [[715.819, 509.335], [923.194, 376.167]]
 [True, True]
 [[640.0, 480.0], [900.0, 300.0]]
 round-trip max error: 2.89e-10 px
 ```
+
+</div>
 
 Use `undistort_points` to move detections into a pinhole frame for classic
 algorithms; use `distort_points` to draw pinhole-space results back onto the
@@ -169,13 +178,16 @@ every model.
 
 {* docs_src/guides/multi_model/solve_pnp_cookbook.py hl[20] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.multi_model.solve_pnp_cookbook
 ok=True
 rvec=[-0.4809, -0.1674, -0.127]
 tvec=[-0.2892, -0.0329, 0.4515]
 ```
+
+</div>
 
 `solve_pnp` works for any fisheye/omni model: it unprojects to bearing rays, keeps
 the front-facing ones, and solves PnP in the normalized plane. See
@@ -189,12 +201,15 @@ RadTan — their distortion convention is exactly OpenCV's:
 
 {* docs_src/guides/multi_model/opencv_interop.py hl[19,23,33,34] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.multi_model.opencv_interop
 (1080, 1920, 3)
 [[610.26, 480.33], [719.27, 469.54], [598.67, 589.42], [716.93, 580.87]]
 ```
+
+</div>
 
 The projected points land within a couple of pixels of the original detections
 (`[610, 480]`, `[720, 470]`, `[600, 590]`, `[715, 580]`) — the round trip through

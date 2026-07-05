@@ -113,14 +113,17 @@ arbitrary depth along its own ray:
 
 {* docs_src/learn/double_sphere_model/forward_projection.py hl[29:34] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.double_sphere_model.forward_projection
 3D point (camera frame, metres): x=-1.2837 y=-0.5700 z=1.8213
 d1=2.3000  z1=2.2427  d2=2.6462  den=2.5690
 u=593.6100  v=361.0100  (matches the original detected corner 593.61, 361.01)
 ds_project() agrees:  u=593.6100  v=361.0100  valid=True
 ```
+
+</div>
 
 #### Match the code to the geometry
 
@@ -151,13 +154,16 @@ corners:
 
 {* docs_src/learn/double_sphere_model/closed_form_unprojection.py hl[24:28] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.double_sphere_model.closed_form_unprojection
 mx=-0.4997  my=-0.2219  r2=0.2989  mz=0.8730
 pixels tested: 30 / 30
 project(unproject(u)) round-trip: mean=1.89e-14px  max=1.14e-13px
 ```
+
+</div>
 
 No loop. That `np.sqrt` is the analytic inverse of the quadratic in §3. `1e-14 px` is
 float64's last bit — this isn't "close enough", it's *the model is its own exact inverse*.
@@ -166,13 +172,16 @@ float64's last bit — this isn't "close enough", it's *the model is its own exa
 The same precision holds at full scale. `examples/02_double_sphere_tumvi.py` runs the
 identical round trip over 1600 real TUM-VI pixels:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/02_double_sphere_tumvi.py
 # (excerpt -- part 2 of the full run)
 pixels tested: 1600 / 1600 (rest fall outside the lens circle)
 project(unproject(u)) round-trip: mean=2.17e-14px  max=1.17e-13px
 ```
+
+</div>
 ///
 
 Contrast Chapter 1's verify-don't-trust habit: this is proof, not a plausibility argument.
@@ -194,8 +203,9 @@ the model's *analytic* Jacobian.
 
 #### Measuring agreement across the frame
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/02_double_sphere_tumvi.py
 Recovered Double Sphere: fx=240.178 fy=240.172 cx=254.932 cy=256.897 xi=0.2584 alpha=0.7110
 
@@ -203,6 +213,8 @@ Evaluated over 1879 rays spanning 179.8 deg of field of view:
     RMS  reprojection error : 0.0106 px
     max  reprojection error : 0.0249 px
 ```
+
+</div>
 
 **0.025 px maximum disagreement across a ~180° field** — Double Sphere has the expressive
 power to capture this lens to a fortieth of a pixel.

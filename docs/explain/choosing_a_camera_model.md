@@ -67,13 +67,16 @@ candidate, least squares on a pixel grid). The example converts the KB ground tr
 candidate, bounded to the lens FOV, and prints in-FOV
 <abbr title="Root Mean Square">RMS</abbr>:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic A, in-FOV RMS per candidate)
 DEMANDING lens (~158°):    eucm 6.62 px    ds+ 0.91 px
 BENIGN   lens (~170°):     eucm 0.24 px    ds+ 0.019 px
 ```
+
+</div>
 
 **Read it.** RMS ≫ 0.1 px means the family *cannot bend like this lens* — a capacity wall, not
 a tuning problem. EUCM hits that wall on the demanding lens (6.6 px); DS⁺ tracks KB on both.
@@ -101,13 +104,16 @@ but the parameters are noise, won't transfer, and make the optimizer wander.
 each shape parameter — and look at the spectrum of the Gram matrix `JᵀJ` (its eigenvalues are
 the squared sensitivities). The **condition number** `σ_max/σ_min` is the headline:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic B, shape-Jacobian Gram condition number)
 DEMANDING:  eucm cond 7.0e2   ds+ cond 2.9e5
 BENIGN:     eucm cond 1.2e3   ds+ cond 1.7e5
 ```
+
+</div>
 
 **Read it.** Three condition-number bands tell you what you're looking at:
 
@@ -133,23 +139,30 @@ the curve to bend, or just re-describe a wiggle the existing parameters already 
 shape columns. The **residual fraction** left outside that span is how much *new* DOF it adds;
 `|cos|` against the nearest existing column shows the overlap directly:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic C, added-parameter collinearity with the existing shape columns)
 DEMANDING:  ds+ lam2: |cos|=0.985  residual 4.17%
 BENIGN:     ds+ lam2: |cos|=0.958  residual 12.8%
 ```
 
+</div>
+
 **Read it.** Residual < 1% ⇒ the parameter is *nearly redundant* (collinear with one it
 already has) — it adds conditioning trouble (diagnostic B) for almost no capacity.
 
 DS⁺'s second division term λ₂ keeps 4–13% of its signal genuinely outside the span of the
-other shape parameters — a real, non-redundant contribution, not just extra conditioning cost
-dressed up as capacity. (Contrast: a poorly-designed extra parameter shows up here as <1%
-residual, collinear with what the model already has — see the
-[EUCM⁺ case study](case_study_eucmplus_dsplus_kb.md) for a real, measured example of exactly
-that failure mode, and why it led to EUCM⁺ being dropped from the shipped library.)
+other shape parameters. That's a real, non-redundant contribution — not just extra conditioning
+cost dressed up as capacity.
+
+/// note
+A poorly-designed extra parameter shows up here instead as <1% residual, collinear with what the
+model already has. The [EUCM⁺ case study](case_study_eucmplus_dsplus_kb.md) is a real, measured
+example of exactly that failure mode — and why it led to EUCM⁺ being dropped from the shipped
+library.
+///
 
 **This is how you tell a well-designed extension from a padded one, before you ever fit real
 data.**
@@ -164,12 +177,15 @@ imposed (e.g. EUCM's conventional `α ≤ 1`) clipping a parameter that wants to
 **How.** Relax the bound and refit. If the residual drops, the bound was the problem; if it
 barely moves, the limit is real capacity. The example raises EUCM's α ceiling:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic D, demanding lens, EUCM's alpha ceiling swept)
 DEMANDING:  EUCM α≤1 → 6.62 px    α≤3 → 4.70 px    α≤8 → 4.70 px    (DS⁺, 3rd shape DOF → 0.91)
 ```
+
+</div>
 
 **Read it.** Unbounding α helps a little (6.6→4.7) but plateaus far short of DS⁺'s 0.91 px — so
 on this lens DS⁺'s extra shape parameters supply **genuine radial capacity EUCM lacks at any
@@ -198,13 +214,16 @@ not its parameter count, sets the bill.
 
 Measured (demanding lens, 160k-px unproject):
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic E, demanding lens, 160k-px unproject)
 kb 10 ms   eucm 3 ms   ds+ 20 ms
 round-trip all ≈ 5e-13 px or better (machine-precision class)
 ```
+
+</div>
 
 /// note
 **Correction worth internalizing:** KB's Newton converges to *machine precision* (≈6e-14), so
@@ -226,12 +245,15 @@ image area per unit field angle — derivation in
 [the conversion deep-dive](are_two_models_the_same_camera.md)). For a fisheye that's
 periphery-heavy:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/10_evaluating_camera_models.py
 # (excerpt — diagnostic F, implicit angular weight of pixel-uniform sampling)
 inner half-FOV (θ < 40°) carries 24% of the fit weight;  outer half carries 76%.
 ```
+
+</div>
 
 **Read it.** Sample where your *task* lives. Calibrating for
 <abbr title="Simultaneous Localization And Mapping — real-time pose and map estimation from a camera feed.">SLAM</abbr>

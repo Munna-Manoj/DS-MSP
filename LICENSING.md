@@ -10,9 +10,17 @@ DS-MSP's design follows several external projects, cited in full in the
 [README's Credits section](README.md#credits): **Fisheye-Calib-Adapter** (Sangjun Lee,
 arXiv:2407.12405), **MC-Calib** (Rameau, Park, Bailo, Kweon, CVIU 2022), and the camera-model
 papers each model implements (Double Sphere, UCM, EUCM, Kannala-Brandt, OCam/Scaramuzza — see
-their docstrings for exact citations). DS-MSP does not vendor code from these projects; it
-follows their published designs and cites them accordingly. Their own repositories remain
+their docstrings for exact citations). DS-MSP's own code does not vendor from these projects;
+it follows their published designs and cites them accordingly. Their own repositories remain
 under their own licenses.
+
+## Vendored assets
+
+The documentation site (`docs/css/termynal.css`, `docs/js/termynal.js`) vendors **Termynal**
+by Ines Montani, MIT-licensed, taken verbatim from [fastapi/typer](https://github.com/fastapi/typer).
+`docs/js/custom.js` is a trimmed adaptation of Typer's own activation script. Each vendored
+file retains its original MIT copyright header; this is documentation tooling only and ships
+no vendored code inside the `ds_msp` package itself.
 
 ## History
 

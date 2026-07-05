@@ -129,8 +129,9 @@ single-camera camchain. The function reads the model's type and emits the matchi
 
 {* docs_src/how_to/read_write_kalibr/write_kalibr_yaml.py hl[19:20] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.read_write_kalibr.write_kalibr_yaml
 cam0:
   camera_model: ds
@@ -140,8 +141,11 @@ cam0:
   resolution: [1920, 1080]
 ```
 
+</div>
+
 The `intrinsics` list leads with `xi, alpha` (`0.183, 0.809`) — the Double Sphere
 ordering Kalibr expects — then `fx, fy, cx, cy` (`711.57, 711.24, 949.18, 518.81`).
+
 `save_kalibr` placed every field in the right slot, so you never format the YAML by
 hand.
 
@@ -152,18 +156,22 @@ this check to verify interop before you ship a file downstream:
 
 {* docs_src/how_to/read_write_kalibr/roundtrip_kalibr_yaml.py hl[20:21] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.read_write_kalibr.roundtrip_kalibr_yaml
 True
 True
 0.0
 ```
 
+</div>
+
 The reloaded model is the same class with identical `params` — max difference
-**0.0** here, exact to machine precision. The same exact round-trip holds for EUCM,
-KB, UCM, and RadTan with `k3 = 0`; RadTan with `k3 ≠ 0` loses only `k3`, per the
-note above.
+**0.0** here, exact to machine precision.
+
+The same exact round-trip holds for EUCM, KB, UCM, and RadTan with `k3 = 0`; RadTan
+with `k3 ≠ 0` loses only `k3`, per the note above.
 
 /// note
 `model.params` is each model's flat parameter vector — for Double Sphere,

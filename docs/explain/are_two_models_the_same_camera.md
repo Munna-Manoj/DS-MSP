@@ -82,19 +82,24 @@ $$\left.\frac{dr}{d\theta}\right|_0 = \frac{f_{DS}}{1+\xi}$$
 
 The bundled fixture checks this general identity directly: finite-differencing the real
 `DoubleSphereModel.project` at a tiny angle off-axis reproduces `fx/(1+ξ)` to
-**1.56e-09 px** — confirming the derivation, not the specific TUM-VI numbers below (those
-need the external dataset; see the box above).
+**1.56e-09 px**.
+
+That confirms the derivation, not the specific TUM-VI numbers below — those need the
+external dataset (see the box above).
 
 {* docs_src/explain/are_two_models_the_same_camera/paraxial_focal_check.py *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.explain.are_two_models_the_same_camera.paraxial_focal_check
 fx=711.5745  xi=0.1832
 closed form   fx/(1+xi)        = 601.392276
 finite diff   radius(h)/h      = 601.392276   (h=1e-05 rad)
 difference                     = 1.56e-09 px
 ```
+
+</div>
 
 Now plug in the calibrated TUM-VI numbers from the top of the page:
 
@@ -140,8 +145,9 @@ ok = ok1 & ok2
 ang = np.rad2deg(np.arccos(np.clip(np.sum(rk[ok] * rd[ok], axis=1), -1, 1)))
 ```
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/05_model_equivalence.py --stride 6
 PROJECT — pixel distance between the two images of the same ray
    θ(deg)     mean Δpx     max Δpx
@@ -156,6 +162,8 @@ PROJECT — pixel distance between the two images of the same ray
 UNPROJECT — angle between the KB-ray and DS-ray over 1020 pixels
    median = 0.0038°   mean = 0.0655°   max = 3.405°
 ```
+
+</div>
 
 At 45°, the models are still sub-0.02 px apart. Out to ~75° they agree to
 **better than 0.03 px** — an order of magnitude tighter than the ~0.08 px calibration
@@ -179,17 +187,22 @@ happen to disagree at the edges.
 
 Look at where the calibration board actually was:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/05_model_equivalence.py --stride 6
 # (excerpt -- part 3 of the full run)
 field angle of detected corners: median=42°  p95=70°  max=86°
 73% of corners are within 55° — today's multi-scale detector reaches well past that.
 ```
 
+</div>
+
 The two models agree to sub-0.03 px all the way out to 75° — matching how far the detected
-corners actually reach (p95 70°). Only at the 90° rim, past essentially every corner this
-lens ever measured, do they still part ways.
+corners actually reach (p95 70°).
+
+Only at the 90° rim, past essentially every corner this lens ever measured, do they still
+part ways.
 
 Both **extrapolate with zero constraints** there, and they extrapolate differently by
 construction:

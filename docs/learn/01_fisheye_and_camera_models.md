@@ -71,12 +71,15 @@ We don't calibrate anything in this chapter — we *load* a calibration that the
 dataset authors already computed and published, straight from their Kalibr YAML.
 Running the example prints the loaded model:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/01_realdata_fisheye_tumvi.py
 [1] loaded published TUM-VI cam0 calibration -> kb model (512x512)
     KannalaBrandtModel(fx=190.978, fy=190.973, cx=254.932, cy=256.897, k=[0.00348, 0.00072, -0.00205, 0.00020])
 ```
+
+</div>
 
 Six-plus numbers fully describe this fisheye camera:
 
@@ -97,11 +100,14 @@ Here's the habit that separates 3D-vision work from "it looked fine on my test i
 Unproject a pixel to a ray, project it back, and you must land on the original pixel.
 The example measures exactly this on a grid of 1600 real pixels:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/01_realdata_fisheye_tumvi.py
 [2] project(unproject(x)) round-trip on 1600 pixels: mean=1.55e-14px  max=9.10e-14px   (≈machine precision)
 ```
+
+</div>
 
 `1e-14` is machine precision for `float64` — the functions are inverse to the last bit
 the hardware can represent. If that number were `0.3px` instead, your unprojection has a

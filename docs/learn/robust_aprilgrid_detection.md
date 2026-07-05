@@ -221,8 +221,9 @@ constrain focal length and distortion:
 | single-scale | 5,180 | 0.110 px | ~0.7% | ~0.11 px |
 | **multi-scale (default)** | **14,472** | **0.080 px** | **~0.02%** | **~0.04 px** |
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/03_calibrate_tumvi_aprilgrid.py --stride 4
 Detecting AprilGrid in 109 frames ...
   109 usable frames, 14472 corners (5.6s)
@@ -235,6 +236,8 @@ published  190.978   190.973   254.932   256.897
 mine       191.020   191.007   254.951   256.859
 |Δ|          0.042     0.034     0.019     0.039
 ```
+
+</div>
 
 `|Δfx| = 0.042 px` on an `fx ≈ 191 px` focal — a **0.02%** agreement with TUM-VI's published
 Kannala-Brandt calibration, tightened from ~0.7% with single-scale detection.

@@ -23,19 +23,25 @@ bundle-adjustment backend.
 
 Write yourself a starter config, edit it, and run it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ pip install ds-msp
 $ ds-msp-calibrate --init-config calib_config.yml
 wrote base calib_config template to: calib_config.yml
 ```
 
+</div>
+
 Edit the file — board type/geometry, `images_path`, `camera_model` — then run it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --config calib_config.yml
 ```
+
+</div>
 
 /// tip
 `ds-msp-calibrate` is a real console command from `pip install ds-msp` alone — no repo clone
@@ -47,8 +53,9 @@ same CLI either way.
 
 ## 1. What you get out
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --config calib_config.yml --quiet
 === charuco / kb: 58 images, 2592x1800 ===
 
@@ -62,6 +69,8 @@ verdict: PASS  median 0.287px, p95 0.959px <= 1.00/3.00px
 
 wrote Results_dsmsp_calib_charuco/camchain.yaml
 ```
+
+</div>
 
 | File | Contents |
 |------|----------|
@@ -111,11 +120,14 @@ metres) and put it in the config.
 
 Generate a fully-commented starter and edit it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --init-config calib_config.yml
 wrote base calib_config template to: calib_config.yml
 ```
+
+</div>
 
 This copies [`ds_msp/calib/configs/calib_config.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/configs/calib_config.template.yml).
 Below is every field that matters.
@@ -166,19 +178,25 @@ Relative paths (`images_path`, `save_path`) resolve against the **config file's*
 
 Override any value on the CLI without editing the file:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --config calib_config.yml --set board.rows=7 --set camera_model=dsplus
 ```
+
+</div>
 
 ---
 
 ## 4. Run it
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate --config calib_config.yml
 ```
+
+</div>
 
 What happens internally:
 
@@ -191,10 +209,13 @@ What happens internally:
 
 Non-config, one-off flags also work for a quick check:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate ./images --board checkerboard --rows 6 --cols 9 --square-size 0.025 --model ds
 ```
+
+</div>
 
 /// tip
 Silence the live progress lines (e.g. for CI logs) with `--quiet`. Tune the PASS/WARN verdict

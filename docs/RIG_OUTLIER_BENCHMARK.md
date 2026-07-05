@@ -30,13 +30,16 @@ front-end's own robustness is the whole story, not masked by an outer optimizer.
 **Mean rotation-error reduction vs naive L2 at ≥10 % outliers: 100.0%** (PASS &gt;50%) — by
 *weighting*, every corner is kept.
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python scripts/benchmark_outliers.py
 mean rotation-error reduction vs naive L2 at >=10% outliers: 100.0%  (PASS >50%)
 self-masking leverage outlier — studentize cuts rotation error by 79.9% (0.820° -> 0.165°)
 wrote docs/RIG_OUTLIER_BENCHMARK.md
 ```
+
+</div>
 
 /// tip
 The `reject`/`reweight` columns reproduce bit-for-bit run to run. The naive `L2` blow-up values

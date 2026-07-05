@@ -39,11 +39,14 @@ the dataset authors published.
   Chapters 3+ are optional theory, not required.
 - Install the calibration extra and the dataset:
 
-  <!-- termynal -->
-  ```bash
+  <div class="termy">
+
+  ```console
   $ uv pip install -e ".[calib]"
   $ bash scripts/download_datasets.sh tumvi
   ```
+
+  </div>
 
   (see the [project setup](README.md#setup-once) for details).
 
@@ -120,8 +123,9 @@ prints the per-parameter delta table and repeats the fit with Double Sphere — 
 
 ### Numbers
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/03_calibrate_tumvi_aprilgrid.py
             fx        fy        cx        cy        k1        k2        k3        k4
 published  190.978   190.973   254.932   256.897   0.00348   0.00072  -0.00205   0.00020
@@ -131,6 +135,8 @@ mine       191.019   191.006   254.949   256.860   0.00641  -0.00491   0.00171  
 median reprojection 0.080 px, inlier RMS 0.160 px — over all 14460 corners we
 detected ourselves, none discarded.
 ```
+
+</div>
 
 ![Reprojected corners vs detected corners](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/learn/calibration_reprojection.gif)
 

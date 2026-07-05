@@ -162,8 +162,9 @@ for why bundled-fixture-only examples live under `docs_src/` and dataset-depende
 The full comparison adds hard rejection (fit, drop corners `> 1 px`, refit) — see
 `examples/04_robust_vs_rejection.py` for the complete three-way harness:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/04_robust_vs_rejection.py --scales 1
 78 frames, 5180 detected corners. Published fx = 190.978
 
@@ -173,6 +174,8 @@ L2 (no robustness)     5180/5180    1.65    0.117      0.249     0.869
 hard reject >1px       4677/5180    0.99    0.109      0.242     0.893
 Cauchy f_scale=0.5     5180/5180    1.32    0.110      0.242     0.880
 ```
+
+</div>
 
 | method | corners kept | Δfx (px) | median (px) | inlier RMS (px) | naive RMS (px) |
 |---|---|---|---|---|---|

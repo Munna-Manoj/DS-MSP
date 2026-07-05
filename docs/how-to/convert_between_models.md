@@ -18,12 +18,15 @@ model and a quality report. Pass the source *instance* and the target *class*:
 
 {* docs_src/how_to/convert_between_models/convert_in_one_call.py hl[14:16] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.convert_between_models.convert_in_one_call
 rms_px=0.00021
 converged=True
 ```
+
+</div>
 
 `kb` is a `KannalaBrandtModel` whose `project`/`unproject` reproduce the original
 Double Sphere camera.
@@ -46,8 +49,9 @@ that — a conversion never fails silently.
 
 {* docs_src/how_to/convert_between_models/quality_report.py hl[15:19] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.convert_between_models.quality_report
 median_px=0.00018
 max_px=0.00099
@@ -55,6 +59,8 @@ fov_covered_deg=179.9
 source_model='ds'
 target_model='kb'
 ```
+
+</div>
 
 | Field | Meaning |
 | :--- | :--- |
@@ -92,11 +98,14 @@ expressiveness point.
 
 {* docs_src/how_to/convert_between_models/pick_target_model.py hl[12:13] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.convert_between_models.pick_target_model
 rms_px=0.014
 ```
+
+</div>
 
 ## Restrict the FOV for narrow targets
 
@@ -106,12 +115,15 @@ Pass `max_fov_deg` to fit and report only the representable region:
 
 {* docs_src/how_to/convert_between_models/restrict_fov.py hl[14:16] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.convert_between_models.restrict_fov
 rms_px=0.768
 fov_covered_deg=119.9
 ```
+
+</div>
 
 `max_fov_deg` is the **full** angle. The report now reflects the 120° cone the
 pinhole model is meant to cover, instead of being dominated by unrepresentable
@@ -137,11 +149,14 @@ it unchanged. Converting is a one-line swap in your pipeline:
 
 {* docs_src/how_to/convert_between_models/use_everywhere.py hl[21:22] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.how_to.convert_between_models.use_everywhere
 ok=True
 ```
+
+</div>
 
 Because KB and RadTan use exactly OpenCV's distortion conventions, the converted
 model also plugs straight into OpenCV: `kb.K` and `kb.distortion` (shape `(4,)` for

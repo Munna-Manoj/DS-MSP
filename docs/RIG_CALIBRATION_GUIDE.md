@@ -21,20 +21,26 @@ files, with one extension — pick a *different camera model per camera*
 
 Write yourself a starter config, edit it, and run it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ pip install ds-msp
 $ ds-msp-calibrate-rig --init-config calib_param.yml
 wrote base calib_param template to: calib_param.yml
 ```
 
+</div>
+
 Edit the file — `number_camera`, board geometry, `root_path`, `save_path`, `camera_models` —
 see [§3](#3-make-a-config) — then run it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config calib_param.yml
 ```
+
+</div>
 
 /// tip
 `ds-msp-calibrate-rig` is a real console command from `pip install ds-msp` alone — no repo
@@ -70,13 +76,16 @@ manual K/distortion-array handling:
 
 {* docs_src/guides/rig_calibration_guide/load_camera.py hl[36,37,40,41] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.rig_calibration_guide.load_camera
 KannalaBrandtModel(fx=900.000, fy=900.000, cx=960.000, cy=540.000, k=[0.01000, -0.02000, 0.00000, 0.00000])
 uv[0] = (960.000, 540.000)   valid=True
 uv[1] = (1136.736, 422.176)   valid=True
 ```
+
+</div>
 
 This is the MC-Calib-format analogue of `ds_msp.calib.load_camera` — the single-camera
 `ds-msp-calibrate` output loader — with the same one-liner ergonomics but a different file
@@ -144,11 +153,14 @@ config.
 
 Generate a fully-commented starter and edit it:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --init-config calib_param.yml
 wrote base calib_param template to: calib_param.yml
 ```
+
+</div>
 
 This copies [`ds_msp/rig/configs/calib_param.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.template.yml). Below is
 every field that matters.
@@ -217,21 +229,27 @@ Relative paths resolve against the **config file's** directory.
 
 Override any value on the CLI without editing the file:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config calib_param.yml \
     --set root_path=/abs/my_capture --set save_path=/abs/out \
     --set camera_models=kb,kb,kb,kb,radtan,radtan,kb,kb
 ```
 
+</div>
+
 ---
 
 ## 4. Run it
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config calib_param.yml
 ```
+
+</div>
 
 What happens internally:
 
@@ -263,11 +281,14 @@ solve only the rig geometry:
 
 Emit a starter intrinsics file with:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --init-intrinsics camera_intrinsics.yml
 wrote camera intrinsics template to: camera_intrinsics.yml
 ```
+
+</div>
 
 ---
 
@@ -288,22 +309,28 @@ package with `python -c "import importlib.resources,shutil; shutil.copyfile(impo
 
 Run once from images, saving the keypoints (this uses the normal template):
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config calib_param.yml \
     --set root_path=/abs/my_capture --set save_path=/abs/out
 ```
 
+</div>
+
 Then reuse the saved keypoints for a second, much faster run — trying a different model:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config reuse.yml \
     --set keypoints_path=/abs/out/detected_keypoints_data.yml \
     --set object_path=/abs/out/calibrated_objects_data.yml \
     --set save_path=/abs/out_dsplus \
     --set camera_models=dsplus,dsplus,dsplus,dsplus,radtan,radtan,dsplus,dsplus
 ```
+
+</div>
 
 The keypoints file is MC-Calib's exact `detected_keypoints_data.yml` schema, so files produced by
 MC-Calib are accepted here and vice-versa.

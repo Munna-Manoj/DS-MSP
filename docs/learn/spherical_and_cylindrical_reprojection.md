@@ -160,13 +160,16 @@ sphere` restricted to the front hemisphere where the pinhole chart is even defin
 
 {* docs_src/learn/spherical_and_cylindrical_reprojection/roundtrip_maps.py hl[55,63] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.learn.spherical_and_cylindrical_reprojection.roundtrip_maps
 sphere -> cylinder -> sphere: max residual = 1.71e-13 px
 sphere -> pinhole  -> sphere: max residual = 1.61e-13 px   (front hemisphere only)
 ---> 100%
 ```
+
+</div>
 
 /// tip | Round-off, not coincidence
 Both residuals sit at **float64 round-off** (~1e-13 px) — the maps are exact, not
@@ -266,14 +269,17 @@ representation-agnostic and transfers directly:
 that cannot represent the poles ($\pm 90°$ elevation sit at infinity). Running
 `examples/08_reproject_sphere_cylinder.py` prints the gap for one panorama height:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/08_reproject_sphere_cylinder.py
 Same image height, different elevation reach (top row of the panorama):
   sphere row 0   reaches elevation  62.7 deg
   cylinder row 0 reaches elevation  47.6 deg (tan compresses it; the poles sit at infinity)
 ---> 100%
 ```
+
+</div>
 
 A cylinder is fine for horizon-band work — panoramas, road scenes. The sphere has no such
 hole, though: it's the complete central model, which is the whole reason your Double Sphere

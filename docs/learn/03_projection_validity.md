@@ -72,14 +72,17 @@ asks the model itself which ones it accepts, for the original calibration
 
 {* docs_src/learn/projection_validity/validity_cone.py hl[24:27,33] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.projection_validity.validity_cone
 xi=0.1832, alpha=0.8086
 w2 = 0.3967, theta_max = 113.4 deg
 numeric check: 113.3 deg
 total field of view: 227 deg
 ```
+
+</div>
 
 **113.4°**, not 90° — the camera accepts rays 23° *behind* its own side. The analytic
 value matches a brute-force sweep of 4000 rays to the first decimal, so the formula is
@@ -119,8 +122,9 @@ runs five settings, from widest field of view to a fully filled frame:
 
 {* docs_src/learn/projection_validity/balance_sweep.py hl[23:28] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.projection_validity.balance_sweep
 balance=0.00  hfov=147.0 deg  filled=92.5%
 balance=0.25  hfov=139.3 deg  filled=97.8%
@@ -128,6 +132,8 @@ balance=0.50  hfov=132.1 deg  filled=99.9%
 balance=0.75  hfov=125.2 deg  filled=100.0%
 balance=1.00  hfov=118.7 deg  filled=100.0%
 ```
+
+</div>
 
 ![Fisheye rectification sweeping the balance knob](https://raw.githubusercontent.com/Munna-Manoj/DS-MSP/main/assets/undistort_demo.gif)
 

@@ -26,13 +26,16 @@ resolution you want on-chip. You get back the quantized mesh and the rectified i
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:30] hl[20:21,23:24,29:30] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 # (excerpt -- this stage's prints; the full pipeline output is at the end of this page)
 (69, 121, 2) int16
 426.84
 ```
+
+</div>
 
 You now have everything the SoC needs: the displacement mesh and the matrix `K_new` that
 defines the undistorted image it will output.
@@ -61,8 +64,9 @@ call above.
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:35] hl[33:35] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 # (excerpt -- this stage's prints)
 ['mesh_lut', 'mesh_lut_float', 'K_new', 'config']
@@ -70,11 +74,15 @@ $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 4
 ```
 
+</div>
+
 ## Read the Q3 fixed-point format
 
 Each mesh node holds two `int16` values — the horizontal and vertical displacement — in
 <abbr title="Q3 fixed point: a real value stored as an integer equal to the value times 2^3 (8), rounded; the hardware divides by 8 to recover it.">Q3</abbr>
-fixed point. The LDC hardware reads these integers and divides by `8` internally.
+fixed point.
+
+The LDC hardware reads these integers and divides by `8` internally.
 
 To recover a node's displacement in pixels, divide by `8`. Read a displacement this way: to
 fill output pixel `p`, sample the input fisheye at `p + delta`. Displacements grow toward the
@@ -82,14 +90,17 @@ corners.
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:43] hl[39:41,43] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 # (excerpt -- this stage's prints)
 [ -87 -156]
 [-10.875 -19.5  ]
 -3046 2873
 ```
+
+</div>
 
 The integer range of this mesh runs from `-3046` to `2873` Q3 units — roughly `-381 px` to
 `+359 px`.
@@ -117,14 +128,17 @@ node every `2**downsample_factor` output pixels.
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:48] hl[46:48] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 # (excerpt -- this stage's prints)
 3 8 (136, 241, 2)
 4 16 (69, 121, 2)
 5 32 (35, 61, 2)
 ```
+
+</div>
 
 `balance` is the same field-of-view knob as in CPU undistortion:
 
@@ -144,8 +158,9 @@ The mesh's point-inverse is exact at the center and diverges toward the peripher
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:57] hl[52:57] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 (69, 121, 2) int16
 426.84
@@ -163,6 +178,8 @@ $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
  [ 657.04  350.07]]
 [ True  True  True]
 ```
+
+</div>
 
 That last block is the full pipeline output — the same command as every stage above, run once,
 start to finish.
@@ -195,13 +212,16 @@ raise `ValueError` without them.
 
 {* docs_src/how_to/export_ldc_mesh/troubleshooting.py hl[15,23:26,29:31] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.troubleshooting
 (69, 121, 2)
 ValueError: compute_K_new requires image dimensions; construct with width=... and height=... (only needed for image-level ops).
 426.84
 ```
+
+</div>
 
 ## Try it yourself
 

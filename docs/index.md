@@ -9,19 +9,25 @@ It doubles as a guided course in the geometry behind
 
 ## Quickstart
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ pip install ds-msp
 ```
 
+</div>
+
 {* docs_src/guides/index/quickstart.py hl[12,13,19,20,21] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.guides.index.quickstart
 500/500 points valid through the round trip
 max round-trip error: 2.27e-13 px
 ```
+
+</div>
 
 Every model behind that `cam` exposes the same `project`/`unproject` pair, plus analytic
 Jacobians for bundle adjustment. Swap the camera, not the code.

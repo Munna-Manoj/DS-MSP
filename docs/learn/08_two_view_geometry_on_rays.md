@@ -5,13 +5,16 @@
 > touching a pinhole.
 
 Two images of one rigid scene fix the camera's motion between them, **up to the scale of the
-translation**. This chapter recovers that motion from feature correspondences expressed as
-**unit bearing rays** — the native currency of a wide-<abbr title="Field of View">FOV</abbr>
-camera.
+translation**.
 
-You'll go from 8 ray pairs to a pose in five lines. You'll see why the math is identical for
-any central camera, make it robust to wrong matches, and finish on a real
-<abbr title="Technical University of Munich Visual-Inertial">TUM-VI</abbr> fisheye pair.
+This chapter recovers that motion from feature correspondences expressed as **unit bearing
+rays** — the native currency of a wide-<abbr title="Field of View">FOV</abbr> camera.
+
+You'll go from 8 ray pairs to a pose in five lines.
+
+You'll see why the math is identical for any central camera, make it robust to wrong matches,
+and finish on a real <abbr title="Technical University of Munich Visual-Inertial">TUM-VI</abbr>
+fisheye pair.
 
 <div class="ds-stats">
   <div class="ds-stat"><span class="ds-stat__value">&lt;1e-3°</span><span class="ds-stat__label">synthetic round-trip pose error · CI-asserted</span></div>
@@ -61,12 +64,15 @@ Here is the complete API call on a synthetic scene, before any theory:
 
 {* docs_src/learn/two_view_geometry_on_rays/recover_pose_basic.py hl[42,43,45] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.two_view_geometry_on_rays.recover_pose_basic
 rotation error       : 0.00e+00 deg
 translation-dir error: 0.00e+00 deg
 ```
+
+</div>
 
 ### What just happened
 
@@ -130,11 +136,14 @@ returns `f2ᵀ E f1` per pair — zero for a perfect fit.
 
 {* docs_src/learn/two_view_geometry_on_rays/eight_point_residual.py hl[31,32] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.two_view_geometry_on_rays.eight_point_residual
 max epipolar residual: 5.69e-16
 ```
+
+</div>
 
 `5.69e-16` is float64 round-off: on noise-free data the rays satisfy `f2ᵀ E f1 = 0` exactly.
 
@@ -206,13 +215,16 @@ the complete round-trip:
 
 {* docs_src/learn/two_view_geometry_on_rays/double_sphere_roundtrip.py hl[40,41,43,44,46] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.two_view_geometry_on_rays.double_sphere_roundtrip
 valid pairs          : 60
 rotation error       : 1.21e-06 deg
 translation-dir error: 0.00e+00 deg
 ```
+
+</div>
 
 **Rotation error `~1.2e-6°`, translation-direction error `~0°`** — well under the `1e-3°` the
 test asserts. The pose is exact to the precision of the camera's project/unproject round-trip.
@@ -257,14 +269,17 @@ self-contained snippet shows the difference:
 
 {* docs_src/learn/two_view_geometry_on_rays/ransac_vs_naive.py hl[47,50] *}
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python -m docs_src.learn.two_view_geometry_on_rays.ransac_vs_naive
 naive  rotation error : 26.78 deg
 RANSAC rotation error : 0.107 deg
 RANSAC trans-dir error: 0.274 deg
 inlier precision/recall: 0.989 / 1.000  (92/120)
 ```
+
+</div>
 
 ### Naïve vs. robust
 
@@ -313,8 +328,9 @@ unprojects both pixel sets through the **loaded** calibrated model to rays, and 
 
 ### Run the example
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/11_two_view_pose_tumvi.py --start 400 --gap 4
 camera: KannalaBrandtModel  fx=190.98 cx=254.93
 frames 400 -> 404: 22 KLT matches
@@ -324,6 +340,8 @@ RANSAC relative pose (20 inliers / 22 = 90.9%):
   inlier Sampson residual: median 2.01e-02 rad  max 2.59e-02 rad  (~1.149 deg)
   recovered |t| direction vs mocap baseline: ~108.3 deg (coarse; camera != world frame)
 ```
+
+</div>
 
 /// note | End-to-end on real fisheye
 The pipeline runs on a real TUM-VI fisheye stream. Only 22 KLT matches survive this particular

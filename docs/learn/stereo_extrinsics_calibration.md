@@ -56,8 +56,9 @@ This chapter anchors only to `ds_msp.calib`.
 Run the companion script. It detects the board in both cameras, calibrates each, composes the
 extrinsic, and compares to the reference — the whole pipeline in one command:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ python examples/06_stereo_extrinsics_tumvi.py --stride 8
 Detecting AprilGrid in 55 synced stereo pairs ...
   55 frames with >=6 tags in both cameras
@@ -73,6 +74,8 @@ Stereo extrinsics  T_cam1_cam0  (from 55 frames)
   translation error   : 0.25 mm
   per-frame spread     : rot RMS 0.10 deg, t std [0.8 0.8 0.7] mm
 ```
+
+</div>
 
 That last block is the result. Starting from raw footage, the recovered `T_cam1_cam0` matches
 the published reference to **0.060° in rotation** and **0.25 mm in translation** — baseline

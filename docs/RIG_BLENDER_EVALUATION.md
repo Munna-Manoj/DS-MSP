@@ -36,8 +36,9 @@ Two error metrics recur through every table:
 Every scenario has a real config checked into `Blender_Images/configs/`. Running the
 Scenario_1 `given` config directly reproduces that row of the summary table below:
 
-<!-- termynal -->
-```
+<div class="termy">
+
+```console
 $ ds-msp-calibrate-rig --config Blender_Images/configs/Scenario_1.given.yml --quiet --no-webviewer
 === Scenario_1.given.yml: 2 cameras, 3 board(s), 2 calibrated ===
 per-camera model: {0: 'radtan', 1: 'radtan'}
@@ -54,6 +55,8 @@ verdict: PASS  median 0.048px, p95 0.149px <= 1.00/3.00px
 
 wrote MC-Calib-format output to: Blender_Images/Scenario_1/Results_dsmsp_given
 ```
+
+</div>
 
 That matches the Scenario_1 `given` row below: 0.085 px per-camera <abbr title="Root Mean Square">RMS</abbr>, 0.012% worst baseline error vs ground truth.
 
