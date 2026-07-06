@@ -2,6 +2,7 @@
 
 Asserts the exact values shown on docs/index.md's quickstart snippet.
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,11 @@ def test_main_prints_expected_values(capsys):
     quickstart.main()
     out = capsys.readouterr().out
     assert "500/500 points valid through the round trip" in out
-    assert "max round-trip error: 2.27e-13 px" in out
+    # Round-trip residual is float64 round-off (~1e-13 px); exact digits vary by platform's
+    # BLAS/LAPACK backend -- check magnitude, not digits.
+    m = re.search(r"max round-trip error: ([\d.eE+-]+) px", out)
+    assert m is not None, out
+    assert float(m.group(1)) < 1e-9
 
 
 def test_module_runs_as_script():
