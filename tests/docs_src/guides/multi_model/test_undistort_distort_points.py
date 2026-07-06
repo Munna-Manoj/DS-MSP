@@ -3,6 +3,7 @@
 Asserts the exact values shown on docs/MULTI_MODEL.md's
 "Undistort / distort points" section.
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +20,11 @@ def test_main_prints_expected_values(capsys):
     out = capsys.readouterr().out
     assert "[715.819, 509.335]" in out
     assert "[640.0, 480.0], [900.0, 300.0]" in out
-    assert "round-trip max error: 2.89e-10 px" in out
+    # Round-trip residual is an iterative-solve convergence floor (~1e-10 px); exact digits vary
+    # by platform's BLAS/LAPACK backend -- check magnitude, not digits.
+    m = re.search(r"round-trip max error: ([\d.eE+-]+) px", out)
+    assert m is not None, out
+    assert float(m.group(1)) < 1e-6
 
 
 def test_module_runs_as_script():
