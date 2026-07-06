@@ -114,8 +114,8 @@ markdown_extensions:
   - markdown_include_variants
 
 extra_css:
-  - stylesheets/extra.css
   - css/termynal.css
+  - stylesheets/extra.css
 
 extra_javascript:
   - javascripts/mathjax.js

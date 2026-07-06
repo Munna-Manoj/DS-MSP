@@ -162,6 +162,38 @@
   background: var(--md-default-fg-color--lightest);
 }
 
+/* --- Termynal: keep long commands inside the box -----------------------
+   The vendored docs/css/termynal.css (verbatim from fastapi/typer) sets no
+   overflow/word-break rules, so a command line with a long unbroken token
+   (a path, a flag value) overflows the fixed-width box and bleeds into the
+   surrounding page text instead of wrapping. Override here rather than
+   editing the vendored file -- extra.css loads after it (see mkdocs.yml). */
+.termy,
+[data-termynal] {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+[data-ty] {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* --- Wide embeds: break out of the ~46rem prose column ------------------
+   The rig-pond-replay iframe (and anything else this wide) renders content
+   designed for a real, wide desktop browser window -- panels positioned via
+   fixed left:12px/right:12px offsets. Squeezed into the normal prose column
+   (the .md-grid caps around 61rem total, split with the TOC rail), those
+   panels overlap. Centering on the viewport instead of the text column gives
+   them the room they were designed for. */
+.ds-wide-embed {
+  display: block;
+  width: 92vw;
+  max-width: 1100px;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 /* --- "Next / prev" and prerequisite chips ------------------------------- */
 .ds-meta {
   display: inline-flex;

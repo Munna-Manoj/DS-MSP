@@ -1,410 +1,8 @@
-"""Live cinematic 3D visualization of a rig calibration in progress, replacing the
-braille-terminal :class:`~ds_msp.rig.report.Live3DAnimator`. Same duck-typed callback
-contract (``set_stage``, ``__call__(it, max_iter, rms, cost, rig)``, ``finish``) so it drops
-into ``rig/calibrate.py``'s ``on_iter`` hook and both CLI entry points unchanged, but instead
-of redrawing a braille canvas in the terminal, it runs a tiny local HTTP server and streams
-the *real, currently-converging* rig state to a Three.js scene in the browser: a pond, where
-each camera's depth is driven live by its own actual reprojection error -- worse error sits
-near the floor, better error rises toward the surface, and the best-converged camera breaks
-through at the finale while the rest sink back down (see the class docstring below for the
-full concept). Everything in the scene is procedurally generated (shaders + primitives); no
-borrowed 3D character/creature assets.
-
-Exists because a static-cell terminal grid is a poor medium for "here is 3D geometry
-converging" -- there is no orbit, no depth cue beyond ASCII density, and nothing to look at
-during the tens of seconds to minutes a real BA run takes. This module keeps the same low
-per-iteration cost discipline as the terminal animator (throttled render rate, error computed
-on one representative frame, not the whole dataset) so watching it never taxes the solve.
-"""
-
-from __future__ import annotations
-
-import functools
-import http.server
-import json
-import os
-import sys
-import tempfile
-import threading
-import time
-import webbrowser
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
-
-
-def _json_safe(o):
-    """Recursively replace NaN/Inf with ``None`` before serializing. Python's ``json.dump``
-    happily emits a literal, non-standard ``NaN``/``Infinity`` token for these (``allow_nan``
-    defaults to ``True``) -- harmless to re-parse in Python, but a hard ``SyntaxError`` for the
-    browser's ``JSON.parse``, e.g. a zero-observation camera's ``ErrorStats.median`` at
-    ``finish()``. Applied once at the single write choke-point rather than at every call site
-    that builds a state dict."""
-    if isinstance(o, float):
-        return o if np.isfinite(o) else None
-    if isinstance(o, dict):
-        return {k: _json_safe(v) for k, v in o.items()}
-    if isinstance(o, list):
-        return [_json_safe(v) for v in o]
-    return o
-
-
-class WebLive3DAnimator:
-    """Live cinematic "digital twin" of a rig calibration, rendered in a browser tab via
-    Three.js instead of the terminal.
-
-    Concept -- "the pond"
-    ---------------------
-    Every camera starts on the pond floor and rises through the water as its own live
-    reprojection error falls -- worse error sits deep, better error climbs toward the
-    surface. That single mapping (real per-camera error -> depth) is the entire
-    visualization's data-driven core; everything else (water, fish, floor "pearls" at the
-    real solved board-point positions, particle bursts) is procedurally generated atmosphere,
-    not a borrowed 3D asset. At the finale the best-converged camera (the real MVP, by lowest
-    final median error) breaks the surface with a splash; every other camera sinks back to the
-    floor -- see ``onFinale`` in the embedded viewer script.
-
-    The hierarchical-BA stages (``rig/calibrate.py::calibrate_rig``'s ``set_stage`` calls) are
-    choreographed as acts with title cards and a shifting camera shot, so the otherwise-silent
-    minutes of a real BA run read as a story with a beginning, middle, and end. A live
-    leaderboard (ranked by per-camera reprojection error, with a sub-pixel badge) and an RMS
-    "vitals" sparkline turn the wait into something to actually watch.
-
-    Cost discipline mirrors ``Live3DAnimator``: renders are throttled to ``min_interval``
-    seconds regardless of solver iteration rate, and the only per-frame reprojection-error
-    computation is over one representative (object, frame) pair, not the whole dataset -- see
-    ``_camera_frame_errors``. The browser polls a small JSON state file over HTTP; nothing here
-    talks back to the solver, so a browser tab left open (or never opened) costs the calibration
-    run nothing beyond that bounded per-iteration JSON write.
-
-    Launches before there is anything to show
-    -------------------------------------------
-    The server (and browser tab) start the moment this object is constructed, *before*
-    detection has even run -- measured on this repo's real MC-Calib dataset, corner detection
-    (~5s) and the front-end's per-camera intrinsic fit (~19s, no progress callback of its own)
-    together can dominate a minute of otherwise totally silent wait before a single BA
-    iteration exists, during which a construct-with-the-scene-in-hand design would leave the
-    browser blank. ``obj``/``object_obs`` are therefore optional at construction; call
-    :meth:`bind_scene` once they exist (both CLI entry points do this right after detection),
-    and feed :meth:`detect_progress` / :meth:`save_progress` as the ``progress_cb`` for
-    detection and the (also-silent-until-now) MC-Calib debug-image writers respectively, so
-    every phase of a run streams *something* real instead of the view going dark between them.
-    """
-
-    def __init__(self, obj=None, object_obs=None, *, verbose: bool = True, auto_open: bool = True,
-                min_interval: float = 0.08, history_len: int = 400, stream=None,
-                finish_grace_s: float = 2.0):
-        self.verbose = verbose
-        self.stream = stream or sys.stdout
-        self.min_interval = min_interval
-        self.finish_grace_s = finish_grace_s
-        self._last_render = 0.0
-        self._step = 0
-        self._stage = ""
-        self._started = False
-        self._history: List[float] = []
-        self._history_len = history_len
-        self._pts_3d = None
-        self._object_obs: List = []
-        self._frame_obs: List = []
-        self._tty = self.verbose and self.stream.isatty()
-        self._throttle_every = 5
-
-        self._detect_started = False
-        self._detect_counts: Dict[int, Tuple[int, int]] = {}
-        self._last_detect_write = 0.0
-        self._save_started = False
-        self._save_counts: Dict[int, Tuple[int, int]] = {}
-        self._last_save_write = 0.0
-
-        self._dir: Optional[str] = None
-        self._state_path = self._tmp_path = None
-        self._server: Optional[http.server.ThreadingHTTPServer] = None
-        self._server_thread: Optional[threading.Thread] = None
-        self._url: Optional[str] = None
-        self._last_state: Dict = {"status": "starting", "stage": "", "step": 0, "it": 0,
-                                  "max_iter": 0, "rms": None, "cost": None, "cameras": [],
-                                  "beams": [], "history": []}
-
-        if self.verbose:
-            try:
-                self._start_server()
-                if auto_open and self._tty:
-                    webbrowser.open(self._url)
-                self.stream.write(f"[ds-msp][rig] live 3D view: {self._url}\n")
-                self.stream.flush()
-            except OSError as e:
-                # A headless/sandboxed environment (no loopback socket, no browser) should
-                # degrade to plain progress lines, not crash the calibration run over a
-                # visualization nicety.
-                self.stream.write(f"[ds-msp][rig] live 3D view unavailable ({e}); "
-                                  "falling back to progress lines\n")
-                self._server = None
-
-        if obj is not None and object_obs is not None:
-            self.bind_scene(obj, object_obs)
-
-    def bind_scene(self, obj, object_obs) -> None:
-        """Bind the real fused object + observations once detection/reconstruction has
-        produced them. Picks one representative frame PER CAMERA (its own richest-observed
-        one), not one shared frame for the whole rig -- a single shared frame (what
-        ``Live3DAnimator`` picks, fine for a small terminal grid) silently drops every camera
-        that doesn't happen to co-observe that one frame, which on a real multi-board rig
-        where cameras point in different directions is routinely most of them, leaving their
-        leaderboard entry/glow permanently blank for the whole run. Bounded cost is unchanged:
-        still exactly one ``ObjectObs``'s worth of work per camera, just chosen independently."""
-        self._pts_3d = obj.pts_3d
-        self._object_obs = object_obs
-        best_by_cam: Dict[int, object] = {}
-        for o in object_obs:
-            cur = best_by_cam.get(o.cam_id)
-            if cur is None or len(o.point_rows) > len(cur.point_rows):
-                best_by_cam[o.cam_id] = o
-        self._frame_obs = list(best_by_cam.values())
-
-    # -- server plumbing ------------------------------------------------------------------
-
-    def _start_server(self) -> None:
-        self._dir = tempfile.mkdtemp(prefix="dsmsp_web3d_")
-        self._state_path = os.path.join(self._dir, "state.json")
-        self._tmp_path = self._state_path + ".tmp"
-        with open(os.path.join(self._dir, "index.html"), "w") as f:
-            f.write(_VIEWER_HTML)
-        self._write_state({"status": "starting", "stage": "", "step": 0, "it": 0,
-                           "max_iter": 0, "rms": None, "cost": None, "cameras": [],
-                           "beams": [], "history": []})
-
-        class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-            def log_message(self, fmt, *args):      # noqa: A002 - stdlib signature
-                """Suppress ``BaseHTTPRequestHandler``'s default per-request stderr logging."""
-                pass
-
-        handler = functools.partial(_QuietHandler, directory=self._dir)
-        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        self._server.daemon_threads = True
-        port = self._server.server_address[1]
-        self._url = f"http://127.0.0.1:{port}/index.html"
-        self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._server_thread.start()
-
-    def _write_state(self, state: Dict) -> None:
-        self._last_state = state
-        if self._state_path is None:
-            return
-        with open(self._tmp_path, "w") as f:
-            json.dump(_json_safe(state), f)
-        os.replace(self._tmp_path, self._state_path)
-
-    # -- public duck-typed hook API (matches Live3DAnimator) ------------------------------
-
-    def set_stage(self, name: str) -> None:
-        """See ``Live3DAnimator.set_stage`` -- called between the hierarchical-BA stages so
-        the browser can trigger the matching act's title card and camera shot. Unlike the
-        terminal animator, this also pushes an immediate state update (patched from the last
-        known state) rather than only taking effect on the next ``__call__``: some stages
-        (front-end intrinsics, saving debug images) have no per-iteration callback of their
-        own at all, so without this the browser would sit frozen on the *previous* stage's
-        label for that whole silent stretch instead of showing the new one."""
-        self._stage = name
-        if self._server is not None:
-            state = dict(self._last_state)
-            state["stage"] = name
-            if state.get("status") not in ("finished",):
-                state["status"] = "running"
-            self._write_state(state)
-
-    def detect_progress(self, cam_id: int, i: int, n: int, path: str) -> None:
-        """A ``detect.charuco.detect_rig`` / ``rig.reconstruct.detect_board_obs_images``
-        -compatible ``progress_cb`` -- streams live per-camera corner-detection counts to the
-        browser instead of leaving it blank during detection (previously invisible; the live
-        view didn't exist yet at this point in a run)."""
-        if self._server is None:
-            return
-        now = time.time()
-        is_new_cam = cam_id not in self._detect_counts
-        if (self._detect_started and not is_new_cam
-                and now - self._last_detect_write < 0.15 and i != n):
-            return
-        self._last_detect_write = now
-        self._detect_started = True
-        self._detect_counts[cam_id] = (i, n)
-        self._write_state({
-            "status": "detecting", "stage": "(pre) scanning for the board", "step": 0,
-            "it": 0, "max_iter": 0, "rms": None, "cost": None, "cameras": [], "beams": [],
-            "history": [],
-            "detect": {str(c): {"i": ii, "n": nn} for c, (ii, nn) in self._detect_counts.items()},
-        })
-
-    def save_progress(self, cam_id: int, i: int, n: int, frame_id: int) -> None:
-        """A ``io.mccalib.save_reprojection_images`` / ``save_detection_images`` -compatible
-        ``progress_cb`` -- these used to run fully serially and silently *after* the whole
-        bundle adjustment already converged (measured ~12.5s each on this repo's real MC-Calib
-        dataset), the single biggest "the live view just sits there doing nothing" gap; now
-        parallel (see io/mccalib.py) and reported live instead."""
-        if self._server is None:
-            return
-        now = time.time()
-        is_new_cam = cam_id not in self._save_counts
-        if (self._save_started and not is_new_cam
-                and now - self._last_save_write < 0.15 and i != n):
-            return
-        self._last_save_write = now
-        self._save_started = True
-        self._save_counts[cam_id] = (i, n)
-        state = dict(self._last_state)
-        if state.get("status") not in ("finished",):
-            state["status"] = "running"
-        state["save"] = {str(c): {"i": ii, "n": nn} for c, (ii, nn) in self._save_counts.items()}
-        self._write_state(state)
-
-    def __call__(self, it: int, max_iter: int, rms: float, cost: float, rig) -> None:
-        """The ``on_iter(it, max_iter, rms, cost, rig)`` signature every solver calls."""
-        if not self.verbose or not self._frame_obs or not np.isfinite(rms):
-            return
-        self._step += 1
-        now = time.time()
-        if self._server is not None:
-            if self._started and now - self._last_render < self.min_interval:
-                return
-            self._last_render = now
-            self._started = True
-            self._write_state(self._build_state(it, max_iter, rms, cost, rig))
-        elif self._step == 1 or self._step % self._throttle_every == 0:
-            stage = f"{self._stage}: " if self._stage else ""
-            self.stream.write(f"  [optimizing] {stage}step {self._step}  rms={rms:.4f}px  "
-                              f"cost={cost:.3g}\n")
-            self.stream.flush()
-
-    def finish(self, final_rig=None, *, it: Optional[int] = None,
-              max_iter: Optional[int] = None, rms: Optional[float] = None,
-              cost: Optional[float] = None) -> None:
-        """Stop the live view. If ``final_rig`` is given, push one last, un-throttled
-        "finished" state carrying full per-camera final stats (median/mean/p95/rms, MVP
-        camera) -- see ``Live3DAnimator.finish`` for why the final frame must bypass the
-        render throttle. The browser-side scene transitions to its finale (splash, victory
-        leap, fireworks, stats card) on receiving ``status: "finished"``.
-
-        Blocks for a short grace period after writing that state -- nothing otherwise
-        guarantees the browser has actually fetched it before this process exits and kills
-        the ephemeral HTTP server (a *measured* bug, not a theoretical one: the browser polls
-        every 150ms, but background/inactive browser tabs commonly throttle ``setTimeout`` to
-        1000ms or more, and both CLI entry points do real work -- writing MC-Calib output,
-        printing the report -- between this call and process exit, but nothing upstream of
-        this method ever confirmed delivery. Without the wait, a backgrounded tab can lose the
-        final payload entirely: the finale JS logic itself is correct (verified by replaying
-        the exact real payload through it), it just never runs because it never receives
-        ``status: "finished"`` before the server disappears)."""
-        if final_rig is not None and self.verbose and self._server is not None:
-            state = self._build_state(
-                it if it is not None else self._step,
-                max_iter if max_iter is not None else self._step,
-                rms if rms is not None else float("nan"),
-                cost if cost is not None else float("nan"),
-                final_rig, status="finished")
-            state["final"] = self._final_payload(final_rig)
-            self._write_state(state)
-            self.stream.write(f"[ds-msp][rig] live 3D view (final): {self._url}\n")
-            self.stream.flush()
-            if self.finish_grace_s > 0:
-                time.sleep(self.finish_grace_s)
-        self._started = False
-
-    # -- state construction -----------------------------------------------------------------
-
-    def _camera_frame_errors(self, rig) -> Tuple[Dict[int, float], List[Dict]]:
-        """Per-camera mean reprojection error + per-point "beams" on each camera's own
-        representative frame (see ``__init__``) -- the same bounded-cost approach as
-        ``Live3DAnimator._render``, not a full-dataset recompute every rendered frame, but
-        evaluated once per camera instead of once for the whole rig."""
-        errs: Dict[int, float] = {}
-        beams: List[Dict] = []
-        for o in self._frame_obs:
-            T_g_o = rig.object_poses.get((o.object_id, o.frame_id))
-            cam = rig.cameras.get(o.cam_id)
-            T_c_g = rig.T_c_g.get(o.cam_id)
-            if T_g_o is None or cam is None or T_c_g is None:
-                continue
-            Xo = self._pts_3d[o.point_rows]
-            Xg = (T_g_o[:3, :3] @ Xo.T).T + T_g_o[:3, 3]
-            Xc = (T_c_g[:3, :3] @ Xg.T).T + T_c_g[:3, 3]
-            uv, valid = cam.project(Xc)
-            e = np.full(len(Xo), np.nan)
-            e[valid] = np.linalg.norm(uv[valid] - o.pts_2d[valid], axis=1)
-            finite = e[np.isfinite(e)]
-            if finite.size:
-                errs[o.cam_id] = float(np.mean(finite))
-            for p3, ei in zip(Xg.tolist(), e.tolist()):
-                beams.append({"cam": o.cam_id, "p": p3,
-                             "e": (None if not np.isfinite(ei) else float(ei))})
-        return errs, beams
-
-    def _build_state(self, it: int, max_iter: int, rms: float, cost: float, rig, *,
-                     status: str = "running") -> Dict:
-        cam_errs, beams = self._camera_frame_errors(rig)
-        cams = []
-        for cid in sorted(rig.T_c_g):
-            T_c_g = rig.T_c_g[cid]
-            R, t = T_c_g[:3, :3], T_c_g[:3, 3]
-            pos = (-R.T @ t)
-            cams.append({
-                "id": cid,
-                "model": getattr(rig.cameras.get(cid), "name", "?"),
-                "pos": pos.tolist(),
-                "ax_x": R.T[:, 0].tolist(),
-                "ax_y": R.T[:, 1].tolist(),
-                "ax_z": R.T[:, 2].tolist(),
-                "err": cam_errs.get(cid),
-            })
-        if np.isfinite(rms):
-            self._history.append(float(rms))
-            if len(self._history) > self._history_len:
-                self._history = self._history[-self._history_len:]
-        return {
-            "status": status,
-            "stage": self._stage,
-            "step": self._step,
-            "it": int(it), "max_iter": int(max_iter),
-            "rms": float(rms) if np.isfinite(rms) else None,
-            "cost": float(cost) if isinstance(cost, (int, float)) and np.isfinite(cost) else None,
-            "cameras": cams,
-            "beams": beams,
-            "history": list(self._history),
-        }
-
-    def _final_payload(self, final_rig) -> Dict:
-        """Final per-camera stats/MVP, plus the real solved geometry needed for the post-
-        finale "digital twin" reveal: each camera's actual ``T_c_g`` pose (not the pond's
-        error-driven depth) and, reusing ``report._frame_payload`` verbatim rather than
-        reimplementing it, one entry per (object, frame) actually solved carrying the board's
-        real 3D corner positions and per-point worst reprojection error -- the same data the
-        static HTML report animates, so the live view's temporal board replay is provably the
-        same real capture-session data, not a second, divergent implementation."""
-        from .report import _frame_payload, camera_and_overall_stats
-        per_cam, overall = camera_and_overall_stats(final_rig, self._object_obs)
-        cams = []
-        mvp_id, mvp_median = None, float("inf")
-        for cid in sorted(per_cam):
-            s = per_cam[cid]
-            T_c_g = final_rig.T_c_g.get(cid)
-            pose = {}
-            if T_c_g is not None:
-                R, t = T_c_g[:3, :3], T_c_g[:3, 3]
-                pose = {"pos": (-R.T @ t).tolist(), "ax_x": R.T[:, 0].tolist(),
-                       "ax_y": R.T[:, 1].tolist(), "ax_z": R.T[:, 2].tolist()}
-            cams.append({"id": cid,
-                        "model": getattr(final_rig.cameras.get(cid), "name", "?"),
-                        **pose, **s.to_dict()})
-            if np.isfinite(s.median) and s.median < mvp_median:
-                mvp_id, mvp_median = cid, s.median
-        frames = _frame_payload(final_rig, self._object_obs, max_frames=120)
-        return {"cameras": cams, "overall": overall.to_dict(), "mvp": mvp_id, "frames": frames}
-
-
-_VIEWER_HTML = r"""<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>DS-MSP -- live rig calibration</title>
+<title>DS-MSP -- rig calibration replay</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { color-scheme: dark; }
@@ -492,10 +90,16 @@ _VIEWER_HTML = r"""<!doctype html>
                                    transition: width .15s ease; }
   #preflight .cam-row .n { width: 64px; text-align: right; color: #8890a4;
                            font-variant-numeric: tabular-nums; }
+
+  #replayBadge { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+                 background: rgba(4,20,26,.82); border: 1px solid #1e4a56; border-radius: 999px;
+                 padding: 6px 16px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+                 color: #7dd3fc; font-weight: 700; z-index: 5; pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
+<div id="replayBadge">Replay of a real recorded run</div>
 <div id="status">connecting...</div>
 
 <div id="preflight">
@@ -1608,15 +1212,37 @@ function showStatsPanel(f) {
   document.getElementById('finale').style.pointerEvents = 'auto';
 }
 
-async function poll() {
-  try {
-    const res = await fetch('state.json', { cache: 'no-store' });
-    if (res.ok) onState(await res.json());
-  } catch (e) { /* server may be gone after the run exits -- last state already shown */ }
-  if (!finished) setTimeout(poll, 150);
+// --- STATIC REPLAY --------------------------------------------------------------------
+// This page has no backend: it replays one real, recorded calibration run (see
+// docs/RIG_CALIBRATION_GUIDE.md §7) by stepping through frames.json.gz instead of
+// polling a live Python server. Everything downstream (onState, updateOrbs, the finale
+// reveal) is the exact same code the live view uses.
+const REPLAY_FRAME_MS = 90;
+let replayFrames = [], replayIdx = 0;
+
+async function loadReplayFrames() {
+  const res = await fetch('frames.json.gz');
+  const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+  return JSON.parse(text);
 }
-initFish();
-poll();
+
+function stepReplay() {
+  if (replayIdx < replayFrames.length) {
+    onState(replayFrames[replayIdx]);
+    replayIdx += 1;
+  } else {
+    finished = true;
+  }
+  if (!finished) setTimeout(stepReplay, REPLAY_FRAME_MS);
+}
+
+loadReplayFrames().then(frames => {
+  replayFrames = frames;
+  initFish();
+  stepReplay();
+}).catch(e => {
+  document.getElementById('status').textContent = 'failed to load replay: ' + e;
+});
 
 document.getElementById('modebtn').addEventListener('click', () => {
   manual = !manual;
@@ -1653,4 +1279,3 @@ animate();
 </script>
 </body>
 </html>
-"""

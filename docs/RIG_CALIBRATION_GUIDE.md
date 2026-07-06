@@ -344,25 +344,63 @@ across intrinsics scenarios — varying **only** how intrinsics are provided —
 
 | Scenario | mean RMS (px) | extrinsics vs from-scratch |
 |----------|---------------|----------------------------|
-| from scratch (`kb`/`radtan`) | **0.5665** | — |
-| provided intrinsics + refine | 0.5665 | Δrot 0.000°, Δt 0.0 mm |
-| provided intrinsics + **fixed** (extrinsics-only) | 0.5665 | Δrot 0.047°, Δt 2.0 mm |
-| convert `kb`→`dsplus` (warn + convert) | 0.5623 | matches from-scratch dsplus |
+| from scratch (`kb`/`radtan`) | **0.5532** | — |
+| provided intrinsics + refine | 0.5517 | Δrot 0.057°, Δt 2.8 mm |
+| provided intrinsics + **fixed** (extrinsics-only) | 0.5641 | Δrot 0.989°, Δt 15.1 mm |
+| convert `kb`→`dsplus` (warn + convert) | 0.5470 | Δrot 0.317°, Δt 6.7 mm |
 
 Takeaways (these are *measured*, not asserted):
 
-- The pipeline converges to the **same extrinsics and the same reprojection error** whether
-  intrinsics are estimated from scratch, provided and refined, or provided and held fixed —
-  robust to how you supply intrinsics.
-- `convert()` is faithful: seeding a model by conversion lands in the **same optimum** the bundle
-  adjustment reaches from scratch in that model.
+- The pipeline reaches **close to the same reprojection error** (0.547–0.564 px across all four
+  scenarios) whether intrinsics are estimated from scratch, provided and refined, provided and
+  held fixed, or converted from a different model — robust to how you supply intrinsics.
+- Extrinsics are **close but not identical** across scenarios — a real, small basin difference,
+  not a bug: refining from provided intrinsics stays nearest to from-scratch (Δrot 0.057°, Δt
+  2.8 mm), while holding intrinsics **fixed** moves the extrinsics the most (Δrot 0.989°, Δt
+  15.1 mm) since the bundle adjustment can no longer trade off intrinsics error against pose
+  error. `convert() kb→dsplus` sits in between (Δrot 0.317°, Δt 6.7 mm).
 - **Model choice still matters.** Plain `ds` cannot represent these ≳170° lenses (it saturates at
-  ~16 px); switching the *same run* to **`dsplus`** drops it to **0.56 px**, matching/beating the
+  ~16 px); switching the *same run* to **`dsplus`** drops it to **~0.55 px**, matching/beating the
   `kb`+`radtan` baseline. When a model under-fits, the residual shows it honestly rather than
   hiding the limitation.
 
 See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick a
 model for *your* lens before you calibrate.
+
+### Watch it converge
+
+The command that produced the `convert kb→dsplus` row above:
+
+<div class="termy">
+
+```console
+$ ds-msp-calibrate-rig --config calib_param.seeded_dsplus_fisheye_radtan_pinhole.yml
+[ds-msp][rig] WARNING: camera 0: config selects 'dsplus' but provided intrinsics are 'kb'.
+Using convert() to seed 'dsplus' from the 'kb' lens, then refining it in the bundle adjustment.
+[front-end] calibrated 8 cameras
+[groups] 1 group(s): [[0, 1, 2, 3, 4, 5, 6, 7]]
+  BA: rms 0.8202px iters=25 intr=fixed dense kernel=huber
+  BA: rms 0.7131px iters=22 intr=fixed sparse kernel=huber
+  BA: rms 0.6540px iters=19 intr=free sparse kernel=cauchy
+  BA: rms 0.5929px iters=25 intr=free sparse kernel=cauchy
+  BA: rms 0.5915px iters=25 intr=free sparse kernel=cauchy
+```
+
+</div>
+
+Every run of `ds-msp-calibrate-rig` opens a live cinematic 3D view of exactly this — each camera's
+depth in "the pond" driven by its own real reprojection error, rising as the bundle adjustment
+converges, with a final reveal of the actual solved rig geometry and calibration board. Below is a
+**replay of the run above**, frame-for-frame from its real recorded state — not a live server (this
+page is static), and not synthetic — the same 429 real optimizer/detection snapshots this exact
+command produced.
+
+<iframe class="ds-wide-embed" src="../assets/rig_pond_replay/index.html" height="820" style="border: 1px solid var(--ds-border, #444); border-radius: 12px;" loading="lazy"></iframe>
+
+/// tip
+Drag to orbit, scroll to zoom — "take manual control" hands you the camera; "orient rig" lets you
+match the scene's up-direction to your own setup, exactly like the live view.
+///
 
 ---
 
