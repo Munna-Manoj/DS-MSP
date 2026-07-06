@@ -79,9 +79,11 @@ translation-dir error: 0.00e+00 deg
 You build the rays straight from the 3D points, so no pixel and no lens model ever touch
 them. With no noise to absorb, `recover_pose` inverts the geometry exactly.
 
-Both errors come back as machine-precision zero (`0.00e+00`) — the float64 round-off floor. In
-§4 the same demo routes points through a real camera's project/unproject, and the errors there
-are tiny but *nonzero* for exactly that reason.
+Both errors come back at the float64 round-off floor — typically `0.00e+00`, though the exact
+last few digits (and whether it prints as exactly zero or something like `1e-6`) depend on your
+platform's BLAS/LAPACK backend. In §4 the same demo routes points through a real camera's
+project/unproject, and the errors there are tiny but *nonzero* for a real, non-platform reason:
+the project/unproject round-trip itself isn't a perfect bijection.
 
 That is the entire workflow. The rest of this chapter walks each piece, makes it survive real
 data, and replaces `0.00e+00` with the honest numbers a real fisheye stream gives you.
@@ -148,7 +150,8 @@ max epipolar residual: 5.69e-16
 
 </div>
 
-`5.69e-16` is float64 round-off: on noise-free data the rays satisfy `f2ᵀ E f1 = 0` exactly.
+`5.69e-16` is float64 round-off (the exact trailing digits vary by platform): on noise-free data
+the rays satisfy `f2ᵀ E f1 = 0` exactly.
 
 `essential_from_rays` needs **at least 8** correspondences; fewer raises `ValueError`. It also
 takes an optional `normalize=True` for spherical pre-conditioning.

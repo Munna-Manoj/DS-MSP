@@ -2,6 +2,7 @@
 
 Asserts the exact values shown on docs/learn/08_two_view_geometry_on_rays.md's section 3.
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,11 @@ ROOT = Path(__file__).resolve().parents[4]
 def test_main_prints_expected_values(capsys):
     eight_point_residual.main()
     out = capsys.readouterr().out
-    assert "max epipolar residual: 5.69e-16" in out
+    # Exact digits are float64 round-off noise that varies by platform's BLAS/LAPACK backend
+    # (see the docs page's own caveat) -- check magnitude, not digits.
+    m = re.search(r"max epipolar residual: ([\d.eE+-]+)", out)
+    assert m is not None, out
+    assert float(m.group(1)) < 1e-9
 
 
 def test_module_runs_as_script():

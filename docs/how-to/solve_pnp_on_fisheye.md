@@ -69,7 +69,9 @@ the float64 round-off floor.
 /// note | Why is the error exactly zero, not just small?
 `cv2.SOLVEPNP_ITERATIVE` is an iterative Levenberg-Marquardt refine, not a closed-form solve.
 Here the data is noiseless and the model exactly invertible, so it converges all the way to
-machine round-off (`0.00e+00°`, `7.77e-16 m`) rather than stopping early.
+machine round-off (`0.00e+00°` rotation, translation error on the order of `1e-15` m) rather
+than stopping early. The exact trailing digits (`7.77e-16` vs `5.09e-16`, say) depend on your
+platform's BLAS/LAPACK backend — both are zero at any precision that matters.
 
 On real detections with pixel noise, expect a sub-pixel reprojection RMS instead — this
 measurement is a correctness check, not a noise-robustness one.

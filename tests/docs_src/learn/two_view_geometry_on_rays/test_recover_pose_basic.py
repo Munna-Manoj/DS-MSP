@@ -2,6 +2,7 @@
 
 Asserts the exact values shown on docs/learn/08_two_view_geometry_on_rays.md's section 1.
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,11 @@ def test_main_prints_expected_values(capsys):
     recover_pose_basic.main()
     out = capsys.readouterr().out
     assert "rotation error       : 0.00e+00 deg" in out
-    assert "translation-dir error: 0.00e+00 deg" in out
+    # translation-dir error is float64 round-off noise (0.00e+00 on some platforms, ~1e-6 deg
+    # on others depending on the BLAS/LAPACK backend's SVD) -- check magnitude, not digits.
+    m = re.search(r"translation-dir error: ([\d.eE+-]+) deg", out)
+    assert m is not None, out
+    assert float(m.group(1)) < 1e-4
 
 
 def test_module_runs_as_script():
