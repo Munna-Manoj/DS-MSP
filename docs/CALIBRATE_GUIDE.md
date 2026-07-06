@@ -275,7 +275,7 @@ which board produced them.
 - **Checkerboard** is single-board only in this release — see [§7](#7-worked-example-robustness-real-data)
   for why that's a real, measured limitation on wide-FOV fisheye, not a missing feature.
 
-See [ADR-0009](process/architecture/decisions/ADR-0009-board-protocol.md) for the full design
+See [ADR-0009](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0009-board-protocol.md) for the full design
 rationale.
 
 ---
@@ -329,6 +329,6 @@ included in this repo), the **same physical ChArUco board** was calibrated two w
 ### See also
 
 - [`ds_msp/calib/configs/calib_config.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/calib/configs/calib_config.template.yml) — annotated base config
-- [ADR-0009](process/architecture/decisions/ADR-0009-board-protocol.md) — the `Board` protocol design
+- [ADR-0009](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0009-board-protocol.md) — the `Board` protocol design
 - [`RIG_CALIBRATION_GUIDE.md`](RIG_CALIBRATION_GUIDE.md) — the multi-camera rig analogue (extrinsics + intrinsics, ChArUco only)
 - [`docs/learn/`](learn/README.md) — the geometry curriculum (camera models, robust detection, evaluation)
