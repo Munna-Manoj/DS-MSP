@@ -370,15 +370,24 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
 
 
 def _try_load_object(cfg: RigConfig):
-    """Return a pre-built fused object if one is available (``object_path`` or a
-    ``calibrated_objects_data.yml`` next to the keypoints / save path), else ``None``.
-    A pre-built object is the fast path; when absent, multi-board geometry is reconstructed
-    from the detections (:func:`rig.reconstruct.reconstruct_object`)."""
+    """Return a pre-built fused object if one is explicitly requested (``object_path``, or a
+    ``calibrated_objects_data.yml`` next to ``keypoints_path``), else ``None`` so the fused
+    multi-board geometry is reconstructed fresh from the detections
+    (:func:`rig.reconstruct.reconstruct_object`).
+
+    Deliberately does **not** also check ``save_path`` -- that directory is this run's own
+    *output* location, and a prior run (of this config or any other with the same
+    ``save_path``) leaves a ``calibrated_objects_data.yml`` there as a side effect. Treating
+    it as an implicit cache made ``object_path: None`` / ``keypoints_path: None`` (an explicit
+    "reconstruct from scratch" declaration) silently non-reproducible: the same config would
+    warm-start from whatever happened to already be sitting in ``save_path`` and skip
+    reconstruction entirely, with no indication in the config or the run's output that this
+    happened. Reuse is opt-in only, via ``object_path``/``keypoints_path`` -- see
+    RIG_CALIBRATION_GUIDE.md §6's "detect once, calibrate many" pattern.
+    """
     for cand in (cfg.object_path,
                  os.path.join(os.path.dirname(cfg.keypoints_path or ""), "calibrated_objects_data.yml")
-                 if cfg.keypoints_path else None,
-                 os.path.join(cfg.save_path or "", "calibrated_objects_data.yml")
-                 if cfg.save_path else None):
+                 if cfg.keypoints_path else None):
         if cand and os.path.exists(cand):
             return _load_object(cand)
     return None

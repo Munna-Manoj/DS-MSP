@@ -415,3 +415,35 @@ def test_init_K_seeds_front_end_and_bypasses_heterogeneous_consensus():
     # the low-focal camera keeps its own focal, not the ~600 median it would be reset to.
     assert abs(paraxial_focal(cams[1])[0] - 380.0) / 380.0 < 0.1
     assert abs(paraxial_focal(cams[0])[0] - 820.0) / 820.0 < 0.1
+
+
+@pytest.mark.req("FR-RIG-004")
+def test_try_load_object_ignores_stray_file_in_save_path(tmp_path):
+    """A ``calibrated_objects_data.yml`` left in ``save_path`` by an earlier run of this (or any
+    other) config must NOT be silently reused when ``object_path``/``keypoints_path`` are both
+    unset -- that combination is an explicit "reconstruct from scratch" declaration, and
+    honoring it must not depend on whatever state ``save_path`` happens to already be in.
+
+    Regression for a real bug: ``_try_load_object`` used to also check
+    ``<save_path>/calibrated_objects_data.yml`` unconditionally, so a "from scratch" config
+    would silently warm-start from a stray prior run's output the moment its save_path was
+    reused -- non-reproducible, undisclosed, and specifically NOT the documented opt-in reuse
+    contract (RIG_CALIBRATION_GUIDE.md §6: point ``keypoints_path``/``object_path`` at a saved
+    file explicitly). Planted content is deliberately invalid YAML for this schema: if the fix
+    regresses, ``_try_load_object`` will try to load it and blow up loudly instead of silently
+    passing.
+    """
+    from ds_msp.rig.calib_param import RigConfig, _try_load_object
+
+    save_dir = tmp_path / "save"
+    save_dir.mkdir()
+    (save_dir / "calibrated_objects_data.yml").write_text("not a real calibrated_objects_data.yml")
+
+    cfg = RigConfig(
+        boards=[], number_camera=1, camera_models=["radtan"], root_path=str(tmp_path),
+        cam_prefix="Cam_", keypoints_path=None, fix_intrinsic=False, cam_params_path=None,
+        save_path=str(save_dir), camera_params_file_name="", save_detection=False,
+        save_reprojection=False, ransac_threshold=10.0, number_iterations=1000, he_approach=0,
+        object_path=None,
+    )
+    assert _try_load_object(cfg) is None
