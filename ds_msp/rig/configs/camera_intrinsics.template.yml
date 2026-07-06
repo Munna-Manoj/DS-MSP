@@ -3,7 +3,7 @@
 # DS-MSP[rig] camera intrinsics — the file you point `cam_params_path` at in
 # `calib_param.yml`. MC-Calib's `calibrated_cameras_data.yml` schema, extended so EVERY
 # DS-MSP model can be stated explicitly (MC-Calib's two-int `distortion_type` cannot name
-# ucm / eucm / dsplus / eucmplus / ocam).
+# ucm / eucm / dsplus / ocam).
 #
 # How DS-MSP[rig] uses this file (see ds_msp/rig/calib_param.py:_resolve_init_intrinsics):
 #   * If `cam_params_path` is set and the file exists, intrinsics are LOADED from here.
@@ -27,13 +27,12 @@
 #   eucm                                 : [alpha, beta]                 (2)
 #   double_sphere (distortion_type 2)    : [xi, alpha]                   (2)
 #   dsplus                               : [alpha, lambda1, lambda2, tau_x, tau_y]   (5)
-#   eucmplus                             : [alpha, beta, lambda1, tau_x, tau_y]      (5)
 #   ocam                                 : [c, d, e, a0, a1, a2, a3, a4] (8)
 #
 # camera_pose_matrix is the camera-from-world 4x4 (MC-Calib convention); for an intrinsics-only
 # seed it can be the identity — extrinsics are solved by the rig pipeline regardless.
 # =============================================================================
-nb_camera: 8
+nb_camera: 7
 
 # --- camera 0: radtan / Brown (pinhole) -------------------------------------
 camera_0:
@@ -173,31 +172,8 @@ camera_5:
       dt: d
       data: [ 1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1. ]
 
-# --- camera 6: eucmplus (EUCM+) ---------------------------------------------
+# --- camera 6: ocam / Scaramuzza --------------------------------------------
 camera_6:
-   camera_model: eucmplus
-   distortion_type: 1
-   img_width: 1280
-   img_height: 960
-   camera_group: 0
-   camera_matrix: !!opencv-matrix
-      rows: 3
-      cols: 3
-      dt: d
-      data: [ 700.0, 0.0, 640.0, 0.0, 700.0, 480.0, 0.0, 0.0, 1.0 ]
-   distortion_vector: !!opencv-matrix
-      rows: 1
-      cols: 5
-      dt: d
-      data: [ 0.6, 1.0, 0.0, 0.0, 0.0 ]
-   camera_pose_matrix: !!opencv-matrix
-      rows: 4
-      cols: 4
-      dt: d
-      data: [ 1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1. ]
-
-# --- camera 7: ocam / Scaramuzza --------------------------------------------
-camera_7:
    camera_model: ocam
    distortion_type: 1
    img_width: 1280

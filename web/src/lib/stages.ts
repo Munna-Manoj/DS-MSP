@@ -46,11 +46,6 @@ const MIDDLE: Record<string, Stage> = {
     eq: "den = α‖P‖ + (1−α)Z,   ÷(1 + λ₁r² + λ₂r⁴),   tilt τ",
     detail: "UCM sphere, then a Fitzgibbon division (θ³,θ⁵) and a Scheimpflug tilt — each stage closed-form invertible.",
   },
-  eucmplus: {
-    title: "EUCM⁺ — EUCM + division + tilt",
-    eq: "d = √(β(X²+Y²)+Z²),   den = αd+(1−α)Z,   ÷(1+λ₁r²),   tilt τ",
-    detail: "Ellipsoid (β) sphere, one division term and a tilt — a fully √-only closed-form inverse.",
-  },
 };
 
 export function stagesFor(model: CameraModel): Stage[] {

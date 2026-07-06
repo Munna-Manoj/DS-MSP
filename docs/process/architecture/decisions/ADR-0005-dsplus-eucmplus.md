@@ -1,6 +1,7 @@
 # ADR-0005 — DS⁺ / EUCM⁺ closed-form-invertible camera models
 
-- **Status:** Accepted (retrofit, recorded 2026-06-28)
+- **Status:** Partially superseded by [ADR-0010](ADR-0010-mit-relicense-and-eucmplus-removal.md)
+  (EUCM⁺ removed; the DS⁺ decision below stands)
 - **Deciders:** maintainer
 - **Relates to:** ARC-MODELS, FR-MODEL-001..003, NFR-NUM-005
 - **Supersedes:** —

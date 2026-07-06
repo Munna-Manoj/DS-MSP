@@ -1,12 +1,17 @@
 # Solve PnP on raw fisheye points
 
-Recover camera pose from 3D-to-2D correspondences on a wide-FOV fisheye image, where
-`cv2.solvePnP` returns a wrong answer.
+Recover camera pose from 3D-to-2D correspondences on a wide-<abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>
+fisheye image, where `cv2.solvePnP` returns a wrong answer.
 
-This is a task recipe. A naive pinhole PnP only ever considers points with `z > 0` — it has no
-concept of the wider region a fisheye actually sees. For *why* the fisheye model's real
-validity boundary is a tilted half-space rather than `z > 0`, and how much further it reaches,
-see [Projection validity and FOV](../explain/projection_validity_and_fov.md).
+This is a task recipe. A naive pinhole
+<abbr title="Perspective-n-Point — solving for camera pose from n known 3D points and their 2D projections.">PnP</abbr>
+only ever considers points with `z > 0`.
+
+It has no concept of the wider region a fisheye actually sees.
+
+For *why* the fisheye model's real validity boundary is a tilted half-space rather than
+`z > 0`, and how much further it reaches, see
+[Projection validity and FOV](../explain/projection_validity_and_fov.md).
 
 > **Prerequisites**
 >
@@ -19,9 +24,10 @@ see [Projection validity and FOV](../explain/projection_validity_and_fov.md).
 ## Why `cv2.solvePnP` fails here
 
 `cv2.solvePnP` assumes a pinhole projection: a 3D point maps to a pixel through one focal
-length and an optional polynomial distortion. A fisheye lens does not project that way. Past
-~90° the pinhole math has no valid pixel at all. Feed raw fisheye pixels to `cv2.solvePnP` and
-it silently fits the wrong model, returning a pose that is degrees off.
+length and an optional polynomial distortion. A fisheye lens does not project that way.
+
+Past ~90° the pinhole math has no valid pixel at all. Feed raw fisheye pixels to
+`cv2.solvePnP` and it silently fits the wrong model, returning a pose that is degrees off.
 
 `ds_msp` solves the right problem in three steps:
 
@@ -36,103 +42,93 @@ You get the same `(success, rvec, tvec)` triple as OpenCV, correct on fisheye da
 
 ## The two entry points
 
-Pick one of two equivalent calls. Use the object API when you already hold a camera:
+Two equivalent calls do the same solve. Pick the object API when you already hold a camera,
+or the functional wrapper when you're dropping this into existing `cv2.solvePnP` call sites.
 
-> **API shape, not a runnable block.** The snippets here show the call signatures. The
-> `points_3d` and `points_2d` arrays are filled in by the runnable end-to-end example in
-> [Verify it on a synthetic scene](#verify-it-on-a-synthetic-scene) below — run that one.
+Both examples below build the same synthetic scene: a known ground-truth pose, 40 world
+points projected through a Double Sphere model into fisheye pixels, then recovered.
 
-```python
-# points_3d: (N, 3) world points, metres ; points_2d: (N, 2) distorted fisheye pixels
-success, rvec, tvec = cam.solve_pnp(points_3d, points_2d)
-# rvec: (3,) Rodrigues rotation vector ; tvec: (3,) translation, metres
+### Object API: `cam.solve_pnp`
+
+{* docs_src/how_to/solve_pnp_on_fisheye/solve_pnp_basic.py hl[33,34] *}
+
+<div class="termy">
+
+```console
+$ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_basic
+True 40
+rotation error: 0.00e+00 deg
+translation error: 7.77e-16 m
 ```
 
-Or use the OpenCV-style functional wrapper. It takes `K` and `D`, so it drops into existing
-`cv2.solvePnP` call sites:
+</div>
 
-```python
-import ds_msp.cv as ds_cv
+All 40 points survive the front-facing filter, and the recovered pose matches ground truth to
+the float64 round-off floor.
 
-# cam.K is the pinhole matrix; cam.D = [xi, alpha] are the DS distortion coefficients.
-success, rvec, tvec = ds_cv.solvePnP(points_3d, points_2d, cam.K, cam.D)
+/// note | Why is the error exactly zero, not just small?
+`cv2.SOLVEPNP_ITERATIVE` is an iterative Levenberg-Marquardt refine, not a closed-form solve.
+Here the data is noiseless and the model exactly invertible, so it converges all the way to
+machine round-off (`0.00e+00°` rotation, translation error on the order of `1e-15` m) rather
+than stopping early. The exact trailing digits (`7.77e-16` vs `5.09e-16`, say) depend on your
+platform's BLAS/LAPACK backend — both are zero at any precision that matters.
+
+On real detections with pixel noise, expect a sub-pixel reprojection RMS instead — this
+measurement is a correctness check, not a noise-robustness one.
+///
+
+### Functional wrapper: `ds_cv.solvePnP`
+
+`ds_cv.solvePnP` takes `K` and `D` instead of a camera object, so it drops into an existing
+`cv2.solvePnP` call site with minimal changes:
+
+{* docs_src/how_to/solve_pnp_on_fisheye/solve_pnp_cv_wrapper.py hl[31,32] *}
+
+<div class="termy">
+
+```console
+$ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_cv_wrapper
+True (3, 1) (3, 1)
+rotation error: 0.00e+00 deg
+translation error: 7.77e-16 m
 ```
 
-`cam.solve_pnp` returns squeezed `(3,)` `rvec`/`tvec`; `ds_cv.solvePnP` returns `(3, 1)` column
-vectors, matching `cv2.solvePnP`'s native shape. Both return `(False, ...)` if fewer than 4
-points survive the front-facing filter.
+</div>
 
-## Verify it on a synthetic scene
+Same scene, same solve, identical error — the wrapper is a thin shim over `cam.solve_pnp`,
+not a different algorithm.
 
-Run this block end to end; the contrast section below continues from it. It generates a known
-pose, projects 3D points through the fisheye model to make 2D correspondences, asks `solve_pnp`
-to recover the pose, then measures the error.
+### Return-shape differences
 
-```python
-import numpy as np
-import cv2
-from ds_msp import DoubleSphereCamera
+The two entry points differ only in the shape of what comes back:
 
-cam = DoubleSphereCamera(fx=711.57, fy=711.24, cx=949.18, cy=518.81,
-                         xi=0.183, alpha=0.809, width=1920, height=1080)
+- `cam.solve_pnp` returns squeezed `(3,)` `rvec`/`tvec`.
+- `ds_cv.solvePnP` returns `(3, 1)` column vectors, matching `cv2.solvePnP`'s native shape.
+- Both return `(False, ...)` if fewer than 4 points survive the front-facing filter.
 
-# 1. A ground-truth pose (what we want to recover).
-rvec_gt = np.array([0.05, -0.10, 0.02])      # Rodrigues vector, rad
-tvec_gt = np.array([0.30, -0.20, 1.00])      # translation, metres
-R_gt, _ = cv2.Rodrigues(rvec_gt)
-
-# 2. 40 world points spread in front of the camera.
-rng = np.random.default_rng(0)
-points_3d = rng.uniform([-2, -2, 4], [2, 2, 8], size=(40, 3))   # (40, 3) metres
-
-# 3. Project them through the fisheye to get 2D correspondences.
-P_cam = (R_gt @ points_3d.T + tvec_gt[:, None]).T               # (40, 3) camera frame
-uv, valid = cam.project(P_cam)                                  # uv: (40, 2) pixels
-points_2d = uv[valid]
-points_3d = points_3d[valid]
-
-# 4. Recover the pose from the 3D<->2D correspondences.
-success, rvec, tvec = cam.solve_pnp(points_3d, points_2d)
-print(success, len(points_3d))                                 # -> True 40
-
-# 5. Measure the error against ground truth.
-R, _ = cv2.Rodrigues(rvec)
-rot_err_deg = np.degrees(np.arccos(np.clip((np.trace(R @ R_gt.T) - 1) / 2, -1, 1)))
-t_err_m = np.linalg.norm(tvec - tvec_gt)
-print(f"rotation error: {rot_err_deg:.2e} deg")                # -> ~1.21e-06 deg
-print(f"translation error: {t_err_m:.2e} m")                   # -> ~2.72e-16 m
-```
-
-Notice the error sizes: the recovered pose matches ground truth to within `~1e-6°` and
-`~3e-16 m` — both far below any real detector's precision. `cv2.SOLVEPNP_ITERATIVE` is an
-iterative Levenberg-Marquardt refine with a convergence tolerance, not a closed-form solve, so
-it lands at numerical-solver precision rather than exact machine epsilon; that ~1e-6° gap is
-solver tolerance, not residual model error.
-
-> **Note** — the numbers above are from a clean synthetic run (seed `0`). On real detections
-> with pixel noise, expect a sub-pixel reprojection RMS, not machine epsilon.
-
-### Contrast: pinhole PnP on the same points
+## Contrast: pinhole PnP on the same points
 
 Hand the *same* fisheye pixels to `cv2.solvePnP` with the camera's pinhole `K`. It fits the
 wrong model:
 
-```python
-# Continues from the "Verify it on a synthetic scene" block above
-# (cam, points_3d, points_2d, R_gt, tvec_gt).
-ok, rv, tv = cv2.solvePnP(points_3d.astype(np.float64),
-                          points_2d.astype(np.float64),
-                          cam.K, np.zeros(5))                   # pinhole assumption
-R_bad, _ = cv2.Rodrigues(rv)
-bad_rot = np.degrees(np.arccos(np.clip((np.trace(R_bad @ R_gt.T) - 1) / 2, -1, 1)))
-print(f"cv2 rotation error: {bad_rot:.2f} deg")                # -> ~0.57 deg
-print(f"cv2 translation error: {np.linalg.norm(tv.squeeze() - tvec_gt):.2f} m")  # -> ~1.37 m
+{* docs_src/how_to/solve_pnp_on_fisheye/pinhole_contrast.py hl[29,31] *}
+
+<div class="termy">
+
+```console
+$ python -m docs_src.how_to.solve_pnp_on_fisheye.pinhole_contrast
+cv2 rotation error: 0.57 deg
+cv2 translation error: 1.37 m
 ```
+
+</div>
 
 A `0.57°` rotation and `1.37 m` translation error from the *same* data — that gap is the
 fisheye distortion that `cv2.solvePnP` cannot model.
 
 ## Common failures
+
+Three symptoms account for nearly every PnP failure on fisheye data:
 
 | Symptom | Cause | Fix |
 | :-- | :-- | :-- |
@@ -141,8 +137,9 @@ fisheye distortion that `cv2.solvePnP` cannot model.
 | Recovered pose flips sign | Points behind the camera (`z <= 1e-6`) leaked in | The `z > 1e-6` ray check filters these. Confirm your ground-truth pose puts every point in front: `((R_gt @ P.T).T + t)[:, 2] > 0` should be all `True` |
 
 The solver drops any pixel that unprojects to an invalid or behind-camera ray (`z <= 1e-6`)
-before it solves. If that leaves fewer than 4 points, it returns `(False, None, None)` rather
-than guess.
+before it solves.
+
+If that leaves fewer than 4 points, it returns `(False, None, None)` rather than guess.
 
 ## Next steps
 
@@ -153,8 +150,8 @@ than guess.
   boundary and how far it reaches: [Projection validity and FOV](../explain/projection_validity_and_fov.md).
 
 **Recap:** on fisheye data, unproject pixels to rays, keep the front-facing valid ones, then
-solve PnP in the normalized plane — `cam.solve_pnp` does all three and recovers pose to
-numerical precision.
+solve PnP in the normalized plane — `cam.solve_pnp` does all three and recovers pose to the
+float64 round-off floor (`0.00e+00°` rotation error, on this synthetic scene).
 
 ---
 

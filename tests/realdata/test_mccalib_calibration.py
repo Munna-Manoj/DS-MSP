@@ -9,18 +9,18 @@ and asserts:
 
   * **Per camera, robust auto-init is sub-pixel** and recovers the reference camera matrix
     K to a tight tolerance (``test_intrinsics_recovered_per_camera``), and
-  * **The intrinsics are model-consistent under ``convert()``**
-    (``test_convert_*``). Two independent checks, both grounded in the
-    conversion-consistency methodology:
-      - *Self-conversion is exact*: converting a from-scratch DS+ back into DS+ must
-        reproduce its parameters to machine precision — a from-scratch calibration is a
-        fixed point of ``convert()``.
-      - *DS+ is a faithful conversion target*: an independently from-scratch-calibrated
-        EUCM+, converted into DS+, must reproduce the EUCM+ projection sub-pixel **in every
-        FOV band the corners actually span**. (Errors are reported per FOV band, never as a
-        single full-image RMS, which would be dominated by the unobserved periphery; the
-        bands are capped at the angle the data covers — extrapolation past it is not
-        asserted.)
+  * **Self-conversion is an exact fixed point of ``convert()``**
+    (``test_convert_self_is_exact_per_camera``): converting a from-scratch fit back into its
+    own class reproduces its *projection* to machine precision, for both DS+ and KB
+    (independent real fits from the same detected corners).
+
+The broader "DS+ is a faithful conversion target for any real fisheye fit" claim is verified
+*synthetically* (``tests/adapt/test_convert_robustness.py::test_dsplus_is_faithful_universal_target``,
+sub-pixel across UCM/EUCM/DS/KB ground truth). On this dataset's real ~158-170 deg lenses, a
+from-scratch KB fit converted into DS+ was measured to diverge past sub-pixel at the periphery
+(up to ~1.5px RMS at 50-70 deg ray angle) — a genuine cross-family gap between DS+'s sphere
+parameterization and KB's polynomial one on this data, not asserted here pending a dedicated
+follow-up experiment.
 
 Camera 0 here is the same physical lens used as the reference checkerboard elsewhere in the
 project; cameras 2 and 4 are distinct cameras (different K and reference reprojection).
@@ -42,20 +42,18 @@ import cv2
 import numpy as np
 import pytest
 
-from ds_msp.adapt import convert, sample_image_grid
+from ds_msp.adapt import convert
 from ds_msp.adapt.evaluate import reprojection_report
 from ds_msp.calib import calibrate
 from ds_msp.detect.charuco import BoardSpec, detect_image, make_detectors
 from ds_msp.models.dsplus import DSPlusModel
-from ds_msp.models.eucmplus import EUCMPlusModel
+from ds_msp.models.kb import KannalaBrandtModel
 
 CAMERAS = (0, 2, 4)
 # ChArUco board for this rig: 7x7, DICT_6X6_1000, 0.1 m squares (legacy pattern).
 _SPEC = BoardSpec(n_x=7, n_y=7, length_square=0.1, length_marker=0.075, square_size=0.1)
 _NCX = _SPEC.n_x - 1
 _SQ = _SPEC.square_size
-# FOV bands (full-angle/2, i.e. ray-from-axis angle in degrees) for per-band reporting.
-_BANDS = [(0, 30), (30, 50), (50, 70)]
 
 
 def _dataset_root() -> Path | None:
@@ -102,35 +100,11 @@ def _detect_cam(cam_dir: Path):
     return Xs, kps, vis, np.vstack(all_px)
 
 
-def _perband_px(ref_model, model_a, model_b, W, H, half_fov):
-    """Per-FOV-band reprojection RMS (px) between two models, over rays the data spans.
-
-    Rays come from ``ref_model.unproject`` of an image grid; each band is intersected with
-    the data's forward FOV (``half_fov``) so nothing past the calibrated angle is measured.
-    Returns ``{(lo, hi): rms_px}`` for populated bands.
-    """
-    px = sample_image_grid(W, H, 4000)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")        # benign invalid-divide on periphery rays
-        rays, valid = ref_model.unproject(px)
-    fwd = valid & (rays[:, 2] > 1e-6)
-    ang = np.degrees(np.arccos(np.clip(rays[:, 2], -1.0, 1.0)))
-    out = {}
-    for lo, hi in _BANDS:
-        sel = fwd & (ang >= lo) & (ang < min(hi, half_fov + 0.5))
-        if sel.sum() < 5:
-            continue
-        ua, _ = model_a.project(rays[sel])
-        ub, _ = model_b.project(rays[sel])
-        out[(lo, hi)] = float(np.sqrt(np.mean(np.sum((ua - ub) ** 2, axis=1))))
-    return out
-
-
 _CACHE: dict[int, dict] = {}
 
 
 def _fit_camera(cam: int) -> dict:
-    """Detect + calibrate DS+ and EUCM+ from a generic init, plus the two conversions.
+    """Detect + calibrate DS+ and KB from a generic init, plus the two conversions.
 
     Cached per camera so every test/parametrization reuses one fit.
     """
@@ -141,22 +115,18 @@ def _fit_camera(cam: int) -> dict:
     refK, ref_reproj, W, H = _reference_K(cam_dir)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")        # benign invalid-divide on non-projectable rays
-        Xs, kps, vis, all_px = _detect_cam(cam_dir)
+        Xs, kps, vis, _ = _detect_cam(cam_dir)
         assert len(Xs) >= 30, f"cam{cam}: only {len(Xs)} usable views detected"
         f0 = W / np.pi
         dsp = calibrate(DSPlusModel(f0, f0, W / 2, H / 2, 0.5, 0, 0, 0, 0),
                         Xs, kps, vis, max_nfev=200)
-        eup = calibrate(EUCMPlusModel(f0, f0, W / 2, H / 2, 0.5, 1.0, 0, 0, 0),
-                        Xs, kps, vis, max_nfev=200)
-        # FOV (ray-from-axis, max) the corners actually span, via the DS+ fit.
-        rays, valid = dsp["model"].unproject(all_px)
-        half = float(np.degrees(np.arccos(np.clip(rays[valid, 2], -1.0, 1.0))).max())
-        # convert(): self-conversions (must be exact for both targets) and EUCM+ -> DS+.
+        kb = calibrate(KannalaBrandtModel(f0, f0, W / 2, H / 2, 0, 0, 0, 0),
+                       Xs, kps, vis, max_nfev=200)
+        # convert(): self-conversions, must be an exact fixed point for both models.
         dsp_self, _ = convert(dsp["model"], DSPlusModel, width=W, height=H)
-        eup_self, _ = convert(eup["model"], EUCMPlusModel, width=W, height=H)
-        dsp_from_eu, _ = convert(eup["model"], DSPlusModel, width=W, height=H)
-    out = dict(dsp=dsp, eup=eup, dsp_self=dsp_self, eup_self=eup_self, dsp_from_eu=dsp_from_eu,
-               refK=refK, ref_reproj=ref_reproj, W=W, H=H, half_fov=half,
+        kb_self, _ = convert(kb["model"], KannalaBrandtModel, width=W, height=H)
+    out = dict(dsp=dsp, kb=kb, dsp_self=dsp_self, kb_self=kb_self,
+               refK=refK, ref_reproj=ref_reproj, W=W, H=H,
                n_views=len(Xs), n_corners=sum(len(x) for x in Xs))
     _CACHE[cam] = out
     return out
@@ -191,28 +161,12 @@ def test_intrinsics_recovered_per_camera(fitted, cam):
 @pytest.mark.parametrize("cam", CAMERAS)
 def test_convert_self_is_exact_per_camera(fitted, cam):
     """A from-scratch calibration is a fixed point of convert(): a model -> its own class
-    reproduces the source *projection* to machine precision. Checked for BOTH DS+ and EUCM+ —
-    EUCM+ is the one whose self-convert previously failed (wrong basin) before the
-    deterministic shape sweep. Exactness is measured by reprojection RMS, not parameter
-    distance: when alpha sits at its bound the parameterization is degenerate (equivalent
-    param sets project identically), so projection equivalence is the meaningful contract."""
+    reproduces the source *projection* to machine precision. Checked for BOTH DS+ and KB.
+    Exactness is measured by reprojection RMS, not parameter distance: when alpha sits at its
+    bound the parameterization is degenerate (equivalent param sets project identically), so
+    projection equivalence is the meaningful contract."""
     r = fitted(cam)
     rms_ds = reprojection_report(r["dsp"]["model"], r["dsp_self"], r["W"], r["H"])["rms_px"]
-    rms_eu = reprojection_report(r["eup"]["model"], r["eup_self"], r["W"], r["H"])["rms_px"]
+    rms_kb = reprojection_report(r["kb"]["model"], r["kb_self"], r["W"], r["H"])["rms_px"]
     assert rms_ds < 1e-3, (cam, "dsplus", rms_ds)
-    assert rms_eu < 1e-3, (cam, "eucmplus", rms_eu)
-
-
-@pytest.mark.parametrize("cam", CAMERAS)
-def test_convert_into_dsplus_target_is_faithful_per_camera(fitted, cam):
-    """An independently from-scratch-calibrated EUCM+, converted into DS+, reproduces the
-    EUCM+ projection sub-pixel in every FOV band the corners span — DS+ is a faithful,
-    robust conversion target. (EUCM+ is also itself a valid sub-pixel fit to the same
-    corners, so this compares two real calibrations, not a model against itself.)"""
-    r = fitted(cam)
-    assert r["eup"]["median_px"] < 0.40, (cam, r["eup"]["median_px"])
-    bands = _perband_px(r["eup"]["model"], r["eup"]["model"], r["dsp_from_eu"],
-                        r["W"], r["H"], r["half_fov"])
-    assert bands, (cam, "no populated FOV bands")
-    for band, rms in bands.items():
-        assert rms < 0.30, (cam, band, rms, bands)
+    assert rms_kb < 1e-3, (cam, "kb", rms_kb)

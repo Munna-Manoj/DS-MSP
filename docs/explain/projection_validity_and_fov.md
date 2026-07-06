@@ -1,10 +1,13 @@
 # Projection validity and field of view — why a fisheye can't fully un-distort
 
 Why does a rectified fisheye image always have a black border, and why are some
-pixels impossible to keep? This page explains the geometry behind the Double Sphere
-model's field of view: the exact half-space test that decides which 3D rays are
-projectable, why that boundary sits *past* 90°, and why no single pinhole image can
-hold the result. It is the "why" companion to the hands-on
+pixels impossible to keep?
+
+This page explains the geometry behind the Double Sphere model's field of view: the
+exact half-space test that decides which 3D rays are projectable, why that boundary
+sits *past* 90°, and why no single pinhole image can hold the result.
+
+It is the "why" companion to the hands-on
 [Chapter 3 tutorial](../learn/03_projection_validity.md); read this when you want the
 derivation and the proof, not the recipe.
 
@@ -15,13 +18,17 @@ Every claim below is checked against the implementation in
 ## The boundary is a tilted half-space, not `z > 0`
 
 The Double Sphere projection $\pi(\mathbf{x})$ is **not** defined for every 3D point.
-The naive guess for "can the camera see this point?" is $z > 0$ — is it in front of
-the camera? For a fisheye that test is wrong, and it is the single most common
-implementation bug: it silently discards every ray past 90°, capping a lens designed
-for more than 180° at exactly 180°.
+The naive guess for "can the camera see this point?" — is it in front of the camera? —
+is
+
+$$z > 0.$$
+
+For a fisheye that test is wrong. It is the single most common implementation bug: it
+silently discards every ray past 90°, capping a lens designed for more than 180° at
+exactly 180°.
 
 The exact projectability condition (Usenko et al. 2018, Eq. 43–45) is a **tilted
-half-space**:
+<abbr title="the set of points lying on one side of a plane">half-space</abbr>**:
 
 $$z > -w_2\, d_1, \qquad d_1 = \sqrt{x^2 + y^2 + z^2}$$
 
@@ -38,28 +45,44 @@ w_1 =
 w_2 = \frac{w_1 + \xi}{\sqrt{2\, w_1 \xi + \xi^2 + 1}}
 $$
 
-This is exactly what `ds_project` computes — the piecewise $w_1$, then $w_2$, then the
-mask `valid = (z > -w2 * d1) & (den > 1e-8)`. The second clause only guards the
-projection denominator against a near-zero divide; the geometry lives entirely in
-$z > -w_2 d_1$.
+This is exactly what `ds_project` computes: the piecewise $w_1$, then $w_2$, then the
+mask `valid = (z > -w2 * d1) & (den > 1e-8)`.
 
-The crucial consequence: because $w_2 > 0$, the test **admits points with $z \le 0$** —
-rays that point slightly *behind* the camera's own side. That is precisely why the
-model represents a field of view greater than 180°. A $z > 0$ test would reject those
-rays and quietly cap the FOV at a hemisphere; this library does not make that mistake,
-and the comment in `ds_project` says so explicitly.
+The second clause only guards the projection denominator against a near-zero divide.
+The geometry lives entirely in the tilted half-space $z > -w_2 d_1$.
+
+The crucial consequence follows from the sign of the tilt. Because
+
+$$w_2 > 0,$$
+
+the test admits points with $z \le 0$ — rays that point slightly *behind* the camera's
+own side. That is precisely why the model represents a field of view greater than 180°.
+
+A $z > 0$ test would reject those rays and quietly cap the
+<abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>
+at a hemisphere.
+
+This library does not make that mistake; the comment in `ds_project` says so explicitly.
 
 ## Reading the half-space as a maximum incidence angle
 
-The half-space is easier to picture as an angle. For a unit-length ray ($d_1 = 1$) at
-incidence angle $\theta$ from the optical axis, $z = \cos\theta$, so the test
-$z > -w_2 d_1$ collapses to
+The half-space is easier to picture as an angle. Take a unit-length ray at incidence
+angle $\theta$ from the optical axis:
 
-$$\cos\theta > -w_2 \quad\Longleftrightarrow\quad \theta < \theta_{\max} = \arccos(-w_2).$$
+$$d_1 = 1, \qquad z = \cos\theta.$$
+
+Substituting into the test $z > -w_2 d_1$ collapses it to a bound on the angle:
+
+$$\cos\theta > -w_2 \quad\Longleftrightarrow\quad \theta < \theta_{\max},$$
+
+$$\theta_{\max} = \arccos(-w_2).$$
 
 Every ray out to $\theta_{\max}$ is projectable; everything beyond it is outside the
-model's domain. For the camera this library was calibrated from
-($\xi = 0.183,\ \alpha = 0.809$), the numbers are:
+model's domain. This library was calibrated from a camera with
+
+$$\xi = 0.183, \qquad \alpha = 0.809.$$
+
+For it, the numbers are:
 
 | Quantity | Value |
 | :-- | :-- |
@@ -69,11 +92,14 @@ model's domain. For the camera this library was calibrated from
 | Total accepted FOV ($2\theta_{\max}$) | $\approx 227°$ |
 
 So the camera accepts rays roughly **23° behind its own side** — far past a 180°
-hemisphere. The [Chapter 3 tutorial](../learn/03_projection_validity.md) cross-checks
-this formula at runtime against the full-precision calibration (printing 113.4° from
-$w_2 = 0.3967$, a rounding-of-inputs difference from the 113.3° / 0.396 shown here),
-including a brute-force sweep that confirms the closed form to the first decimal, so
-the formula is verified against the code, not just asserted.
+hemisphere.
+
+The [Chapter 3 tutorial](../learn/03_projection_validity.md) cross-checks this formula
+at runtime against the full-precision calibration. It prints 113.4° from $w_2 = 0.3967$
+— a rounding-of-inputs difference from the 113.3° / 0.396 shown here.
+
+A brute-force sweep confirms the closed form to the first decimal, so the formula is
+verified against the code, not just asserted.
 
 ## The FOV zones, painted onto a real frame
 
@@ -98,19 +124,24 @@ green disc inside the much larger green-plus-yellow region a fisheye actually se
 ## Why you can't undistort it all away
 
 If the lens sees 227°, why does the rectified "pinhole view" always cut some of it off?
-Because **a pinhole image plane is infinite at 90°**: a ray at exactly 90° projects to
-$x / z \to \infty$. There is no finite image plane that holds the yellow zone. Those
-pixels are not lost to a bug — they are *geometrically un-pinhole-able*. The model is
-fine; the destination is the problem.
+Because **a pinhole image plane is infinite at 90°**. A ray at exactly 90° projects to
+
+$$x / z \to \infty.$$
+
+There is no finite image plane that holds the yellow zone. Those pixels are not lost to
+a bug — they are *geometrically un-pinhole-able*. The model is fine; the destination is
+the problem.
 
 So rectification forces a trade between field of view and black border, controlled by a
 `balance` knob (see
 [`balanced_pinhole_K`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/core/pinhole.py)).
-The knob sets the rectified focal length as a fraction of the original: `balance = 0.0`
-gives the shortest focal (widest view, most of the scene kept), `balance = 1.0` gives
-the longest (narrowest view, least peripheral content). A shorter focal packs more
-wide-angle scene into the frame, at the cost of corners that map to rays the source
-never captured — the black border.
+The knob sets the rectified focal length as a fraction of the original:
+
+- `balance = 0.0` gives the shortest focal: widest view, most of the scene kept.
+- `balance = 1.0` gives the longest focal: narrowest view, least peripheral content.
+
+A shorter focal packs more wide-angle scene into the frame, at the cost of corners that
+map to rays the source never captured — the black border.
 
 Verified on real data (`assets/test_image.jpg`, `assets/test_image_96.jpg`), the same
 distorted frame rectified three ways:
@@ -136,8 +167,11 @@ full for reference.
 
 ??? note "Forward / inverse equations"
 
-    **Forward projection.** With $d_1 = \sqrt{x^2 + y^2 + z^2}$ and the first-sphere
-    shift $z_1 = z + \xi d_1$:
+    **Forward projection.** Start from the ray norm and the first-sphere shift:
+
+    $$d_1 = \sqrt{x^2 + y^2 + z^2}, \qquad z_1 = z + \xi d_1.$$
+
+    Then:
 
     $$
     d_2 = \sqrt{x^2 + y^2 + z_1^2}, \qquad
@@ -150,19 +184,32 @@ full for reference.
 
     This is the `den = alpha * d2 + (1.0 - alpha) * z1` line in `ds_project`.
 
-    **Inverse (unprojection)** is closed-form. With $m_x = (u - c_x)/f_x$,
-    $m_y = (v - c_y)/f_y$ and $r^2 = m_x^2 + m_y^2$, the back-projection is valid for all
-    $r^2$ when $\alpha \le 0.5$, and for $r^2 \le 1/(2\alpha - 1)$ when $\alpha > 0.5$.
-    The implementation's $s = 1 - (2\alpha - 1) r^2 \ge 0$ check in `ds_unproject` is
-    exactly this domain test.
+    **Inverse (unprojection)** is closed-form. Start from the normalized image
+    coordinates:
 
-    **Valid parameter domain:** $\alpha \in [0, 1]$, $\xi \in [-1, 1]$. Outside it the
-    model becomes non-injective (projection folds back on itself, so unprojection can no
-    longer invert it).
+    $$m_x = (u - c_x)/f_x, \qquad m_y = (v - c_y)/f_y, \qquad r^2 = m_x^2 + m_y^2.$$
+
+    The back-projection's validity depends on $\alpha$:
+
+    - for $\alpha \le 0.5$, it is valid for all $r^2$;
+    - for $\alpha > 0.5$, it is valid when $r^2 \le 1/(2\alpha - 1)$.
+
+    The implementation's check in `ds_unproject`,
+
+    $$s = 1 - (2\alpha - 1)\, r^2 \ge 0,$$
+
+    is exactly this domain test.
+
+    **Valid parameter domain:**
+
+    $$\alpha \in [0, 1], \qquad \xi \in [-1, 1].$$
+
+    Outside it the model becomes non-injective: projection folds back on itself, so
+    unprojection can no longer invert it.
 
 ## What this lets you reason about
 
-- A fisheye's "can I see it?" test is a **tilted half-space $z > -w_2 d_1$**, not
+- A fisheye's "can I see it?" test is a tilted half-space $z > -w_2 d_1$, not
   $z > 0$ — and the tilt is what buys the extra-hemispheric field of view.
 - That half-space is equivalently a **maximum incidence angle** $\theta_{\max} =
   \arccos(-w_2)$; here $\approx 227°$ of total FOV.

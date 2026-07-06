@@ -413,7 +413,8 @@ _VIEWER_HTML = r"""<!doctype html>
                color: #e6e8ee; font: 14px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
   #cv { position: fixed; inset: 0; display: block; }
   .panel { position: fixed; background: rgba(4,20,26,.72); backdrop-filter: blur(6px);
-           border: 1px solid #163741; border-radius: 10px; padding: 10px 12px; }
+           border: 1px solid #163741; border-radius: 10px; padding: 10px 12px;
+           transition: opacity .6s ease; }
   #hud { left: 12px; bottom: 12px; font-size: 12px; color: #b7bccb; display: flex;
          align-items: center; gap: 10px; }
   #hud button { background: #0d2b33; color: #dde2ee; border: 1px solid #1e4a56;
@@ -602,7 +603,7 @@ function errClass(e) {
   return 'lvl-bad';
 }
 const MODEL_COLOR = { kb: 0x60a5fa, dsplus: 0xc084fc, ds: 0xc084fc, radtan: 0x4ade80,
-                      ucm: 0xfb923c, eucm: 0xfb923c, eucmplus: 0xfb923c, ocam: 0xf472b6 };
+                      ucm: 0xfb923c, eucm: 0xfb923c, ocam: 0xf472b6 };
 function modelColor(m) { return MODEL_COLOR[m] || 0x7dd3fc; }
 
 // ---------------------------------------------------------------------------------------
@@ -995,19 +996,19 @@ function makeLabelSprite() {
   const tex = new THREE.CanvasTexture(cvs);
   const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
   const spr = new THREE.Sprite(mat);
-  spr.scale.set(1.1, 0.28, 1);
+  spr.scale.set(0.85, 0.22, 1);
   return { sprite: spr, ctx, tex, cvs };
 }
 function drawLabel(lbl, text, color) {
   const { ctx, cvs, tex } = lbl;
   ctx.clearRect(0, 0, cvs.width, cvs.height);
-  ctx.font = '600 26px monospace';
+  ctx.font = '600 20px monospace';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(4,20,26,.6)';
-  const w = ctx.measureText(text).width + 24;
-  ctx.beginPath(); ctx.roundRect((cvs.width - w) / 2, 12, w, 40, 8); ctx.fill();
+  const w = ctx.measureText(text).width + 20;
+  ctx.beginPath(); ctx.roundRect((cvs.width - w) / 2, 18, w, 30, 8); ctx.fill();
   ctx.fillStyle = color;
-  ctx.fillText(text, (cvs.width - w) / 2 + 12, 32);
+  ctx.fillText(text, (cvs.width - w) / 2 + 10, 33);
   tex.needsUpdate = true;
 }
 
@@ -1023,7 +1024,7 @@ function drawLabel(lbl, text, color) {
 // tracked transform from the cosmetic one" principle that fixed the spawn-in tween bug earlier
 // in this file, generalized to every swaying part instead of just one wobble.
 const MODEL_CREATURE = { kb: 'octopus', dsplus: 'squid', ds: 'squid', radtan: 'jellyfish',
-                         ucm: 'hammerhead', eucm: 'hammerhead', eucmplus: 'hammerhead', ocam: 'starfish' };
+                         ucm: 'hammerhead', eucm: 'hammerhead', ocam: 'starfish' };
 function creatureKind(model) { return MODEL_CREATURE[model] || 'jellyfish'; }
 
 function addRadialPivotPart(visual, n, ringR, pivotY, meshBuilder) {
@@ -1575,10 +1576,17 @@ function onFinale(state) {
   finaleFocusId = mvpId;
   setTimeout(() => {
     // celebration and the digital-twin reveal start together, right when the pond drama
-    // settles; the stats side panel (a persistent element, unlike the transient title cards)
-    // only fades in a beat later so the fireworks read as the moment, not as backdrop to a
-    // table -- and it lives in its own non-overlapping side panel (see #finale CSS) so it
-    // never covers the reveal once it does appear.
+    // settles. #board/#vitals track the LIVE optimization (leaderboard, rms sparkline) --
+    // once finished, that data is frozen and no longer the focus, and #finale's own
+    // right-edge position (top:50%, vertically centered) can span up into #board's
+    // top-right corner on a tall/narrow viewport, so explicitly hiding them here is what
+    // actually keeps #finale from overlapping the leaderboard, not just #finale's own CSS.
+    // The stats side panel (a persistent element, unlike the transient title cards) only
+    // fades in a beat later so the fireworks read as the moment, not as backdrop to a table.
+    document.getElementById('vitals').style.opacity = 0;
+    document.getElementById('vitals').style.pointerEvents = 'none';
+    document.getElementById('board').style.opacity = 0;
+    document.getElementById('board').style.pointerEvents = 'none';
     showCard('MISSION', 'COMPLETE', '', 2400);
     spawnFireworks(new THREE.Vector3(POND_CENTER.x, SURFACE_Y + 0.3, POND_CENTER.z));
     startRealGeometryReveal(f);

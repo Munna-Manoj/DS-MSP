@@ -44,7 +44,7 @@ deliberately tensor-library-like shape: single-purpose *capabilities* compose in
                  │   detect (OpenCV)     io           │
                  └────────────────────────────────────┘
         ┌──────────────────────── math foundation (cv2/scipy-free) ──────────────────────────┐
-        │   models (8 models + *_math, registry)                                              │
+        │   models (7 models + *_math, registry)                                              │
         │   geometry (resection · averaging · graph · single-camera BA driver)                │
         │   data (Observation / BoardObs / Object3D / RigState / CalibDataset)                │
         │   core (CameraModel contract · lie · optimize · robust · pinhole)                   │
@@ -71,7 +71,7 @@ Canonical list with dependencies in [`components.csv`](components.csv). Summary:
 | ARC-CORE | core | `ds_msp/core` | `CameraModel` contract, Lie groups, LM/Schur optimizer, robust kernels, pinhole helper |
 | ARC-DATA | data | `ds_msp/data` | Neutral observation / correspondence containers and `CalibDataset` |
 | ARC-GEOMETRY | geometry | `ds_msp/geometry` | One resection/PnP, pose averaging, covisibility graph, single-camera BA driver |
-| ARC-MODELS | models | `ds_msp/models` | Eight camera models + pure-NumPy math + registry implementing the contract |
+| ARC-MODELS | models | `ds_msp/models` | Seven camera models + pure-NumPy math + registry implementing the contract |
 | ARC-DETECT | detect | `ds_msp/detect` | OpenCV detection adapters (ChArUco / AprilGrid) → data records |
 | ARC-IO | io | `ds_msp/io` | Interop read/write (Kalibr / COLMAP / nerfstudio / MC-Calib) |
 | ARC-OPS | ops | `ds_msp/ops` | Model-agnostic services: undistort, multi-chart reproject, PnP |
@@ -86,7 +86,7 @@ Canonical list with dependencies in [`components.csv`](components.csv). Summary:
 ## 4. The contract seam
 
 Every camera model — `DoubleSphere`, `UCM`, `EUCM`, `KannalaBrandt`, `RadTan`, `OCam`, and the
-closed-form-invertible `DSPlus` / `EUCMPlus` ([ADR-0005](decisions/ADR-0005-dsplus-eucmplus.md)) —
+closed-form-invertible `DSPlus` ([ADR-0005](decisions/ADR-0005-dsplus-eucmplus.md)) —
 satisfies one `CameraModel` protocol (`ds_msp/core/contracts.py`): `project`, `unproject`,
 `project_jacobian`, parameter (de)serialization. Higher layers depend on the **protocol**, never on
 a concrete model class, so any model is a drop-in for any other. This single seam is what makes the

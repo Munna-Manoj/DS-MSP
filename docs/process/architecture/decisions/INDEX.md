@@ -12,11 +12,12 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0002](ADR-0002-protocol-camera-models.md) | One `CameraModel` protocol for all interchangeable models | Accepted | Drop-in model substitution |
 | [ADR-0003](ADR-0003-analytic-jacobians.md) | Hand-derived analytic Jacobians, finite-difference-checked (no autodiff) | Accepted | Speed, stability, portability |
 | [ADR-0004](ADR-0004-cv2-scipy-free-foundation.md) | The math foundation is cv2/scipy-free | Accepted | Portable solver path |
-| [ADR-0005](ADR-0005-dsplus-eucmplus.md) | DS⁺ / EUCM⁺ closed-form-invertible camera models | Accepted | Sub-0.3px fit with a closed-form inverse |
+| [ADR-0005](ADR-0005-dsplus-eucmplus.md) | DS⁺ / EUCM⁺ closed-form-invertible camera models | Partially superseded by ADR-0010 | Sub-0.3px fit with a closed-form inverse |
 | [ADR-0006](ADR-0006-synthetic-real-release-gate.md) | Synthetic-then-real-data release gate | Accepted | No public release without real-data validation |
 | [ADR-0007](ADR-0007-deterministic-convert-seeding.md) | Deterministic shape-parameter sweep in model conversion | Accepted | Reproducible, exact self-conversion (no restart lottery) |
-| [ADR-0008](ADR-0008-noncommercial-engine-scope.md) | Noncommercial license covers the robust calibrate/convert engine, not just the Plus models | Accepted | Protect the real IP, not just published math |
+| [ADR-0008](ADR-0008-noncommercial-engine-scope.md) | Noncommercial license covers the robust calibrate/convert engine, not just the Plus models | Superseded by ADR-0010 | Protect the real IP, not just published math |
 | [ADR-0009](ADR-0009-board-protocol.md) | One `Board` protocol unifies checkerboard / ChArUco / AprilGrid for single-camera calibration | Accepted | Config-driven, board-agnostic single-camera calibration |
+| [ADR-0010](ADR-0010-mit-relicense-and-eucmplus-removal.md) | Remove EUCM⁺; relicense the whole project to plain MIT | Accepted | Simpler model surface (measured, not assumed); permissive adoption over engine protection |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the

@@ -39,6 +39,11 @@ These are what make this repo's docs distinctive. Keep them everywhere.
    comment or an output block. The reader should know they succeeded.
 4. **One idea per section.** Descriptive heading, one concept, then move on.
 5. **Lead with the point.** First sentence says what the section is for. Don't warm up.
+6. **No paragraph over ~40 words.** If a point needs more, split it into two short paragraphs,
+   convert it to a bullet list, or move the secondary point into a `///` admonition. Formal
+   derivation pages (e.g. `docs/explain/*_geometry.md`) may run longer where splitting would
+   break a proof's logical continuity — tighten the worst offenders there, don't force every
+   sentence apart.
 
 ---
 
@@ -72,6 +77,17 @@ block and say so**, then reuse those exact names:
 > from ds_msp import DoubleSphereCamera
 > cam = DoubleSphereCamera(711.57, 711.24, 949.18, 518.81, 0.183, 0.809)
 > ```
+
+**On the published MkDocs site, "it runs" is enforced mechanically, not just by convention.**
+Every code sample on a `docs/learn/`, `docs/how-to/`, or `docs/explain/` page is a real file
+under [`docs_src/`](../docs_src/README.md), pulled into the page with
+`{* docs_src/<section>/<slug>/<name>.py hl[1,2] *}` — never hand-copied into the prose. Each
+file has a mirrored test at `tests/docs_src/...` that asserts the exact values the page shows,
+and `tools/check_docs_src_coverage.py` (CI governance) fails the build if a page references a
+file that doesn't exist, or a file exists that no page includes or no test covers. See
+`docs_src/README.md` for the exact convention (naming, the bundled-fixtures-only rule, how to
+add a new example). `README.md` at the repo root doesn't get this — GitHub renders plain
+markdown, not mkdocs macros — so its snippets stay hand-verified inline per the rules above.
 
 **The rest of the snippet rules:**
 
@@ -121,6 +137,27 @@ Walls of text don't teach. Use the right device for the job:
 A figure or diagram should be *informative*, not decorative — if it doesn't help the reader
 build a mental model, cut it.
 
+**Equations get their own line — never run them together like words in a sentence.** A reader
+scanning `$z > -w_2\,d_1$, where $d_1=\sqrt{x^2+y^2+z^2}$, so $\theta_{\max}=\arccos(-w_2)$` has
+to parse three separate relationships stitched into one clause. Each gets its own display block
+instead:
+
+```
+$$z > -w_2\, d_1, \qquad d_1 = \sqrt{x^2 + y^2 + z^2}$$
+
+$$\theta_{\max} = \arccos(-w_2)$$
+```
+
+- **Inline `$...$` is for a single symbol or a short back-reference** to a display equation
+  already shown ("...then $\theta$ from the equation above"), not for a relationship with its
+  own operator (`=`, `>`, `\Longleftrightarrow`) — those get `$$...$$`.
+- **One relationship per block.** A definition and its immediate substitution can share a block
+  (`$$d_1 = \sqrt{x^2+y^2+z^2}$$` right under the equation that uses `d_1`) — a chain of three
+  unrelated results cannot.
+- **This applies inside tables too.** A comparison table with one short formula per cell is
+  fine; a cell packing `$u=..., v=..., (\lambda,\psi)=...$` into one line needs either three
+  columns or a footnote-style breakout below the table, not a comma-chain.
+
 **Generate visuals from real data, reproducibly.** GIFs and figures should come from a
 checked-in script (e.g. `scripts/make_learn_gifs.py`), not a one-off screenshot — so they
 can be regenerated, and so they show the *actual* output of the code the doc describes.
@@ -153,6 +190,8 @@ Run this before committing any doc change:
 - [ ] **Output shown** — the reader can tell they succeeded.
 - [ ] **A number** proves each claim.
 - [ ] **Headings** are descriptive; one idea per section.
+- [ ] **Equations are display blocks** (`$$...$$`), one relationship per block — never two or
+      more formulas chained into one sentence with inline `$...$`.
 - [ ] **Links resolve and assets exist** (`grep` the anchors; check the image paths).
 - [ ] **Cold read** — a newcomer with no context could follow it and learn something.
 

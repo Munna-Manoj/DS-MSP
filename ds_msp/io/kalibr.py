@@ -21,16 +21,15 @@ Notes:
 - Kalibr radtan has only 4 coeffs: a non-zero ``k3`` is dropped on export (with a
   warning), since the on-disk format cannot represent it.
 
-DS-MSP EXTENSION (DS⁺ / EUCM⁺ have no Kalibr-native equivalent -- these are DS-MSP's own
-published models, not part of Kalibr's camera-model set, the same way ``ds_msp.rig`` already
-extends MC-Calib's own format with ``camera_models``). Round-trips through this module, but a
-real Kalibr installation will not recognize these two ``camera_model`` strings:
+DS-MSP EXTENSION (DS⁺ has no Kalibr-native equivalent -- it is DS-MSP's own published model,
+not part of Kalibr's camera-model set, the same way ``ds_msp.rig`` already extends MC-Calib's
+own format with ``camera_models``). Round-trips through this module, but a real Kalibr
+installation will not recognize this ``camera_model`` string:
 
   ===========  ==============  ==================  ==============================  ==============================
   model        camera_model    distortion_model    intrinsics order                distortion_coeffs
   ===========  ==============  ==================  ==============================  ==============================
   DS⁺          ds_plus         ds_plus_div_tilt    [alpha, fx, fy, cx, cy]         [lambda1, lambda2, tau_x, tau_y]
-  EUCM⁺        eucm_plus       eucm_plus_div_tilt  [alpha, beta, fx, fy, cx, cy]   [lambda1, tau_x, tau_y]
   ===========  ==============  ==================  ==============================  ==============================
 """
 
@@ -45,7 +44,6 @@ import yaml
 from ..models.double_sphere import DoubleSphereModel
 from ..models.dsplus import DSPlusModel
 from ..models.eucm import EUCMModel
-from ..models.eucmplus import EUCMPlusModel
 from ..models.kb import KannalaBrandtModel
 from ..models.radtan import RadTanModel
 from ..models.ucm import UCMModel
@@ -84,11 +82,6 @@ def to_kalibr_cam(model, width: int, height: int) -> dict:
                      intrinsics=[model.alpha, model.fx, model.fy, model.cx, model.cy],
                      distortion_model="ds_plus_div_tilt",
                      distortion_coeffs=[model.lambda1, model.lambda2, model.tau_x, model.tau_y])
-    elif name == "eucmplus":
-        block = dict(camera_model="eucm_plus",
-                     intrinsics=[model.alpha, model.beta, model.fx, model.fy, model.cx, model.cy],
-                     distortion_model="eucm_plus_div_tilt",
-                     distortion_coeffs=[model.lambda1, model.tau_x, model.tau_y])
     else:
         raise ValueError(f"No Kalibr mapping for model '{name}'")
     block["resolution"] = [int(width), int(height)]
@@ -118,10 +111,6 @@ def from_kalibr_cam(block: dict):
         alpha, fx, fy, cx, cy = intr
         lambda1, lambda2, tau_x, tau_y = D
         return DSPlusModel(fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y)
-    if cm == "eucm_plus":
-        alpha, beta, fx, fy, cx, cy = intr
-        lambda1, tau_x, tau_y = D
-        return EUCMPlusModel(fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y)
     if cm == "pinhole":
         fx, fy, cx, cy = intr
         if dm == "equidistant":

@@ -11,7 +11,6 @@ from ds_msp.models.registry import (canonical_name, model_class, mccalib_name,
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
-from ds_msp.models.eucmplus import EUCMPlusModel
 from ds_msp.models.kb import KannalaBrandtModel
 from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
@@ -87,7 +86,7 @@ def test_per_camera_models_and_mccalib_writer_roundtrip(tmp_path):
 
 
 MODELS = [RadTanModel.sample, DoubleSphereModel.sample, UCMModel.sample, EUCMModel.sample,
-          KannalaBrandtModel.sample, DSPlusModel.sample, EUCMPlusModel.sample, OCamModel.sample]
+          KannalaBrandtModel.sample, DSPlusModel.sample, OCamModel.sample]
 
 
 def _single_camera_rig(model):

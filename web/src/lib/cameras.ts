@@ -1,4 +1,4 @@
-// Multi-model camera registry — faithful TypeScript ports of the eight models
+// Multi-model camera registry — faithful TypeScript ports of the seven models
 // ds_msp ships (ds_msp/models/*_math.py). Every project/unproject below is a
 // line-for-line port of the Python so the demo is provably correct, not a
 // look-alike. Validity rules differ per model on purpose — that is real physics,
@@ -434,81 +434,7 @@ const DSPLUS: CameraModel = {
   },
 };
 
-// ────────────────────────────────────────────────────────────────── EUCM⁺ ──
-// ds_msp/models/eucmplus_math.py  (EUCM core + 1-term division + 2-axis tilt)
-// Truly square-root-only: the whole inverse below is closed form — no Newton, no
-// cube root — so it matches the library to machine precision at any parameters.
-const EUCMPLUS: CameraModel = {
-  id: "eucmplus",
-  name: "EUCM⁺ (Enhanced UCM +)",
-  blurb: "EUCM core + 1-term division + tilt — a truly √-only closed-form inverse. DS-class speed, fits lenses DS can't.",
-  glyph: "M4 12a8 5 0 1 0 16 0a8 5 0 1 0 -16 0 M11 7l0 10 M19 2l0 5 M16.5 4.5l5 0",
-  wideFov: true,
-  defaults: { fx: 180, fy: 180, cx: 320, cy: 320, alpha: 0.6, beta: 1.0, lambda1: 0.0, tau_x: 0.0, tau_y: 0.0 },
-  params: [
-    { key: "fx", symbol: "f", label: "focal length (px)", min: 120, max: 520, step: 1, link: ["fx", "fy"] },
-    { key: "alpha", symbol: "α", label: "sphere mix", min: 0.0, max: 0.99, step: 0.01 },
-    { key: "beta", symbol: "β", label: "ellipsoid stretch", min: 0.2, max: 3.0, step: 0.01 },
-    { key: "lambda1", symbol: "λ₁", label: "division θ³", min: -0.5, max: 0.5, step: 0.005 },
-    { key: "tau_x", symbol: "τx", label: "tilt (x)", min: -0.3, max: 0.3, step: 0.005 },
-    { key: "tau_y", symbol: "τy", label: "tilt (y)", min: -0.3, max: 0.3, step: 0.005 },
-  ],
-  project(P, p) {
-    const [x, y, z] = P;
-    const { fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y } = p;
-    // Stage S: EUCM sphere.
-    const d = Math.sqrt(beta * (x * x + y * y) + z * z);
-    const den = alpha * d + (1 - alpha) * z;
-    const validS = den > 1e-9;
-    const dens = Math.max(den, 1e-9);
-    const mx = x / dens;
-    const my = y / dens;
-    // Stage D: division radial (1 term).
-    const s2 = mx * mx + my * my;
-    const g = 1 + lambda1 * s2;
-    const validD = Math.abs(g) > 1e-9;
-    const gs = Math.abs(g) < 1e-12 ? 1e-12 : g;
-    const dx = mx / gs;
-    const dy = my / gs;
-    // Stage H: tilt homography.
-    const wt = tau_x * dx + tau_y * dy + 1;
-    const validH = Math.abs(wt) > 1e-9;
-    const ws = Math.abs(wt) < 1e-12 ? 1e-12 : wt;
-    const theta = incidence(x, y, z);
-    const valid = validS && validD && validH;
-    return { u: (fx * dx) / ws + cx, v: (fy * dy) / ws + cy, valid, theta, zone: zoneOf(theta, valid) };
-  },
-  unproject(u, v, p) {
-    const { fx, fy, cx, cy, alpha, beta, lambda1, tau_x, tau_y } = p;
-    const xt = (u - cx) / fx;
-    const yt = (v - cy) / fy;
-    // H⁻¹: tilt inverse (linear).
-    const denom = 1 - tau_x * xt - tau_y * yt;
-    const validH = Math.abs(denom) > 1e-9;
-    const denoms = Math.abs(denom) < 1e-12 ? 1e-12 : denom;
-    const xg = xt / denoms;
-    const yg = yt / denoms;
-    // D⁻¹: 1-term division is a quadratic — one sqrt, no iteration.
-    const rd = Math.hypot(xg, yg);
-    const disc = 1 - 4 * lambda1 * rd * rd;
-    const validD = disc >= 0;
-    let r = rd;
-    if (Math.abs(lambda1) >= 1e-15 && rd > 1e-12) {
-      r = (1 - Math.sqrt(Math.max(disc, 0))) / (2 * lambda1 * rd);
-    }
-    const scale = rd > 1e-12 ? r / rd : 1;
-    const mx = xg * scale;
-    const my = yg * scale;
-    // S⁻¹: EUCM closed form (sqrt-only).
-    const r2 = mx * mx + my * my;
-    const s = 1 - (2 * alpha - 1) * beta * r2;
-    const validS = s >= 0;
-    const mz = (1 - beta * alpha * alpha * r2) / (alpha * Math.sqrt(Math.max(s, 0)) + 1 - alpha);
-    return { ray: norm3(mx, my, mz), valid: validS && validD && validH };
-  },
-};
-
-export const CAMERAS: CameraModel[] = [DS, UCM, EUCM, KB, RADTAN, OCAM, DSPLUS, EUCMPLUS];
+export const CAMERAS: CameraModel[] = [DS, UCM, EUCM, KB, RADTAN, OCAM, DSPLUS];
 export const CAMERA_BY_ID: Record<string, CameraModel> = Object.fromEntries(
   CAMERAS.map((m) => [m.id, m]),
 );

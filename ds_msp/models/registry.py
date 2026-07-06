@@ -18,7 +18,6 @@ from ..core.contracts import CameraModel
 from .double_sphere import DoubleSphereModel
 from .dsplus import DSPlusModel
 from .eucm import EUCMModel
-from .eucmplus import EUCMPlusModel
 from .kb import KannalaBrandtModel
 from .ocam import OCamModel
 from .radtan import RadTanModel
@@ -33,7 +32,6 @@ _BY_NAME: Dict[str, Type[CameraModel]] = {
     "kb": KannalaBrandtModel,
     "ocam": OCamModel,
     "dsplus": DSPlusModel,
-    "eucmplus": EUCMPlusModel,
 }
 
 #: Accepted aliases (MC-Calib strings + legacy ints) -> canonical DS-MSP name.
@@ -43,7 +41,6 @@ _ALIAS: Dict[str, str] = {
     "brown": "radtan", "perspective": "radtan", "opencv": "radtan",
     "ocam_calib": "ocam", "ocamcalib": "ocam", "scaramuzza": "ocam",
     "ds+": "dsplus", "ds_plus": "dsplus", "doublespheres_plus": "dsplus",
-    "eucm+": "eucmplus", "eucm_plus": "eucmplus",
     "0": "radtan", "1": "kb",                      # legacy distortion_model ints
 }
 
@@ -51,7 +48,6 @@ _ALIAS: Dict[str, str] = {
 _TO_MCCALIB: Dict[str, str] = {
     "radtan": "radtan", "ds": "double_sphere", "ucm": "ucm",
     "eucm": "eucm", "kb": "kb", "ocam": "ocam", "dsplus": "dsplus",
-    "eucmplus": "eucmplus",
 }
 
 #: Models valid for a (forward-facing) pinhole camera, and for a fisheye camera, used by the
@@ -91,14 +87,11 @@ def mccalib_name(name) -> str:
 
 # Neutral seed values per intrinsic parameter name — a generic, GT-free starting point for
 # from-scratch calibration of any model. Distortion/shape params not listed here seed to 0.0
-# (see seed_from_K), so any model — including DS+/EUCM+ whose extra terms (lambda1/lambda2
+# (see seed_from_K), so any model — including DS+ whose extra terms (lambda1/lambda2
 # division-distortion, tau_x/tau_y tilt) are neutral at 0 — is supported without enumerating
 # every parameter name. Moved here (from ds_msp.rig.calibrate, its original home) rather than
 # ds_msp.geometry.resection: this is trivial, mechanical plumbing (instantiate model_cls with
-# neutral defaults, no cv2/scipy), and resection.py is one of the three files
-# ADR-0008-noncommercial-engine-scope.md places under PolyForm-Noncommercial-1.0.0 — moving a
-# plain-MIT helper there would silently relicense it by file placement alone. `models` is
-# explicitly enumerated as staying MIT in that same ADR.
+# neutral defaults, no cv2/scipy) that belongs with the other model-registry helpers.
 _NEUTRAL = {"alpha": 0.5, "xi": 0.0, "beta": 1.0, "k1": 0.0, "k2": 0.0, "k3": 0.0,
             "k4": 0.0, "p1": 0.0, "p2": 0.0,
             "lambda1": 0.0, "lambda2": 0.0, "tau_x": 0.0, "tau_y": 0.0}

@@ -13,4 +13,4 @@ ARC-STEREO,stereo,ds_msp/stereo,Wide-FOV stereo depth and rectification,ARC-CORE
 ARC-RIG,rig,ds_msp/rig,Multi-camera rig calibration pipeline (composes calib + geometry),ARC-CORE;ARC-DATA;ARC-GEOMETRY;ARC-DETECT;ARC-CALIB;ARC-MODELS
 ARC-VO,vo,ds_msp/vo,Monocular visual odometry pipeline (composes mvg),ARC-CORE;ARC-MVG
 ARC-INTEROP,interop,ds_msp/cv.py;ds_msp/ldc.py,OpenCV-compatible API and TI Jacinto LDC export,ARC-CORE;ARC-MODELS
-ARC-DOCS,docs,docs;mkdocs.yml,Published MkDocs Material documentation site (tutorials/how-to/reference/explanation) built and link-checked in CI,(none)
+ARC-DOCS,docs,docs;mkdocs.yml;docs_src;tests/docs_src,Published MkDocs Material documentation site (tutorials/how-to/reference/explanation) built and link-checked in CI; docs_src holds the real tested code behind every page's samples,(none)

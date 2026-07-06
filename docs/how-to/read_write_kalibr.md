@@ -1,18 +1,17 @@
 # Read and write Kalibr camchain YAML
 
-Load a Kalibr `camchain` YAML into a DS-MSP camera model, and write a DS-MSP model
-back out as Kalibr YAML — so you can move calibrations in and out of the Kalibr
-ecosystem without retyping intrinsics.
+Load a Kalibr <abbr title="Kalibr's per-camera calibration file: one YAML stanza per camera, chained by relative extrinsics between consecutive cameras.">**camchain**</abbr>
+YAML into a DS-MSP camera model, and write a DS-MSP model back out as Kalibr YAML.
+
+Move calibrations in and out of the Kalibr ecosystem without retyping intrinsics.
 
 > **Prerequisites**
 > - DS-MSP installed (`pip install ds-msp`).
 > - A Kalibr `camchain*.yaml` file to read, *or* a DS-MSP model to write out. The
->   first recipe below uses a bundled TUM-VI camchain so it runs with no extra
->   files; the [write recipe](#write-a-model-to-kalibr-yaml) needs no files at all.
-> - **Run from the repo root.** Snippets that read the TUM-VI fixture use the
->   relative path `datasets/tumvi/…`. Run them with your working directory set to
->   the repository root (`cd /path/to/DS-MSP`), or replace the path with the
->   absolute path to the file on your system.
+>   write recipe below needs no files at all.
+> - **Run from the repo root** if you follow along with the read recipes below —
+>   they read the TUM-VI dataset fetched by `scripts/download_datasets.sh tumvi`
+>   at `datasets/tumvi/…`.
 > - This is a **format I/O** recipe — it moves parameters between files and model
 >   objects. It does not run a calibration.
 
@@ -32,28 +31,32 @@ print(type(model).__name__)   # -> KannalaBrandtModel
 print(model.name)             # -> 'kb'
 ```
 
+This needs the TUM-VI dataset on disk, so it stays here as a verified excerpt rather
+than a `docs_src/` file — see [`docs_src/README.md`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs_src/README.md)
+for why. [`examples/09_monocular_vo_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/09_monocular_vo_tumvi.py#L110)
+makes the same call against real footage.
+
 The TUM-VI camchain declares `camera_model: pinhole` with
 `distortion_model: equidistant` — Kalibr's name for the Kannala-Brandt fisheye
 model. So `load_kalibr` returns a `KannalaBrandtModel`. The file picks the class,
 not you.
 
-> **Notice:** `cam="cam0"` selects which camera in the chain to load. A stereo
-> camchain has `cam0`, `cam1`, …; pass `cam="cam1"` for the second camera. If the
-> requested name is absent, the loader falls back to the first `cam*` key it finds.
+/// tip
+`cam="cam0"` selects which camera in the chain to load. A stereo camchain has
+`cam0`, `cam1`, … — pass `cam="cam1"` for the second camera. If the requested
+name is absent, the loader falls back to the first `cam*` key it finds.
+///
 
 ## Get the resolution too
 
-`load_kalibr` returns only the model. When you also need the sensor size — and you do, to
-write the file back out — call `load_kalibr_with_resolution`. It returns
+`load_kalibr` returns only the model. When you also need the sensor size — and you
+do, to write the file back out — call `load_kalibr_with_resolution`. It returns
 `(model, (width, height))`:
-
-> This snippet continues from the [read recipe](#read-a-camchain-in-one-call) above and
-> reuses its `path`. To run it on its own, set
-> `path = "datasets/tumvi/dataset-room1_512_16/dso/camchain.yaml"` first.
 
 ```python
 from ds_msp.io.kalibr import load_kalibr_with_resolution
 
+path = "datasets/tumvi/dataset-room1_512_16/dso/camchain.yaml"
 model, (width, height) = load_kalibr_with_resolution(path, cam="cam0")
 
 print((width, height))                 # -> (512, 512)
@@ -64,15 +67,21 @@ print(model.distortion.round(6).tolist())
 # -> [0.003482, 0.000715, -0.002053, 0.000203]   (k1, k2, k3, k4)
 ```
 
+Same external-data caveat as above: see
+[`examples/02_double_sphere_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/02_double_sphere_tumvi.py#L57)
+for the runnable call.
+
 `model.K` is the 3×3 intrinsic matrix. `model.distortion` is the `(4,)` Kannala-Brandt
 coefficient vector `[k1, k2, k3, k4]` — the four `distortion_coeffs` from the YAML, in
 order.
 
 ## Which models the Kalibr I/O supports
 
-DS-MSP maps five model families to and from the Kalibr camchain format. On read, the
-`camera_model` / `distortion_model` pair in the YAML decides the DS-MSP class. On
-save, the model's type decides the fields written:
+DS-MSP maps five model families to and from the Kalibr camchain format:
+
+- **On read** — the `camera_model` / `distortion_model` pair in the YAML decides the
+  DS-MSP class.
+- **On save** — the model's type decides the fields written.
 
 | DS-MSP model | Kalibr `camera_model` | `distortion_model` | `intrinsics` order | `distortion_coeffs` |
 | :--- | :--- | :--- | :--- | :--- |
@@ -82,7 +91,7 @@ save, the model's type decides the fields written:
 | `RadTanModel` | `pinhole` | `radtan` | `[fx, fy, cx, cy]` | `[k1, k2, p1, p2]` |
 | `UCMModel` | `omni` | `none` | `[xi_mei, fx, fy, cx, cy]` | `[]` |
 
-Two mappings need care:
+#### Two mappings need care
 
 - **UCM `xi`** — Kalibr's `omni` model stores the Mei mirror parameter
   `xi_mei = alpha / (1 - alpha)`, not DS-MSP's unified `alpha`. The I/O converts
@@ -91,19 +100,27 @@ Two mappings need care:
   A non-zero `k3` cannot be stored, so it is **dropped on export with a warning**.
   Keep `k3 = 0` if you need an exact RadTan round-trip.
 
+/// note
 A plain `pinhole` with `distortion_model: none` loads as a `RadTanModel` with zero
 distortion. An `omni` model carrying distortion raises `NotImplementedError` — the
 combination is not representable.
+///
 
-This page shows two families end to end — a Kannala-Brandt read and a Double Sphere
-write — as representative of all five. The read and write calls are identical across
-families: `load_kalibr` reads whatever class the file declares, and `save_kalibr`
-emits whatever class you hand it. To write a EUCM, UCM, or RadTan file, pass that
-model to the same `save_kalibr` call below; it places the fields from the row above.
+#### One recipe, five families
 
-The same module also reads/writes two DS-MSP-only extension formats, `DSPlusModel`
-(`ds_plus`) and `EUCMPlusModel` (`eucm_plus`) — omitted from the table above since they aren't
-real Kalibr camera types, but supported the same way if your camchain declares one.
+This page shows two families end to end — a Kannala-Brandt read and a Double
+Sphere write — as representative of all five:
+
+- `load_kalibr` reads whatever class the file declares.
+- `save_kalibr` emits whatever class you hand it.
+
+To write a EUCM, UCM, or RadTan file, pass that model to the same `save_kalibr`
+call below; it places the fields from the row above.
+
+The same module also reads/writes one DS-MSP-only extension format, `DSPlusModel`
+(`ds_plus`) — omitted from the table above since
+it isn't a real Kalibr camera type, but supported the same way if your camchain
+declares one.
 
 ## Write a model to Kalibr YAML
 
@@ -111,19 +128,12 @@ real Kalibr camera types, but supported the same way if your camchain declares o
 single-camera camchain. The function reads the model's type and emits the matching
 `camera_model` / `distortion_model` / `intrinsics` fields from the table above:
 
-```python
-import tempfile, os
-from ds_msp.io.kalibr import save_kalibr
-from ds_msp.models.double_sphere import DoubleSphereModel
+{* docs_src/how_to/read_write_kalibr/write_kalibr_yaml.py hl[19:20] *}
 
-ds = DoubleSphereModel.sample()          # bundled DS calibration, no file needed
-out = os.path.join(tempfile.gettempdir(), "camchain.yaml")
+<div class="termy">
 
-save_kalibr(ds, out, width=1920, height=1080, cam="cam0")
-print(open(out).read())
-```
-
-```yaml
+```console
+$ python -m docs_src.how_to.read_write_kalibr.write_kalibr_yaml
 cam0:
   camera_model: ds
   intrinsics: [0.183, 0.809, 711.57, 711.24, 949.18, 518.81]
@@ -132,8 +142,11 @@ cam0:
   resolution: [1920, 1080]
 ```
 
+</div>
+
 The `intrinsics` list leads with `xi, alpha` (`0.183, 0.809`) — the Double Sphere
 ordering Kalibr expects — then `fx, fy, cx, cy` (`711.57, 711.24, 949.18, 518.81`).
+
 `save_kalibr` placed every field in the right slot, so you never format the YAML by
 hand.
 
@@ -142,37 +155,36 @@ hand.
 A save followed by a load must return the same model with the same parameters. Run
 this check to verify interop before you ship a file downstream:
 
-```python
-import tempfile, os
-import numpy as np
-from ds_msp.io.kalibr import save_kalibr, load_kalibr
-from ds_msp.models.double_sphere import DoubleSphereModel
+{* docs_src/how_to/read_write_kalibr/roundtrip_kalibr_yaml.py hl[20:21] *}
 
-ds = DoubleSphereModel.sample()
-out = os.path.join(tempfile.gettempdir(), "rt.yaml")
+<div class="termy">
 
-save_kalibr(ds, out, width=1920, height=1080, cam="cam0")
-back = load_kalibr(out, cam="cam0")
-
-print(type(back) is type(ds))                       # -> True
-print(np.allclose(back.params, ds.params, atol=1e-9))  # -> True
-print(np.max(np.abs(back.params - ds.params)))      # -> 0.0
+```console
+$ python -m docs_src.how_to.read_write_kalibr.roundtrip_kalibr_yaml
+True
+True
+0.0
 ```
 
-The reloaded model is the same class with identical `params` — max difference
-**0.0** here, exact to machine precision. (The same exact round-trip holds for EUCM,
-KB, UCM, and RadTan with `k3 = 0`; RadTan with `k3 ≠ 0` loses only `k3`, per the note
-above.)
+</div>
 
-> **Notice:** `model.params` is each model's flat parameter vector — for Double
-> Sphere, `[fx, fy, cx, cy, xi, alpha]`. Comparing `params` is the quickest way to
-> assert two models are equal.
+The reloaded model is the same class with identical `params` — max difference
+**0.0** here, exact to machine precision.
+
+The same exact round-trip holds for EUCM, KB, UCM, and RadTan with `k3 = 0`; RadTan
+with `k3 ≠ 0` loses only `k3`, per the note above.
+
+/// note
+`model.params` is each model's flat parameter vector — for Double Sphere,
+`[fx, fy, cx, cy, xi, alpha]`. Comparing `params` is the quickest way to assert two
+models are equal.
+///
 
 ## Read stereo extrinsics
 
 A multi-camera camchain stores each camera's pose relative to the previous one in
-`T_cn_cnm1`, a 4×4 transform. Call `load_kalibr_extrinsics(path, cam="cam1")` to read
-that matrix:
+`T_cn_cnm1`, a 4×4 transform. Call `load_kalibr_extrinsics(path, cam="cam1")` to
+read that matrix:
 
 ```python
 import numpy as np
@@ -184,15 +196,21 @@ print(T_cam1_cam0.shape)                                 # -> (4, 4)
 print(round(float(np.linalg.norm(T_cam1_cam0[:3, 3])), 5))  # baseline -> 0.10109 m
 ```
 
+Same external-data caveat as the read recipes above: see
+[`examples/06_stereo_extrinsics_tumvi.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/examples/06_stereo_extrinsics_tumvi.py#L83)
+for the runnable call.
+
 `T_cn_cnm1` maps points from the *previous* camera's frame into this one, so
 `cam1`'s `T_cn_cnm1` is `T_cam1_cam0`. The TUM-VI stereo baseline read here is
 **0.10109 m** (~10 cm).
 
-> **Notice:** only `cam1` and later cameras carry `T_cn_cnm1`. `cam0` is the chain
-> origin and has no pose relative to a previous camera, so calling
-> `load_kalibr_extrinsics(path, cam="cam0")` raises
-> `KeyError: "'cam0' has no T_cn_cnm1 in ..."`. Pass `cam="cam1"` (or higher) to read
-> a transform; for `cam0` the relative pose is the identity by definition.
+/// warning
+Only `cam1` and later cameras carry `T_cn_cnm1`. `cam0` is the chain origin and has
+no pose relative to a previous camera, so calling
+`load_kalibr_extrinsics(path, cam="cam0")` raises
+`KeyError: "'cam0' has no T_cn_cnm1 in ..."`. Pass `cam="cam1"` (or higher) to read
+a transform; for `cam0` the relative pose is the identity by definition.
+///
 
 ## Real-world usage
 
@@ -200,12 +218,12 @@ print(round(float(np.linalg.norm(T_cam1_cam0[:3, 3])), 5))  # baseline -> 0.1010
 loads the same TUM-VI camchain with `load_kalibr` to drive monocular visual
 odometry on real data — the recipe above is exactly the front end of that pipeline.
 
-## Confirm it works for a second camera in the same file
+## Confirm it works for a second camera
 
-A multi-camera camchain has one block per camera. Change `cam="cam0"` to `cam="cam1"` in the
-[read recipe](#get-the-resolution-too) and reload from the same TUM-VI camchain — same
-`KannalaBrandtModel` class, different `fx`/distortion (it's the other physical lens):
-`fx` rounds to **190.4424**.
+A multi-camera camchain has one block per camera. Change `cam="cam0"` to
+`cam="cam1"` in the [read recipe](#get-the-resolution-too) and reload from the
+same TUM-VI camchain — same `KannalaBrandtModel` class, different `fx`/distortion
+(it's the other physical lens): `fx` rounds to **190.4424**.
 
 ## Next steps
 
@@ -217,10 +235,15 @@ A multi-camera camchain has one block per camera. Change `cam="cam0"` to `cam="c
 
 ---
 
-*Recap:* `load_kalibr(path, cam)` reads a camchain stanza into the DS-MSP model the
-file declares; `load_kalibr_with_resolution` adds `(width, height)`;
-`save_kalibr(model, path, width, height, cam)` writes a model back out with the
-right Kalibr field ordering. Five model families are supported (DS, EUCM, KB,
-RadTan, UCM), `omni` uses the Mei `xi_mei` parameter, and RadTan `k3` cannot be
-stored. Round-trips are exact to machine precision (`0.0` max param diff). Source:
-[`ds_msp/io/kalibr.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/io/kalibr.py).
+**Recap**
+
+- `load_kalibr(path, cam)` reads a camchain stanza into the DS-MSP model the file
+  declares.
+- `load_kalibr_with_resolution` adds `(width, height)`.
+- `save_kalibr(model, path, width, height, cam)` writes a model back out with the
+  right Kalibr field ordering.
+- Five model families are supported (DS, EUCM, KB, RadTan, UCM); `omni` uses the
+  Mei `xi_mei` parameter; RadTan `k3` cannot be stored.
+- Round-trips are exact to machine precision (`0.0` max param diff).
+
+Source: [`ds_msp/io/kalibr.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/io/kalibr.py).

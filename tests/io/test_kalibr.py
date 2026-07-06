@@ -7,13 +7,12 @@ from ds_msp.io.kalibr import to_kalibr_cam, from_kalibr_cam, save_kalibr, load_k
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
-from ds_msp.models.eucmplus import EUCMPlusModel
 from ds_msp.models.kb import KannalaBrandtModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 
 MODELS = [DoubleSphereModel.sample, EUCMModel.sample, KannalaBrandtModel.sample,
-          RadTanModel.sample, UCMModel.sample, DSPlusModel.sample, EUCMPlusModel.sample]
+          RadTanModel.sample, UCMModel.sample, DSPlusModel.sample]
 
 
 @pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
@@ -77,10 +76,10 @@ def test_ucm_omni_xi_mapping_roundtrips(tmp_path):
 
 
 def test_dsplus_is_a_ds_msp_extension_with_no_kalibr_native_equivalent():
-    """DS+/EUCM+ have no camera_model in a real Kalibr installation -- this is a DS-MSP
+    """DS+ has no camera_model in a real Kalibr installation -- this is a DS-MSP
     extension (see the module docstring), analogous to how ds_msp.rig already extends
     MC-Calib's own format. Only asserts DS-MSP's own round-trip; a real Kalibr cannot read
-    ds_plus/eucm_plus."""
+    ds_plus."""
     m = DSPlusModel(996.1, 995.9, 1276.6, 875.3, 0.7226, -0.2795, 0.1122, -0.0014, 0.0020)
     block = to_kalibr_cam(m, 2592, 1800)
     assert block["camera_model"] == "ds_plus"
@@ -99,16 +98,6 @@ def test_calib_load_camera_reexports_load_kalibr():
     import ds_msp.calib as calib
     assert calib.load_camera is load_kalibr
 
-
-def test_eucmplus_is_a_ds_msp_extension_with_no_kalibr_native_equivalent():
-    m = EUCMPlusModel(700, 700, 640, 360, 0.6, 1.1, 0.05, 0.001, -0.002)
-    block = to_kalibr_cam(m, 1280, 720)
-    assert block["camera_model"] == "eucm_plus"
-    assert block["intrinsics"][:2] == [m.alpha, m.beta]
-    assert block["distortion_coeffs"] == [m.lambda1, m.tau_x, m.tau_y]
-    back = from_kalibr_cam(block)
-    assert isinstance(back, EUCMPlusModel)
-    assert np.allclose(back.params, m.params)
 
 # Traceability: links this suite to the requirement(s) it verifies.
 pytestmark = pytest.mark.req("FR-IO-001")

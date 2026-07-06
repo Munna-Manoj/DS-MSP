@@ -60,7 +60,7 @@ board:
   # recover: false         # board-guided recovery of still-missing tags after multi-scale
 
 ######################################## Camera model ##########################################
-camera_model: ds            # radtan | ds | ucm | eucm | kb | ocam | dsplus | eucmplus
+camera_model: ds            # radtan | ds | ucm | eucm | kb | ocam | dsplus
 
 ######################################## Images #################################################
 images_path: "../data/Images"   # folder of calibration images (any mix of resolutions is fine)

@@ -1,15 +1,10 @@
-# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
-# Copyright (c) 2025-2026 Munna-Manoj. Robust auto-initialized bundle-adjustment
-# calibration — part of the DS-MSP robust calibration engine
-# (https://github.com/Munna-Manoj/DS-MSP). NONCOMMERCIAL use only, with attribution —
-# see LICENSE-NONCOMMERCIAL.txt and LICENSING.md. The rest of DS-MSP is MIT.
 """
 Generic, robustly-initialized bundle-adjustment calibration for ANY camera model.
 
 Given checkerboard correspondences and an initial model (for the model *type* + a rough
 intrinsics seed), jointly refines intrinsics and per-image extrinsics by Levenberg-
 Marquardt using the model's **analytic** projection Jacobian (no autodiff). Works for any
-``CameraModel`` (DS / UCM / EUCM / KB / RadTan / OCam / DS⁺ / EUCM⁺) with **no
+``CameraModel`` (DS / UCM / EUCM / KB / RadTan / OCam / DS⁺) with **no
 Kannala-Brandt dependency** in the init path.
 
 Robust by default (FR-CALIB-001, NFR-NUM-006):

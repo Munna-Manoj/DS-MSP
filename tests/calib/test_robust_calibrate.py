@@ -20,7 +20,6 @@ from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.dsplus import DSPlusModel
-from ds_msp.models.eucmplus import EUCMPlusModel
 
 
 def _board(rows=7, cols=9, spacing=0.06):
@@ -58,8 +57,6 @@ _MODELS = [
                EUCMModel(400, 400, 640, 360, 0.5, 1.0)),
     ("dsplus", DSPlusModel(360, 360, 640, 360, 0.55, 0.3, -0.1, 0.01, -0.01),
                DSPlusModel(400, 400, 640, 360, 0.5, 0.0, 0.0, 0.0, 0.0)),
-    ("eucmplus", EUCMPlusModel(360, 360, 640, 360, 0.6, 1.2, 0.2, 0.01, -0.01),
-                 EUCMPlusModel(400, 400, 640, 360, 0.5, 1.0, 0.0, 0.0, 0.0)),
 ]
 
 
@@ -101,7 +98,7 @@ def test_fronto_parallel_views_do_not_flip():
 @pytest.mark.req("NFR-PERF-001")
 @pytest.mark.parametrize("cls", [
     RadTanModel, KannalaBrandtModel, OCamModel,
-    UCMModel, EUCMModel, DoubleSphereModel, DSPlusModel, EUCMPlusModel,
+    UCMModel, EUCMModel, DoubleSphereModel, DSPlusModel,
 ])
 def test_multistart_disperses_every_model_including_plain_distortion_tails(cls):
     """History: an earlier version skipped dispersion for models with no *documented*
