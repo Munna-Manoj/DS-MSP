@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.9.1...v0.10.0) (2026-07-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **license:** the project is no longer available under PolyForm-Noncommercial for any part of the library — everything, including DS+ and the robust engine, is plain MIT.
+
+### Features
+
+* **rig:** embed a real pond-replay of rig calibration in the guide ([a6caa9e](https://github.com/Munna-Manoj/DS-MSP/commit/a6caa9e0f7fc012a6114996d8ac2c05c239467a7))
+
+
+### Bug Fixes
+
+* **docs:** point ADR-0009/0010 references at GitHub, not excluded paths ([51094a5](https://github.com/Munna-Manoj/DS-MSP/commit/51094a5fccd378902177f3a06c34ee0dabffeeb1))
+* **rig:** stop _try_load_object silently reusing a stray save_path object ([90592ac](https://github.com/Munna-Manoj/DS-MSP/commit/90592ace25c06469ed542c2b02610e5c870aa279))
+* **tests:** make docs_src float-noise assertions platform-robust ([41b282d](https://github.com/Munna-Manoj/DS-MSP/commit/41b282d4661fc15795a85d8756238674036e266c))
+* **tests:** make remaining docs_src float-noise assertions platform-robust ([ef0e89a](https://github.com/Munna-Manoj/DS-MSP/commit/ef0e89ad784b593390206eb1358d69d3c7fcd55a))
+* **tests:** make remaining docs_src float-noise assertions platform-robust ([18a93d3](https://github.com/Munna-Manoj/DS-MSP/commit/18a93d3471d5c3c49bb6b4c3cc7896212c943a02))
+
+
+### Documentation
+
+* docs_src/ scaffolding + governance, math-formatting house rule ([abc7f36](https://github.com/Munna-Manoj/DS-MSP/commit/abc7f3690402b0952595247b813e240751ab5112))
+* **style:** adopt Typer's exact palette, typography, and admonition syntax ([1ec66b0](https://github.com/Munna-Manoj/DS-MSP/commit/1ec66b0060e7d04edde2fc49130de86478d5fa7c))
+* **style:** fix inline math and long paragraphs in two-view geometry chapter ([97ac2ee](https://github.com/Munna-Manoj/DS-MSP/commit/97ac2ee491452da0a38b51836c0da60c721a1847))
+* **style:** Phase C — restyle all 10 Learn-track pages to Typer format ([460a140](https://github.com/Munna-Manoj/DS-MSP/commit/460a14050bc7768e5cfdffb88abe6116a09f0953))
+* **style:** Phase D — restyle all How-to (7) + Explain (6) pages to Typer format ([a7dcb70](https://github.com/Munna-Manoj/DS-MSP/commit/a7dcb70a17df3f6cde31109dc33cceca7d336956))
+* **style:** Phase E — restyle root guides, docs/index.md, and README.md ([0f32e52](https://github.com/Munna-Manoj/DS-MSP/commit/0f32e525ceaffe034e461c712095b970639f624d))
+* **style:** split paragraphs over the 40-word house limit ([c31fc22](https://github.com/Munna-Manoj/DS-MSP/commit/c31fc2286d488d323bf0578736e2b97bfc1759e0))
+* **style:** wire up Termynal animated-terminal blocks ([bdb7483](https://github.com/Munna-Manoj/DS-MSP/commit/bdb74835e0ee2aa6702322e2aba974c20f3a0423))
+* Typer-style restyle + rig calibration fixes and live pond-replay demo ([c6364a3](https://github.com/Munna-Manoj/DS-MSP/commit/c6364a3c59c3d129ea4581e7e70ccc435f3dfe64))
+* update for EUCM+ removal and MIT relicense ([21afc65](https://github.com/Munna-Manoj/DS-MSP/commit/21afc653e14eba61a6ca826adddf74cadf2f34cc))
+
+
+### Chores
+
+* **license:** relicense DS-MSP to plain MIT ([5f1b24a](https://github.com/Munna-Manoj/DS-MSP/commit/5f1b24a814ef9c7937c0cf270581e9ae9debd36d))
+
 ## [Unreleased]
 
 ### ⚠ BREAKING CHANGES
