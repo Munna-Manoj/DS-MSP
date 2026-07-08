@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.10.0...v0.11.0) (2026-07-08)
+
+
+### Features
+
+* **rig:** multi-object merge — calibrate non-overlapping rigs via hand-eye ([c373c32](https://github.com/Munna-Manoj/DS-MSP/commit/c373c32b6ba4f354108966d6f2e212cdeb5f7a90))
+
+
+### Bug Fixes
+
+* **rig:** multi-object merge for non-overlapping rigs (FR-RIG-017, ADR-0011) ([a04f6cc](https://github.com/Munna-Manoj/DS-MSP/commit/a04f6cccd02dd971d3d47a3068570fcbf5255e97))
+* **rig:** rebind live-view scene after object merge; close SEMS gate for FR-RIG-017 ([47effd2](https://github.com/Munna-Manoj/DS-MSP/commit/47effd219b934a7ab7f4b08c0c29c645f6af7a27))
+
 ## [0.10.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.9.1...v0.10.0) (2026-07-06)
 
 
