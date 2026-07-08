@@ -439,30 +439,36 @@ def _compose_progress(cfg: RigConfig, animator):
 
 
 def _reconstruct(cfg: RigConfig, *, animator=None):
-    """Reconstruct the fused multi-board object from raw detections, then map observations
-    onto it — MC-Calib's ``calibrate3DObjects`` (no pre-built object file needed).
+    """Reconstruct the multi-board object(s) from raw detections, then map observations onto
+    them — MC-Calib's ``calibrate3DObjects`` (no pre-built object file needed).
+
+    Returns **every** covisibility component (``List[Object3D]``), not just the largest: boards
+    that are never co-observed form separate objects, later fused by the multi-object merge
+    stage (MC-Calib ``merge3DObjects``) instead of being dropped — this is what lets a
+    non-overlapping rig (each camera sees a different board) calibrate.
 
     When ``cam_params_path`` is given, boards are resected with each camera's **native model**
     (built from the provided intrinsics) so a wide-FOV fisheye is reconstructed correctly — the
     default Brown bootstrap cannot model it and corrupts the fused geometry."""
-    from .reconstruct import reconstruct_from_images, reconstruct_from_keypoints
+    from .reconstruct import (reconstruct_objects_from_images,
+                              reconstruct_objects_from_keypoints)
     init_models = None
     if cfg.cam_params_path and os.path.exists(cfg.cam_params_path):
         cams = _load_cameras(cfg.cam_params_path)[0]
         init_models = {c: _source_model(cams[c]) for c in range(cfg.number_camera)
                        if c in cams and cams[c].K is not None}
     if cfg.keypoints_path:
-        obj, obs, img_size = reconstruct_from_keypoints(
+        objects, obs, img_size = reconstruct_objects_from_keypoints(
             cfg.keypoints_path, cfg.boards, init_models=init_models)
     elif cfg.root_path:
         cam_ids = list(range(cfg.number_camera))
         progress_cb = _compose_progress(cfg, animator)
-        obj, obs, img_size = reconstruct_from_images(
+        objects, obs, img_size = reconstruct_objects_from_images(
             cfg.root_path, cam_ids, cfg.boards, cam_prefix=cfg.cam_prefix,
             init_models=init_models, progress_cb=progress_cb)
     else:
         raise ValueError("config has neither keypoints_path nor root_path")
-    return obj, obs, img_size
+    return objects, obs, img_size
 
 
 def _obs_from_keypoints(cfg: RigConfig, obj):
@@ -573,12 +579,15 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
     if cfg.number_board == 1:
         obj = single_board_object(cfg.boards[0])
         object_obs, img_size = _detect_obs(cfg, obj, animator=animator)
+        objects = [obj]
     else:
         obj = _try_load_object(cfg)
         if obj is not None:                         # pre-built fused object: fast path
             object_obs, img_size = _detect_obs(cfg, obj, animator=animator)
-        else:                                       # reconstruct the fused object (MC-Calib
-            obj, object_obs, img_size = _reconstruct(cfg, animator=animator)  # calibrate3DObjects analogue)
+            objects = [obj]
+        else:                                       # reconstruct the object(s) (MC-Calib
+            objects, object_obs, img_size = _reconstruct(cfg, animator=animator)  # calibrate3DObjects)
+            obj = objects[0]                        # primary (largest) object for the Scenario
     animator.bind_scene(obj, object_obs)
 
     cam_ids = sorted({o.cam_id for o in object_obs})
@@ -605,7 +614,7 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              he_approach=cfg.he_approach,
                              refine_structure=(cfg.number_board > 1),
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
-                             on_iter=animator)
+                             on_iter=animator, objects=objects)
     animator.finish(res["rig"], rms=res["metrics"]["max_rms_px"])
     res["config"] = cfg
     res["scenario"] = scn

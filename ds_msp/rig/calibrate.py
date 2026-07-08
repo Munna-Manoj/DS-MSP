@@ -153,7 +153,19 @@ def paraxial_focal(model: CameraModel) -> Tuple[float, float]:
     return fx, fy
 
 
-def _model_aware_seed(model_cls, Kp, ge6, obj) -> CameraModel:
+def _obs_points(objs, o) -> np.ndarray:
+    """Object-frame 3-D points for one observation, resolved against **its own** object.
+
+    ``objs`` is a ``{object_id: Object3D}`` map (a bare :class:`Object3D` is accepted and
+    wrapped). With a multi-object rig each :class:`ObjectObs` indexes into the point cloud of
+    the object it saw, so the front-end must look the points up per-observation rather than
+    off one shared object — this is the single hook that makes the whole front-end
+    object-aware."""
+    obj = objs[o.object_id] if isinstance(objs, dict) else objs
+    return obj.pts_3d[o.point_rows]
+
+
+def _model_aware_seed(model_cls, Kp, ge6, objs) -> CameraModel:
     """Seed ``model_cls`` using each model's OWN intrinsic geometry.
 
     The pinhole pre-calibration gives the paraxial focal + principal point in ``Kp``. Each
@@ -164,13 +176,13 @@ def _model_aware_seed(model_cls, Kp, ge6, obj) -> CameraModel:
     from-scratch :func:`calib.robust_init.ransac_pnp_normalized` (pixels unprojected through
     the pinhole ``Kp``), so gross outliers neither corrupt the linear α/k solve nor poison
     the downstream ``calibrate`` pose seeding. The seed only needs to be good enough; the
-    downstream robust ``calibrate`` refines from it.
-    """
+    downstream robust ``calibrate`` refines from it. ``objs`` is the object map (see
+    :func:`_obs_points`)."""
     fx, fy, cx, cy = Kp[0, 0], Kp[1, 1], Kp[0, 2], Kp[1, 2]
     foc = 0.5 * (fx + fy)
     rays, pix, Xcal, uvcal = [], [], [], []
     for o in ge6:
-        X = obj.pts_3d[o.point_rows].astype(np.float64)
+        X = _obs_points(objs, o).astype(np.float64)
         uv = o.pts_2d.astype(np.float64)
         pn = np.column_stack([(uv[:, 0] - cx) / fx, (uv[:, 1] - cy) / fy])
         T, inl = ransac_pnp_normalized(X, pn, focal=foc, thresh_px=3.0)
@@ -188,14 +200,16 @@ def _model_aware_seed(model_cls, Kp, ge6, obj) -> CameraModel:
     return seed, Xcal, uvcal
 
 
-def _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
+def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
     """One camera's independent intrinsic pre-calibration — the front-end's parallelizable
     unit of work (no dependency on any other camera). Returns ``dict(model=.., cls=..)``,
     the exact per-camera result the serial loop used to build inline. Pulled out to a
     top-level function so it is picklable for :class:`~concurrent.futures.ProcessPoolExecutor`
-    (see :func:`make_bundle_front_end`'s ``n_jobs``)."""
+    (see :func:`make_bundle_front_end`'s ``n_jobs``). ``objs`` is the ``{object_id: Object3D}``
+    map (see :func:`_obs_points`) so a camera that observes several objects still pools all its
+    board views into one intrinsic fit."""
     ge6 = [o for o in obs if len(o.point_rows) >= 6]   # views usable for intrinsics
-    objpts = [obj.pts_3d[o.point_rows].astype(np.float32) for o in ge6]
+    objpts = [_obs_points(objs, o).astype(np.float32) for o in ge6]
     imgpts = [o.pts_2d.astype(np.float32) for o in ge6]
     # Focal / principal-point seed: the provided intrinsics if given (MC-Calib's
     # cam_params_path init), else a from-scratch robust pinhole pre-calibration.
@@ -205,7 +219,7 @@ def _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, loss, f_scale, max_nf
         Kp, _distp = _robust_pinhole(objpts, imgpts, w, h)
     # Model-aware seed + RANSAC-inlier correspondences (so gross outliers neither
     # corrupt the per-model distortion solve nor wreck calibrate()'s pose seeding).
-    seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, obj)
+    seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, objs)
     if len(Xcal) >= 3:
         vis = [np.ones(len(x), bool) for x in Xcal]
         # Two-start: the model-aware distortion solve helps low-order models (DS/
@@ -249,7 +263,7 @@ def _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, loss, f_scale, max_nf
     return dict(model=model, cls=model_cls)
 
 
-def _init_pool_worker(obj: Object3D) -> None:
+def _init_pool_worker(objs: Dict[int, Object3D]) -> None:
     """``ProcessPoolExecutor`` initializer for the front-end's per-camera pool.
 
     Two jobs, both done once per **worker process**, not once per camera:
@@ -257,24 +271,24 @@ def _init_pool_worker(obj: Object3D) -> None:
        see ``.github/workflows/ci.yml``) so N worker processes don't each also fan out into M
        BLAS threads and oversubscribe the machine. Must happen before any BLAS-backed NumPy
        call in this fresh interpreter, which is exactly what an initializer guarantees.
-    2. Stash the (potentially large, shared, read-only) fused ``Object3D`` in a module global
-       so it is pickled to each worker **once**, not once per camera — the difference between
-       O(workers) and O(cameras) serialization at 100s-1000s of cameras.
+    2. Stash the (potentially large, shared, read-only) ``{object_id: Object3D}`` map in a
+       module global so it is pickled to each worker **once**, not once per camera — the
+       difference between O(workers) and O(cameras) serialization at 100s-1000s of cameras.
     """
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "NUMEXPR_NUM_THREADS"):
         os.environ[var] = "1"
-    global _POOL_OBJ
-    _POOL_OBJ = obj
+    global _POOL_OBJS
+    _POOL_OBJS = objs
 
 
-_POOL_OBJ: Optional[Object3D] = None
+_POOL_OBJS: Optional[Dict[int, Object3D]] = None
 
 
 def _fit_one_camera_pooled(cam_id, model_cls, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
-    """Pool task: identical to :func:`_fit_one_camera` but reads the shared ``Object3D`` from
+    """Pool task: identical to :func:`_fit_one_camera` but reads the shared object map from
     the worker-local global set by :func:`_init_pool_worker` instead of a per-task argument."""
-    r = _fit_one_camera(model_cls, _POOL_OBJ, obs, w, h, init_K_cam, loss, f_scale, max_nfev)
+    r = _fit_one_camera(model_cls, _POOL_OBJS, obs, w, h, init_K_cam, loss, f_scale, max_nfev)
     return cam_id, r
 
 
@@ -336,6 +350,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
         signature :func:`calibrate_rig` expects; see :func:`make_bundle_front_end`'s
         docstring for the seeding/parallelism strategy.
         """
+        objs = obj if isinstance(obj, dict) else {obj.object_id: obj}
         model_map = _resolve_model_map(model_spec, list(obs_by_cam))
         seeded = set(init_K) if init_K else set()
         cam_ids = list(obs_by_cam)
@@ -351,7 +366,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
         # One pool spans both independent-per-camera stages below (intrinsic fit, then pose
         # seeding once intrinsics are known) so process start-up is paid once, not twice.
         pool = (ProcessPoolExecutor(max_workers=workers, initializer=_init_pool_worker,
-                                    initargs=(obj,)) if workers > 1 else nullcontext())
+                                    initargs=(objs,)) if workers > 1 else nullcontext())
         with pool as ex:
             raw = {}
             if ex is not None:
@@ -363,7 +378,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
             else:
                 for cam_id in cam_ids:
                     model_cls, obs, w, h, init_K_cam, *rest = _args(cam_id)
-                    r = _fit_one_camera(model_cls, obj, obs, w, h, init_K_cam, *rest)
+                    r = _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, *rest)
                     raw[cam_id] = dict(r, obs=obs_by_cam[cam_id])
 
             # Consensus guard: a camera that views the target near-planar (e.g. an obliquely
@@ -389,7 +404,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
                 else:
                     model = r["model"]
                 cameras[cam_id] = model
-                pnp_args[cam_id] = [(o.point_rows, o.pts_2d) for o in r["obs"]]
+                pnp_args[cam_id] = [(o.object_id, o.point_rows, o.pts_2d) for o in r["obs"]]
 
             # All object poses via robust gated PnP (keeps every point downstream; the global
             # BA does the IRLS weighting, no per-point rejection in the answer) — independent
@@ -399,7 +414,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
                        for cam_id in cam_ids]
                 poses = dict(fut.result() for fut in futs)
             else:
-                poses = {cam_id: _pnp_poses_one_camera(cameras[cam_id], obj, pnp_args[cam_id])
+                poses = {cam_id: _pnp_poses_one_camera(cameras[cam_id], objs, pnp_args[cam_id])
                          for cam_id in cam_ids}
         for cam_id in cam_ids:
             for o, T in zip(raw[cam_id]["obs"], poses[cam_id]):
@@ -441,19 +456,60 @@ def _gated_pnp(model, X, uv, max_rms_px: float = 2.0):
                             studentize=True)
 
 
-def _pnp_poses_one_camera(model, obj: Object3D, obs_light):
+def _pnp_poses_one_camera(model, objs, obs_light):
     """Per-frame pose seeding for one camera's observations — independent of every other
     camera once ``model`` (its calibrated intrinsics) is known. ``obs_light`` is
-    ``[(point_rows, pts_2d), ...]``; returns the matching list of ``T_cam_obj`` (or ``None``).
+    ``[(object_id, point_rows, pts_2d), ...]`` and each pose is resected against the object
+    that observation saw (``objs`` is the ``{object_id: Object3D}`` map); returns the matching
+    list of ``T_cam_obj`` (or ``None``).
     """
-    X_all = obj.pts_3d
-    return [_gated_pnp(model, X_all[point_rows], uv) for point_rows, uv in obs_light]
+    return [_gated_pnp(model, (objs[oid] if isinstance(objs, dict) else objs).pts_3d[rows], uv)
+            for oid, rows, uv in obs_light]
 
 
 def _pnp_poses_pooled(cam_id, model, obs_light):
-    """Pool task counterpart of :func:`_pnp_poses_one_camera`, reading the shared
-    ``Object3D`` from the worker-local global set by :func:`_init_pool_worker`."""
-    return cam_id, _pnp_poses_one_camera(model, _POOL_OBJ, obs_light)
+    """Pool task counterpart of :func:`_pnp_poses_one_camera`, reading the shared object map
+    from the worker-local global set by :func:`_init_pool_worker`."""
+    return cam_id, _pnp_poses_one_camera(model, _POOL_OBJS, obs_light)
+
+
+def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbose):
+    """MC-Calib ``merge3DObjects`` + re-group loop — link rigidly-connected objects that are
+    never co-observed at the board level.
+
+    With per-camera extrinsics known (from covisibility grouping + hand-eye), fuse the objects
+    into one rigid object (:func:`rig.merge.merge_objects`), re-seed every observation's pose
+    against the fused geometry (robust gated PnP), and re-derive the camera groups — which are
+    now joined *through* the shared fused object, so a non-overlapping rig collapses to a single
+    group whose inter-camera extrinsic is finally identifiable by the joint BA (see
+    ``docs/RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md`` §1). Iterated so a chain of objects linked
+    only pairwise still converges to one object. Returns ``(objects, objects_by_id, groups,
+    extr)``; leaves ``object_obs`` relabelled in place onto the fused object(s)."""
+    from .handeye import link_groups
+    from .merge import merge_objects
+    for _ in range(max(1, len(objects))):
+        groups, extr = init_camera_groups(object_obs, cam_ids)
+        if len(groups) > 1:
+            extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+        merged, remap = merge_objects(objects, object_obs, extr)
+        if len(merged) == len(objects):
+            break                                    # nothing fused this round -> stable
+        mbid = {o.object_id: o for o in merged}
+        for o in object_obs:                         # relabel onto fused object + re-seed pose
+            new_oid, offset = remap[o.object_id]
+            o.object_id = new_oid
+            o.point_rows = np.asarray(o.point_rows, int) + offset
+            T = _gated_pnp(cameras[o.cam_id], mbid[new_oid].pts_3d[o.point_rows], o.pts_2d)
+            if T is not None:
+                o.T_c_o = T
+        objects = merged
+        if verbose:
+            print(f"[merge] fused to {len(objects)} object(s): "
+                  f"{[o.board_ids for o in objects]}")
+    groups, extr = init_camera_groups(object_obs, cam_ids)
+    if len(groups) > 1:                              # any groups still disjoint -> hand-eye rebase
+        extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+    return objects, {o.object_id: o for o in objects}, groups, extr
 
 
 def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
@@ -462,7 +518,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
-                  noise_bound: Optional[float] = None, on_iter=None) -> RigState:
+                  noise_bound: Optional[float] = None, on_iter=None,
+                  objects: Optional[List[Object3D]] = None) -> RigState:
     """Calibrate a multi-camera rig from fused-object observations.
 
     Returns a :class:`RigState` with per-camera intrinsics, ``T_c_g`` extrinsics
@@ -486,6 +543,14 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
         obs_by_cam[o.cam_id].append(o)
     cam_ids = sorted(obs_by_cam)
 
+    # Multi-object rig: ``objects`` carries every covisibility component (MC-Calib keeps them
+    # all instead of dropping the non-co-observed boards). Default to the single fused object so
+    # every existing single-object caller is unchanged. The object map drives the object-aware
+    # front-end and, below, the merge stage that fuses non-co-observed objects into one.
+    if objects is None:
+        objects = [obj]
+    objects_by_id = {o.object_id: o for o in objects}
+
     # 1. per-camera intrinsics + object poses (T_c_o). Default to the robust from-scratch
     #    front-end (RANSAC-DLT seed + per-model Cauchy refine), not the plain-L2
     #    cv2.calibrateCamera path (`_front_end_opencv`), which collapses the focal under
@@ -498,19 +563,30 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     if on_iter is not None and hasattr(on_iter, "set_stage"):
         on_iter.set_stage("(0) per-camera front-end intrinsics")
     fe = front_end or make_bundle_front_end(RadTanModel)
-    cameras = fe(obj, obs_by_cam, img_size)
+    cameras = fe(objects_by_id, obs_by_cam, img_size)
     if verbose:
         print(f"[front-end] calibrated {len(cameras)} cameras")
 
     # 2. camera-group covisibility -> extrinsics init (T_c_g; ref cam = identity)
     groups, extr = init_camera_groups(object_obs, cam_ids)
-    if verbose:
-        print(f"[groups] {len(groups)} group(s): {groups}")
     if len(groups) > 1:
         # Non-overlapping groups: link with hand-eye, then re-base every camera to the
         # global reference (group 0's reference camera).
         from .handeye import link_groups
         extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+
+    # 2b. Multi-object merge (MC-Calib merge3DObjects): fuse rigidly-linked objects that are
+    #     never co-observed at the board level (each camera sees a different board) into ONE
+    #     rigid object, using the extrinsics just recovered; re-seed poses and re-group. This
+    #     reduces the non-overlapping multi-object rig to the ordinary single-object case, so
+    #     everything below (staged BA, structure refine, IO) is unchanged. See
+    #     docs/RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md.
+    if len(objects) > 1:
+        objects, objects_by_id, groups, extr = _merge_and_relink(
+            objects, object_obs, cameras, cam_ids, he_approach, verbose)
+    obj = objects_by_id.get(0, objects[0])           # primary (largest) object
+    if verbose:
+        print(f"[groups] {len(groups)} group(s): {groups}")
     ref_cam = groups[0][0]
 
     # 3. per-frame object-in-group poses (average over the cameras that see it)
@@ -523,7 +599,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
         object_poses[key] = average_object_pose_in_group(lst, extr, ref_cam)
 
     rig = RigState(cameras=cameras, T_c_g=extr, ref_cam_id=ref_cam,
-                   object_poses=object_poses, objects={0: obj}, img_size=img_size)
+                   object_poses=object_poses, objects=objects_by_id, img_size=img_size)
 
     # 4. hierarchical refinement, MC-Calib's staged structure, every stage an analytic-
     #    Jacobian BA (no autodiff), robust IRLS weighting (no rejection):
