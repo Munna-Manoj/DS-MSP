@@ -7,6 +7,7 @@ composition directions, in particular the inverse-per-edge convention shared wit
 point error, so the tolerances here are tight (< 1e-9).
 """
 import numpy as np
+import pytest
 
 from ds_msp.core.lie import so3_exp
 from ds_msp.rig.merge import (
@@ -15,6 +16,8 @@ from ds_msp.rig.merge import (
     remap_object_obs,
 )
 from ds_msp.rig.types import Object3D, ObjectObs
+
+pytestmark = pytest.mark.req("FR-RIG-017")
 
 
 def _T(rvec, t):

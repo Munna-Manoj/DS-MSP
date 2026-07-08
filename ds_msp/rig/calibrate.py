@@ -584,6 +584,12 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     if len(objects) > 1:
         objects, objects_by_id, groups, extr = _merge_and_relink(
             objects, object_obs, cameras, cam_ids, he_approach, verbose)
+        # The live-view animator (if any) cached the PRE-merge object's pts_3d/point_rows via
+        # bind_scene() before this stage ran (calib_param.py/cli.py bind it right after
+        # detection); a merge changes both, so every on_iter callback from here on would index
+        # a stale, smaller point cloud. Re-bind to the fused object + relabeled obs.
+        if on_iter is not None and hasattr(on_iter, "bind_scene"):
+            on_iter.bind_scene(objects_by_id.get(0, objects[0]), object_obs)
     obj = objects_by_id.get(0, objects[0])           # primary (largest) object
     if verbose:
         print(f"[groups] {len(groups)} group(s): {groups}")

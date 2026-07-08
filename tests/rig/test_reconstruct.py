@@ -7,6 +7,7 @@ ground truth and that observations map onto it. This closes the parity gap where
 ``number_board > 1`` previously required a pre-built ``calibrated_objects_data.yml``.
 """
 import numpy as np
+import pytest
 
 from ds_msp.calib.charuco import BoardSpec, board_object_points
 from ds_msp.core.lie import so3_exp
@@ -114,6 +115,7 @@ def _make_disjoint_board_obs(noise_px=0.1, seed=0):
     return specs, board_obs, {0: (W, H), 1: (W, H)}
 
 
+@pytest.mark.req("FR-RIG-017")
 def test_reconstruct_objects_fuses_covisible_into_single_object():
     """Three mutually co-observed boards fuse into exactly ONE object via the multi-object
     entry point — parity with the singular ``reconstruct_object`` behavior."""
@@ -126,6 +128,7 @@ def test_reconstruct_objects_fuses_covisible_into_single_object():
     assert all(o.point_rows.max() < len(objects[0].pts_3d) for o in obs)
 
 
+@pytest.mark.req("FR-RIG-017")
 def test_reconstruct_objects_keeps_disjoint_objects():
     """Two boards never co-observed -> exactly two objects, each with one board, and each
     ObjectObs carries the object_id of the object that contains the board its camera saw."""
