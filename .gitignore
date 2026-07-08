@@ -47,6 +47,7 @@ docs/readme-options/
 
 # Local calibration datasets (large; downloaded/produced locally, never committed).
 2026_*_MC-Calib/
+/seltos_cameras_rig/
 
 # Local-only rendering scripts and their heavy viz dependencies; only their committed
 # output (under assets/) belongs in this repo.

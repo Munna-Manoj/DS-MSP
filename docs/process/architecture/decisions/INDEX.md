@@ -18,6 +18,7 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0008](ADR-0008-noncommercial-engine-scope.md) | Noncommercial license covers the robust calibrate/convert engine, not just the Plus models | Superseded by ADR-0010 | Protect the real IP, not just published math |
 | [ADR-0009](ADR-0009-board-protocol.md) | One `Board` protocol unifies checkerboard / ChArUco / AprilGrid for single-camera calibration | Accepted | Config-driven, board-agnostic single-camera calibration |
 | [ADR-0010](ADR-0010-mit-relicense-and-eucmplus-removal.md) | Remove EUCM⁺; relicense the whole project to plain MIT | Accepted | Simpler model surface (measured, not assumed); permissive adoption over engine protection |
+| [ADR-0011](ADR-0011-rig-multiobject-merge.md) | Multi-object board fusion + merge for non-overlapping rigs | Accepted | Fix confirmed real-data bug: a rig whose cameras share no board co-observation silently calibrated as a smaller, wrong rig |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the

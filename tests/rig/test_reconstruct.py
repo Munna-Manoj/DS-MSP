@@ -7,11 +7,13 @@ ground truth and that observations map onto it. This closes the parity gap where
 ``number_board > 1`` previously required a pre-built ``calibrated_objects_data.yml``.
 """
 import numpy as np
+import pytest
 
 from ds_msp.calib.charuco import BoardSpec, board_object_points
 from ds_msp.core.lie import so3_exp
 from ds_msp.models.radtan import RadTanModel
-from ds_msp.rig.reconstruct import object_obs_from_board_obs, reconstruct_object
+from ds_msp.rig.reconstruct import (object_obs_from_board_obs, reconstruct_object,
+                                     reconstruct_objects)
 from ds_msp.rig.types import BoardObs
 
 W, H, F = 1280, 960, 800.0
@@ -84,6 +86,64 @@ def test_object_obs_pool_boards_per_image():
     # rows index the fused cloud, and pooling yields more corners than any single board
     assert all(o.point_rows.max() < len(obj.pts_3d) for o in obs)
     assert max(len(o.point_rows) for o in obs) > specs[0].n_corners
+
+
+def _make_disjoint_board_obs(noise_px=0.1, seed=0):
+    """Two boards that are NEVER co-observed: board ``b`` is only ever seen by camera ``b``
+    (board 0 by cam 0, board 1 by cam 1), so no single image contains both -> two separate
+    covisibility components -> two objects."""
+    specs = [BoardSpec(5, 5, 0.04, 0.03, 0.1) for _ in range(2)]
+    bp = {b: board_object_points(specs[b]) for b in range(2)}
+    model = RadTanModel(F, F, W / 2, H / 2, -0.05, 0.01, 0.0, 0.0, 0.0)
+    rng = np.random.default_rng(seed)
+    board_obs = []
+    for b, c in [(0, 0), (1, 1)]:                     # board_id == cam_id, never together
+        for fr in range(20):
+            axis = rng.normal(size=3)
+            axis /= np.linalg.norm(axis)
+            Tcb = _T(axis * rng.uniform(-0.4, 0.4),
+                     [rng.uniform(-0.2, 0.2), rng.uniform(-0.15, 0.15), rng.uniform(0.8, 1.2)])
+            Xc = (Tcb[:3, :3] @ bp[b].T).T + Tcb[:3, 3]
+            uv, val = model.project(Xc)
+            inb = val & (uv[:, 0] >= 0) & (uv[:, 0] < W) & (uv[:, 1] >= 0) & (uv[:, 1] < H)
+            rows = np.where(inb)[0]
+            if len(rows) < 6:
+                continue
+            pts = uv[rows] + rng.normal(scale=noise_px, size=(len(rows), 2))
+            board_obs.append(BoardObs(cam_id=c, frame_id=fr, board_id=b,
+                                      corner_ids=rows, pts_2d=pts))
+    return specs, board_obs, {0: (W, H), 1: (W, H)}
+
+
+@pytest.mark.req("FR-RIG-017")
+def test_reconstruct_objects_fuses_covisible_into_single_object():
+    """Three mutually co-observed boards fuse into exactly ONE object via the multi-object
+    entry point — parity with the singular ``reconstruct_object`` behavior."""
+    specs, board_obs, _gt, img_size = _make_board_obs()
+    objects, obs = reconstruct_objects(board_obs, specs, img_size)
+    assert len(objects) == 1, "co-observed boards must fuse into a single object"
+    assert set(objects[0].board_ids) == {0, 1, 2}
+    assert objects[0].object_id == 0
+    assert obs and all(o.object_id == 0 for o in obs)
+    assert all(o.point_rows.max() < len(objects[0].pts_3d) for o in obs)
+
+
+@pytest.mark.req("FR-RIG-017")
+def test_reconstruct_objects_keeps_disjoint_objects():
+    """Two boards never co-observed -> exactly two objects, each with one board, and each
+    ObjectObs carries the object_id of the object that contains the board its camera saw."""
+    specs, board_obs, img_size = _make_disjoint_board_obs()
+    objects, obs = reconstruct_objects(board_obs, specs, img_size)
+    assert len(objects) == 2, "boards never seen together must stay as two objects"
+    assert sorted(sorted(o.board_ids) for o in objects) == [[0], [1]]
+    # board_id == cam_id in this fixture, so cam c's obs must reference board c's object
+    board_to_obj = {b: o.object_id for o in objects for b in o.board_ids}
+    assert obs
+    for ob in obs:
+        assert ob.object_id == board_to_obj[ob.cam_id]
+        obj = next(o for o in objects if o.object_id == ob.object_id)
+        assert ob.point_rows.min() >= 0
+        assert ob.point_rows.max() < len(obj.pts_3d), "rows must index this object's pts_3d"
 
 
 def test_reconstruct_with_model_aware_init_models():

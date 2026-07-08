@@ -226,20 +226,16 @@ def _bootstrap_K(board_obs: List[BoardObs], board_points: Dict[int, np.ndarray],
     return out
 
 
-def reconstruct_object(board_obs: List[BoardObs], specs: List[BoardSpec],
-                       img_size: Dict[int, Tuple[int, int]], *,
-                       object_id: int = 0, init_models: Optional[Dict[int, object]] = None
-                       ) -> Object3D:
-    """Resect every board (-> ``T_c_b``) and fuse the boards into one rigid :class:`Object3D`
-    (the largest covisibility component). Raw, object-free ``board_obs`` in, fused object out
-    — MC-Calib's ``calibrate3DObjects`` result.
+def _resect_boards(board_obs: List[BoardObs], specs: List[BoardSpec],
+                   img_size: Dict[int, Tuple[int, int]],
+                   init_models: Optional[Dict[int, object]]) -> Dict[int, np.ndarray]:
+    """Resect every board in-place (fills each ``BoardObs`` ``.T_c_b`` / ``.valid`` by PnP)
+    and return the ``board_id -> (n_corners, 3)`` board-frame corner clouds. Shared by the
+    single- and multi-object reconstruction entry points.
 
-    ``init_models`` (``{cam_id: CameraModel}``, e.g. from ``cam_params_path``) resects each
-    board with that camera's **native model** via robust model-aware PnP. This is essential
-    for a wide-FOV fisheye: the default ``cv2.calibrateCamera`` bootstrap is a Brown/pinhole
-    fit that cannot represent a ~190° lens, so its per-board PnP — and therefore the fused
-    inter-board geometry — is corrupted. With the correct model the resection (and the whole
-    reconstructed object) is right. Cameras without an init model fall back to the bootstrap."""
+    ``init_models`` (``{cam_id: CameraModel}``) resects that camera's boards with its
+    **native model** via robust model-aware PnP (correct for wide-FOV fisheye); cameras
+    without an init model fall back to the ``cv2.calibrateCamera`` Brown/pinhole bootstrap."""
     board_points = {b: board_object_points(specs[b]) for b in range(len(specs))}
     boot_cams = [o.cam_id for o in board_obs
                  if not (init_models and o.cam_id in init_models)]
@@ -261,12 +257,54 @@ def reconstruct_object(board_obs: List[BoardObs], specs: List[BoardSpec],
                                       flags=cv2.SOLVEPNP_ITERATIVE)
             o.T_c_b = _T_from_rt(rv, tv) if ok else None
             o.valid = bool(ok)
+    return board_points
 
+
+def reconstruct_objects(board_obs: List[BoardObs], specs: List[BoardSpec],
+                        img_size: Dict[int, Tuple[int, int]], *,
+                        init_models: Optional[Dict[int, object]] = None
+                        ) -> Tuple[List[Object3D], List[ObjectObs]]:
+    """Resect every board (-> ``T_c_b``) and fuse the boards into **all** rigid
+    :class:`Object3D` covisibility components — one object per component, none dropped.
+    Raw, object-free ``board_obs`` in, ``(objects, object_obs)`` out. This generalizes
+    :func:`reconstruct_object` (which keeps only the largest object) to a multi-object rig.
+
+    Objects are sorted so ``objects[0]`` is the largest (most boards; stable tiebreak by
+    smallest board id) and ``object_id`` is reassigned to the sorted index. ``init_models``
+    resects each board with the camera's native model (see :func:`_resect_boards`).
+
+    Raises ``ValueError`` if no board resects successfully."""
+    board_points = _resect_boards(board_obs, specs, img_size, init_models)
     valid = [o for o in board_obs if o.valid and o.T_c_b is not None]
     objects = build_objects(valid, board_points)
     if not objects:
         raise ValueError("multi-board reconstruction found no valid board observations")
-    obj = max(objects, key=lambda o: len(o.board_ids))
+    objects.sort(key=lambda o: (-len(o.board_ids), min(o.board_ids)))
+    for idx, o in enumerate(objects):
+        o.object_id = idx
+    obs = object_obs_from_board_obs_multi(board_obs, objects)
+    return objects, obs
+
+
+def reconstruct_object(board_obs: List[BoardObs], specs: List[BoardSpec],
+                       img_size: Dict[int, Tuple[int, int]], *,
+                       object_id: int = 0, init_models: Optional[Dict[int, object]] = None
+                       ) -> Object3D:
+    """Resect every board (-> ``T_c_b``) and fuse the boards into one rigid :class:`Object3D`
+    (the largest covisibility component). Raw, object-free ``board_obs`` in, fused object out
+    — MC-Calib's ``calibrate3DObjects`` result.
+
+    ``init_models`` (``{cam_id: CameraModel}``, e.g. from ``cam_params_path``) resects each
+    board with that camera's **native model** via robust model-aware PnP. This is essential
+    for a wide-FOV fisheye: the default ``cv2.calibrateCamera`` bootstrap is a Brown/pinhole
+    fit that cannot represent a ~190° lens, so its per-board PnP — and therefore the fused
+    inter-board geometry — is corrupted. With the correct model the resection (and the whole
+    reconstructed object) is right. Cameras without an init model fall back to the bootstrap.
+
+    Backward-compatible thin wrapper over :func:`reconstruct_objects`: takes the largest
+    object and warns (dropping the rest) when boards form more than one component."""
+    objects, _obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
+    obj = objects[0]                               # sorted so [0] is the largest object
     if len(objects) > 1:
         dropped = [b for o in objects if o is not obj for b in o.board_ids]
         warnings.warn(
@@ -305,6 +343,43 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
     return obs
 
 
+def object_obs_from_board_obs_multi(board_obs: List[BoardObs], objects: List[Object3D], *,
+                                    min_corners: int = 4) -> List[ObjectObs]:
+    """Multi-object generalization of :func:`object_obs_from_board_obs`. Each board belongs
+    to exactly one object (via that object's ``board_ids``); detections are grouped by
+    ``(cam_id, frame_id, object_id)`` and each board's corners are mapped onto that object's
+    rows via ``pts_board_2_obj``. Emits one :class:`ObjectObs` per (camera, frame, object)
+    with ``>= min_corners`` mapped rows — the most-constrained per-object PnP for that image."""
+    board_2_obj: Dict[int, Object3D] = {}
+    for obj in objects:
+        for bid in obj.board_ids:
+            board_2_obj[int(bid)] = obj
+
+    by_key: Dict[Tuple[int, int, int], Tuple[list, list]] = defaultdict(lambda: ([], []))
+    paths: Dict[Tuple[int, int, int], str] = {}
+    for o in board_obs:
+        obj = board_2_obj.get(int(o.board_id))
+        if obj is None:
+            continue
+        key = (o.cam_id, o.frame_id, obj.object_id)
+        rows, uvs = by_key[key]
+        if getattr(o, "image_path", None):
+            paths.setdefault(key, o.image_path)
+        for cid, uv in zip(o.corner_ids, o.pts_2d):
+            row = obj.pts_board_2_obj.get((int(o.board_id), int(cid)))
+            if row is not None:
+                rows.append(row)
+                uvs.append(uv)
+    obs: List[ObjectObs] = []
+    for (cam, fr, oid), (rows, uvs) in by_key.items():
+        if len(rows) >= min_corners:
+            obs.append(ObjectObs(cam_id=cam, frame_id=fr, object_id=oid,
+                                 point_rows=np.array(rows, int),
+                                 pts_2d=np.array(uvs, float),
+                                 image_path=paths.get((cam, fr, oid))))
+    return obs
+
+
 def reconstruct_from_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec], *,
                             cam_prefix: str = "Cam_", legacy: bool = True,
                             min_corners: int = 6, init_models: Optional[Dict[int, object]] = None,
@@ -330,3 +405,34 @@ def reconstruct_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
     board_obs, img_size = detect_board_obs_keypoints(keypoints_path)
     obj = reconstruct_object(board_obs, specs, img_size, init_models=init_models)
     return obj, object_obs_from_board_obs(board_obs, obj), img_size
+
+
+def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec],
+                                    *, cam_prefix: str = "Cam_", legacy: bool = True,
+                                    min_corners: int = 6,
+                                    init_models: Optional[Dict[int, object]] = None,
+                                    progress_cb=None
+                                    ) -> Tuple[List[Object3D], List[ObjectObs],
+                                               Dict[int, Tuple[int, int]]]:
+    """Raw image folder -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
+    keeping every covisibility component (see :func:`reconstruct_objects`). Multi-object
+    analogue of :func:`reconstruct_from_images`. ``init_models`` resects boards with the
+    native per-camera model; ``progress_cb`` is forwarded to :func:`detect_board_obs_images`."""
+    board_obs, img_size = detect_board_obs_images(
+        root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
+        min_corners=min_corners, progress_cb=progress_cb)
+    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
+    return objects, obs, img_size
+
+
+def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
+                                       init_models: Optional[Dict[int, object]] = None
+                                       ) -> Tuple[List[Object3D], List[ObjectObs],
+                                                  Dict[int, Tuple[int, int]]]:
+    """Pre-detected keypoints -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
+    keeping every covisibility component. Multi-object analogue of
+    :func:`reconstruct_from_keypoints`. ``init_models`` resects boards with the native
+    per-camera model (see :func:`reconstruct_objects`)."""
+    board_obs, img_size = detect_board_obs_keypoints(keypoints_path)
+    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
+    return objects, obs, img_size

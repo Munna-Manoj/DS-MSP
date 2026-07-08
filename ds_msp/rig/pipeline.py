@@ -46,12 +46,15 @@ def make_fixed_intrinsic_front_end(cameras: Dict[int, object]):
         """Seed per-frame object poses by robust PnP; intrinsics are the fixed ``cameras``.
 
         Matches the ``front_end(obj, obs_by_cam, img_size) -> {cam_id: CameraModel}``
-        signature :func:`~ds_msp.rig.calibrate.calibrate_rig` expects.
+        signature :func:`~ds_msp.rig.calibrate.calibrate_rig` expects. ``obj`` may be a single
+        :class:`Object3D` or a ``{object_id: Object3D}`` map (multi-object rig) — each pose is
+        resected against the object *its* observation saw.
         """
+        objs = obj if isinstance(obj, dict) else {obj.object_id: obj}
         for cam_id, obs in obs_by_cam.items():
             model = cameras[cam_id]
             for o in obs:
-                o.T_c_o = _gated_pnp(model, obj.pts_3d[o.point_rows], o.pts_2d)
+                o.T_c_o = _gated_pnp(model, objs[o.object_id].pts_3d[o.point_rows], o.pts_2d)
         return {c: cameras[c] for c in obs_by_cam}
     return front_end
 
@@ -65,7 +68,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        cam_prefix: str = "Cam_", he_approach: int = 0,
                        refine_structure: bool = False,
                        noise_bound: Optional[float] = None,
-                       verbose: bool = False, on_iter=None) -> Dict:
+                       verbose: bool = False, on_iter=None,
+                       objects: Optional[list] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -93,7 +97,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
                         fix_intrinsics=fix_intrinsics, front_end=front_end,
                         he_approach=he_approach, refine_structure=refine_structure,
-                        noise_bound=noise_bound, verbose=verbose, on_iter=on_iter)
+                        noise_bound=noise_bound, verbose=verbose, on_iter=on_iter,
+                        objects=objects)
     # keep the (possibly structure-refined) object the rig actually solved with
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
 
