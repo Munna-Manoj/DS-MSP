@@ -512,6 +512,43 @@ def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbos
     return objects, {o.object_id: o for o in objects}, groups, extr
 
 
+def _observation_reproj_rms(rig: RigState, o: ObjectObs) -> float:
+    """Reprojection RMS (px) of one observation through the **assembled rig**
+    (``T_c_g @ T_g_o``) — the metric a mis-detection reveals itself in. A self-consistent
+    mis-decoded ChArUco board resects to a plausible-but-wrong pose (low per-board RMS) yet
+    lands far off once composed with the rig's extrinsics + shared object pose, so this
+    rig-level reprojection (not the per-board resection) is what catches it. Returns ``inf``
+    when the observation cannot be projected (no valid corners / missing pose)."""
+    key = (o.object_id, o.frame_id)
+    if o.cam_id not in rig.cameras or key not in rig.object_poses:
+        return float("inf")
+    Xo = rig.objects[o.object_id].pts_3d[o.point_rows]
+    Xg = (rig.object_poses[key][:3, :3] @ Xo.T).T + rig.object_poses[key][:3, 3]
+    Xc = (rig.T_c_g[o.cam_id][:3, :3] @ Xg.T).T + rig.T_c_g[o.cam_id][:3, 3]
+    uv, val = rig.cameras[o.cam_id].project(Xc)
+    val = np.asarray(val).ravel()
+    if not val.any():
+        return float("inf")
+    r = np.linalg.norm(uv[val] - o.pts_2d[val], axis=1)
+    return float(np.sqrt(np.mean(r ** 2)))
+
+
+def _reject_outlier_observations(rig: RigState, object_obs: List[ObjectObs], gate_px: float):
+    """Hard-drop board observations whose rig reprojection exceeds ``gate_px`` — MC-Calib's
+    ``ransac_threshold`` ("keep it high, remove only strong outliers"). The robust BA recovers
+    the correct rig even with gross mis-detections present (it down-weights them), but they
+    then stay in the object set and inflate every reported metric (max / RMS / the BA readout);
+    a mis-decoded board is a real blunder, not noise, so it is removed, not merely muted.
+    Returns ``(kept_obs, n_dropped)``."""
+    kept, dropped = [], 0
+    for o in object_obs:
+        if _observation_reproj_rms(rig, o) <= gate_px:
+            kept.append(o)
+        else:
+            dropped += 1
+    return kept, dropped
+
+
 def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   img_size: Dict[int, Tuple[int, int]],
                   *, fix_intrinsics: bool = False, verbose: bool = False,
@@ -519,7 +556,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   refine_structure: bool = False, structure_rounds: int = 6,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
                   noise_bound: Optional[float] = None, on_iter=None,
-                  objects: Optional[List[Object3D]] = None) -> RigState:
+                  objects: Optional[List[Object3D]] = None,
+                  reproj_gate_px: Optional[float] = None) -> RigState:
     """Calibrate a multi-camera rig from fused-object observations.
 
     Returns a :class:`RigState` with per-camera intrinsics, ``T_c_g`` extrinsics
@@ -638,6 +676,29 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
                     robust_scale="auto", gnc_iters=gnc_iters, gnc_start=gnc_start,
                     noise_bound=noise_bound, verbose=verbose, on_iter=on_iter)
+
+    #    (c.5) gross-outlier rejection (MC-Calib's ``ransac_threshold``). The robust BA above
+    #        recovers the correct rig even with mis-detections, but a *self-consistent* blunder —
+    #        e.g. a ChArUco board a different OpenCV build mis-decodes (wrong corner ids -> a
+    #        plausible-but-wrong pose, low per-board RMS) — stays in the object set and inflates
+    #        every reported metric while contributing nothing true. It only reveals itself once
+    #        composed with the assembled rig, so gate on the rig reprojection, hard-drop, and
+    #        re-solve. Down-weighting alone cannot: ``per_observation_errors`` still counts it,
+    #        so a correct calibration reads as a 25px failure. Off unless ``reproj_gate_px`` set
+    #        (the config-driven entry passes ``ransac_threshold``).
+    if reproj_gate_px and reproj_gate_px > 0:
+        kept, ndrop = _reject_outlier_observations(rig, object_obs, reproj_gate_px)
+        if ndrop:
+            object_obs[:] = kept                         # clean the caller's set (metrics/save)
+            live = {(o.object_id, o.frame_id) for o in object_obs}
+            rig.object_poses = {k: v for k, v in rig.object_poses.items() if k in live}
+            if verbose:
+                print(f"[outliers] dropped {ndrop} board observation(s) reprojecting > "
+                      f"{reproj_gate_px:.1f}px through the rig (mis-detections); re-solving")
+            rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                            robust_kernel="cauchy", robust_scale="auto", gnc_iters=gnc_iters,
+                            gnc_start=gnc_start, noise_bound=noise_bound, verbose=verbose,
+                            on_iter=on_iter)
 
     #    (d) object-structure refinement (MC-Calib's refineObject), multi-board only: alternate
     #        re-triangulating the fused object's 3-D points (gauge anchored on the reference

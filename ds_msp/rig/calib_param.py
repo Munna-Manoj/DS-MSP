@@ -614,7 +614,8 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              he_approach=cfg.he_approach,
                              refine_structure=(cfg.number_board > 1),
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
-                             on_iter=animator, objects=objects)
+                             on_iter=animator, objects=objects,
+                             reproj_gate_px=cfg.ransac_threshold)
     animator.finish(res["rig"], rms=res["metrics"]["max_rms_px"])
     res["config"] = cfg
     res["scenario"] = scn
