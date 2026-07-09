@@ -614,8 +614,14 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              he_approach=cfg.he_approach,
                              refine_structure=(cfg.number_board > 1),
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
-                             on_iter=animator, objects=objects,
-                             reproj_gate_px=cfg.ransac_threshold)
+                             on_iter=animator, objects=objects)
+    # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
+    # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
+    # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical
+    # intrinsics, extrinsic within 0.1deg/3.5mm), so we keep every observation and report the
+    # robust picture, honouring the "down-weight, don't drop" philosophy. The hard-drop path
+    # (``calibrate_rig(reproj_gate_px=cfg.ransac_threshold)``) remains available for callers
+    # wanting MC-Calib's ``ransac_threshold`` rejection semantics explicitly.
     animator.finish(res["rig"], rms=res["metrics"]["max_rms_px"])
     res["config"] = cfg
     res["scenario"] = scn

@@ -332,7 +332,13 @@ class WebLive3DAnimator:
             e[valid] = np.linalg.norm(uv[valid] - o.pts_2d[valid], axis=1)
             finite = e[np.isfinite(e)]
             if finite.size:
-                errs[o.cam_id] = float(np.mean(finite))
+                # depth is driven by this number, so use the **median** (robust), not the mean:
+                # a handful of gross mis-detections (e.g. a ChArUco board a different OpenCV
+                # build mis-decodes -> 100-300px corners) would otherwise drag a correctly-
+                # calibrated camera's error to tens of px, sinking its orb to the pond floor so
+                # only the "good" camera stays visible -- the "only one camera showed up" report.
+                # The median reflects the real sub-pixel fit and keeps the camera afloat.
+                errs[o.cam_id] = float(np.median(finite))
             for p3, ei in zip(Xg.tolist(), e.tolist()):
                 beams.append({"cam": o.cam_id, "p": p3,
                              "e": (None if not np.isfinite(ei) else float(ei))})
@@ -1169,8 +1175,16 @@ function updateOrbs(state, t, dt) {
   const n = state.cameras.length || 1;
   const ranked = [...state.cameras].sort((a, b) => (a.err ?? 1e9) - (b.err ?? 1e9));
   const rankOf = new Map(ranked.map((c, i) => [c.id, i]));
+  // Cap the error that drives depth: a gross mis-detection (a whole board mis-decoded to
+  // 100-300px) would otherwise blow errMax up and compress every other camera against the
+  // surface, so a correctly-fit rig reads as "one camera floating, the rest crushed at the
+  // floor". DEPTH_ERR_CAP bounds any single camera's pull; the Python side already reports the
+  // median (robust) per-camera error, this is belt-and-suspenders for the all-corners-bad frame.
+  const DEPTH_ERR_CAP = 3.0;
+  const eCap = c => (c.err === null ? null : Math.min(c.err, DEPTH_ERR_CAP));
   state.cameras.forEach(c => {
-    if (c.err !== null) { errMin = Math.min(errMin, c.err); errMax = Math.max(errMax, c.err); }
+    const e = eCap(c);
+    if (e !== null) { errMin = Math.min(errMin, e); errMax = Math.max(errMax, e); }
   });
   const range = Math.max(errMax - errMin, 0.05);
 
@@ -1204,7 +1218,8 @@ function updateOrbs(state, t, dt) {
     } else {
       const rank = rankOf.get(c.id);
       const isTop3 = rank < 3;
-      const norm = c.err !== null ? THREE.MathUtils.clamp(1 - (c.err - errMin) / range, 0, 1) : 0.05;
+      const ec = eCap(c);   // capped error (see DEPTH_ERR_CAP) so one blunder can't sink the rest
+      const norm = ec !== null ? THREE.MathUtils.clamp(1 - (ec - errMin) / range, 0, 1) : 0.05;
       const desiredY = FLOOR_Y + 0.25 + norm * (SURFACE_Y - FLOOR_Y - 0.3);
       // rank -- not raw error -- decides who is even ALLOWED near the surface: 4th place and
       // below are held down regardless of how good their absolute error becomes.
