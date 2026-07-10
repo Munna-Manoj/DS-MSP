@@ -56,6 +56,49 @@ def test_stats_empty_array_is_nan_not_a_crash():
     assert s.n == 0
     assert np.isnan(s.mean) and np.isnan(s.median) and np.isnan(s.rms)
     assert s.inlier_frac == 0.0
+    assert np.isnan(s.inlier_rms)
+    assert s.n_gross == 0
+
+
+# --------------------------------------------------------------- robust reporting (FR-RIG-018)
+
+@pytest.mark.req("FR-RIG-018")
+def test_stats_inlier_rms_and_n_gross_exclude_blunders():
+    e = np.array([0.1, 0.2, 0.3, 0.4, 40.0, 60.0])   # 2 of 6 are gross mis-detections
+    s = rpt._stats(e, inlier_px=1.0, gross_px=5.0)
+    assert s.n_gross == 2
+    non_gross = e[e < 5.0]
+    assert s.inlier_rms == pytest.approx(float(np.sqrt(np.mean(non_gross ** 2))))
+    # the raw (non-robust) rms is still reported too, and it's much worse -- nothing hidden
+    assert s.rms > 10 * s.inlier_rms
+
+
+@pytest.mark.req("FR-RIG-018")
+def test_stats_inlier_rms_is_nan_when_every_corner_is_gross():
+    e = np.array([40.0, 60.0])
+    s = rpt._stats(e, inlier_px=1.0, gross_px=5.0)
+    assert s.n_gross == 2
+    assert np.isnan(s.inlier_rms)
+
+
+@pytest.mark.req("FR-RIG-018")
+def test_render_report_notes_blunders_only_when_gross_present():
+    clean = rpt.ErrorStats(n=10, mean=0.3, median=0.3, p95=0.6, max=1.0, rms=0.35,
+                           inlier_frac=1.0, inlier_rms=0.35, n_gross=0)
+    text_clean = rpt.render_report({0: "radtan"}, {0: clean}, clean, level="PASS",
+                                   message="ok", color=False)
+    assert "note:" not in text_clean
+    assert "inl_rms" in text_clean                     # column always shown
+
+    dirty_cam = rpt.ErrorStats(n=10, mean=4.0, median=0.4, p95=30.0, max=42.7, rms=13.6,
+                               inlier_frac=0.8, inlier_rms=0.636, n_gross=2)
+    overall = rpt.ErrorStats(n=10, mean=4.0, median=0.4, p95=30.0, max=42.7, rms=13.6,
+                             inlier_frac=0.8, inlier_rms=0.636, n_gross=2)
+    text_dirty = rpt.render_report({0: "radtan"}, {0: dirty_cam}, overall, level="PASS",
+                                   message="ok", color=False)
+    assert "note:" in text_dirty
+    assert "DOWN-WEIGHTED" in text_dirty
+    assert "0.636" in text_dirty                        # points the reader at inl_rms, not rms
 
 
 # --------------------------------------------------------------------------- verdict
