@@ -84,9 +84,9 @@ through one shared object pose per frame, making the extrinsic jointly identifia
   `fix_intrinsic=true`): `[front-end] calibrated 2 cameras` → `[merge] fused to 1 object(s):
   [[0, 1]]` → `[groups] 1 group(s): [[0, 1]]`. Per-camera RMS **0.797px (cam 0) / 0.572px (cam
   1)**. Recovered extrinsic **baseline 1.192 m, rotation 178.6°** (cameras facing each other
-  across a double-sided target) — reproduces this feature's own prior documented acceptance run
-  (`docs/RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md`: 0.73px RMS, 1.19 m / 178.6°) to 3 significant
-  figures, independently re-run. Confirmed with the live web view both disabled and enabled
+  across a double-sided target) — reproduces a prior acceptance run of this feature (0.73px
+  RMS, 1.19 m / 178.6°) to 3 significant figures, independently re-run. Confirmed with the
+  live web view both disabled and enabled
   (default config) — no crash either way after the `web3d.py` fix.
 - **Full suite**: 576/576 passed (12 skipped for absent optional real datasets in this
   worktree), `pytest -m jac` 9/9, `pytest tests/contract` 136/136.
@@ -126,10 +126,9 @@ through one shared object pose per frame, making the extrinsic jointly identifia
 ## Scope explicitly deferred (not accidental omissions)
 
 - **Multi-group/multi-object MC-Calib output** (`io/mccalib.py` writing more than one fused
-  object/group) and **`refine_object_structure` for objects beyond the first** — per
-  `docs/RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md` Phase 5, not required for the merge to
-  correctly collapse to, and refine, a single fused object (today's only steady state after
-  `_merge_and_relink`).
+  object/group) and **`refine_object_structure` for objects beyond the first** — out of scope
+  here; not required for the merge to correctly collapse to, and refine, a single fused object
+  (today's only steady state after `_merge_and_relink`).
 - **A rigidity/spread gate on inter-object transforms** (detecting a mislabeled non-rigid
   "object" before fusing it) — flagged as a real gap above, not built here; would need its own
   design (e.g. a residual-spread or reprojection-consistency threshold on the recovered

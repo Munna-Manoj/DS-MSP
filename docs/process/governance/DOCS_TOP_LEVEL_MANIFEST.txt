@@ -1,0 +1,38 @@
+# Positive allowlist of every entry allowed directly under docs/ (enforced by
+# tools/check_docs_zone.py, run in CI on every PR). One name per line, exactly as it appears
+# under docs/ (files with their extension, directories without a trailing slash). Blank lines
+# and #-comments are ignored.
+#
+# Why an allowlist and not a content scan: a content scan can only catch phrasing someone
+# already thought to check for. An allowlist cannot silently miss anything, because any entry
+# NOT on this list fails closed regardless of its name or content. Adding a genuinely public doc
+# is a one-line, reviewable diff to THIS file, in the same PR that adds it.
+#
+# `research` is listed below only so a local checkout with that git-ignored directory present
+# doesn't spuriously fail this check -- it is never tracked or published.
+
+# --- top-level files ---
+CALIBRATE_GUIDE.md
+MULTI_MODEL.md
+RIG_BLENDER_EVALUATION.md
+RIG_CALIBRATION_GUIDE.md
+RIG_EVALUATION_TABLE.md
+RIG_MULTIOBJECT_DIAGNOSIS.md
+RIG_OUTLIER_BENCHMARK.md
+ROADMAP.md
+WRITING_GUIDE.md
+index.md
+
+# --- directories (own governance: mkdocs build, docs_src coverage, or -- for research/ --
+#     .gitignore) ---
+assets
+css
+explain
+how-to
+javascripts
+js
+learn
+process
+reference
+research
+stylesheets
