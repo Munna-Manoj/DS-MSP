@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.11.0...v0.11.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **docs:** remove stray file from docs/; add CI top-level allowlist g… ([e689980](https://github.com/Munna-Manoj/DS-MSP/commit/e689980a4cec35fc2c366c036bb21c65375df224))
+* **docs:** remove stray file from docs/; add CI top-level allowlist gate (NFR-DOCS-003) ([1ba925b](https://github.com/Munna-Manoj/DS-MSP/commit/1ba925b455feaa4e0711b63918c68ab43d222f1d))
+
 ## [0.11.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.10.0...v0.11.0) (2026-07-08)
 
 
