@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.11.1...v0.12.0) (2026-07-13)
+
+
+### Features
+
+* **rig:** robust reporting + robust live-view depth for down-weighted outliers ([cfe3385](https://github.com/Munna-Manoj/DS-MSP/commit/cfe3385c8646344dbc4d8b3fcffaa09c304da05d))
+
+
+### Bug Fixes
+
+* **rig:** reject gross-outlier board detections via ransac_threshold gate ([22e3b02](https://github.com/Munna-Manoj/DS-MSP/commit/22e3b0210660d37abd170dd9589bbab2a8599481))
+* **rig:** robust gross-outlier handling for board detections (FR-RIG-018) ([070531c](https://github.com/Munna-Manoj/DS-MSP/commit/070531c171b3e40f41df00b1d62034cbbf708f26))
+
 ## [0.11.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.11.0...v0.11.1) (2026-07-11)
 
 
