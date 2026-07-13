@@ -432,17 +432,30 @@ class ErrorStats:
     max: float
     rms: float
     inlier_frac: float
+    inlier_rms: float = float("nan")   # RMS over the non-gross corners (robust; ignores blunders)
+    n_gross: int = 0                   # #corners above the gross-outlier line (mis-detections)
 
     def to_dict(self) -> Dict[str, float]:
         """Return the stats as a plain ``{field: value}`` dict (for JSON/HTML export)."""
         return {"n": self.n, "mean": self.mean, "median": self.median, "p95": self.p95,
-                "max": self.max, "rms": self.rms, "inlier_frac": self.inlier_frac}
+                "max": self.max, "rms": self.rms, "inlier_frac": self.inlier_frac,
+                "inlier_rms": self.inlier_rms, "n_gross": self.n_gross}
 
 
-def _stats(e: np.ndarray, inlier_px: float) -> ErrorStats:
+# The gross-outlier line: a corner reprojecting past this on a sub-pixel calibration is a
+# blunder (mis-decoded ChArUco id, wrong association), not noise. The robust bundle already
+# down-weights it to ~zero in the *estimate* (docs/learn/robust_losses_and_evaluation.md), so
+# the calibration is correct — but a naive max/rms still *counts* it and makes a correct fit
+# read as a failure. ``inlier_rms``/``n_gross`` report the robust picture without dropping
+# anything, honouring the "down-weight, don't drop" philosophy.
+GROSS_PX = 5.0
+
+
+def _stats(e: np.ndarray, inlier_px: float, gross_px: float = GROSS_PX) -> ErrorStats:
     if e.size == 0:
         nan = float("nan")
-        return ErrorStats(0, nan, nan, nan, nan, nan, 0.0)
+        return ErrorStats(0, nan, nan, nan, nan, nan, 0.0, nan, 0)
+    non_gross = e[e < gross_px]
     return ErrorStats(
         n=int(e.size),
         mean=float(np.mean(e)),
@@ -451,16 +464,19 @@ def _stats(e: np.ndarray, inlier_px: float) -> ErrorStats:
         max=float(np.max(e)),
         rms=float(np.sqrt(np.mean(e ** 2))),
         inlier_frac=float(np.mean(e < inlier_px)),
+        inlier_rms=float(np.sqrt(np.mean(non_gross ** 2))) if non_gross.size else float("nan"),
+        n_gross=int(np.count_nonzero(e >= gross_px)),
     )
 
 
-def camera_and_overall_stats(rig: RigState, object_obs, inlier_px: float = 1.0
+def camera_and_overall_stats(rig: RigState, object_obs, inlier_px: float = 1.0,
+                             gross_px: float = GROSS_PX
                              ) -> Tuple[Dict[int, ErrorStats], ErrorStats]:
     """Per-camera and rig-wide :class:`ErrorStats` over all reprojection errors (px)."""
     per_obs = bundle.per_observation_errors(rig, object_obs)
-    per_cam = {c: _stats(e, inlier_px) for c, e in per_obs.items()}
+    per_cam = {c: _stats(e, inlier_px, gross_px) for c, e in per_obs.items()}
     all_e = np.concatenate(list(per_obs.values())) if per_obs else np.zeros(0)
-    return per_cam, _stats(all_e, inlier_px)
+    return per_cam, _stats(all_e, inlier_px, gross_px)
 
 
 # ---------------------------------------------------------------------------------------
@@ -510,21 +526,39 @@ def render_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overal
     if color is None:
         color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
     lines: List[str] = []
+    # ``rms``/``max`` are the raw all-corner numbers (a gross mis-detection inflates them even
+    # on a correct, robustly-fit calibration); ``inl_rms`` is the robust RMS over non-blunder
+    # corners — the honest accuracy of the fit. Both shown so nothing is hidden and nothing is
+    # dropped (the blunders are down-weighted, not removed).
     header = (f"{'cam':>4}  {'model':13s} {'n':>6} {'mean':>7} {'median':>7} "
-             f"{'p95':>7} {'max':>7} {'rms':>7} {'inlier%':>8}")
+             f"{'p95':>7} {'max':>7} {'rms':>7} {'inl_rms':>8} {'inlier%':>8}")
     lines.append(header)
     lines.append("-" * len(header))
     for c in sorted(per_cam):
         s = per_cam[c]
         lines.append(
             f"{c:>4}  {models.get(c, '?'):13s} {s.n:>6d} {s.mean:>7.3f} {s.median:>7.3f} "
-            f"{s.p95:>7.3f} {s.max:>7.3f} {s.rms:>7.3f} {100 * s.inlier_frac:>7.2f}%")
+            f"{s.p95:>7.3f} {s.max:>7.3f} {s.rms:>7.3f} {s.inlier_rms:>8.3f} "
+            f"{100 * s.inlier_frac:>7.2f}%")
     lines.append("-" * len(header))
     lines.append(
         f"{'all':>4}  {'':13s} {overall.n:>6d} {overall.mean:>7.3f} {overall.median:>7.3f} "
         f"{overall.p95:>7.3f} {overall.max:>7.3f} {overall.rms:>7.3f} "
-        f"{100 * overall.inlier_frac:>7.2f}%")
+        f"{overall.inlier_rms:>8.3f} {100 * overall.inlier_frac:>7.2f}%")
     lines.append("")
+    # If gross outliers are present, say so plainly: they inflate max/rms but were down-weighted
+    # to ~zero in the solve, so the calibration is governed by median/inl_rms, not the tail. This
+    # turns an alarming-looking (but correct) result into an explained one.
+    gross = {c: per_cam[c].n_gross for c in sorted(per_cam) if per_cam[c].n_gross}
+    if gross:
+        detail = ", ".join(f"cam {c}: {n}" for c, n in gross.items())
+        lines.append(
+            f"note: {overall.n_gross} corner(s) reproject > {GROSS_PX:.0f}px ({detail}) — "
+            f"likely mis-detections (e.g. a ChArUco board a different OpenCV build mis-decodes).")
+        lines.append(
+            f"      they are DOWN-WEIGHTED in the solve, not fitted; judge accuracy by median / "
+            f"inl_rms ({overall.inlier_rms:.3f}px), not max / rms.")
+        lines.append("")
     badge = _c(_COLOR.get(level, "0"), f" {level} ", enabled=color)
     lines.append(f"verdict:{badge} {message}")
     return "\n".join(lines)

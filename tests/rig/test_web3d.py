@@ -286,6 +286,35 @@ def test_web_animator_survives_a_headless_no_socket_environment(monkeypatch):
     anim.finish(rig, rms=0.5)                    # must not raise
 
 
+@pytest.mark.req("FR-RIG-018")
+def test_camera_frame_errors_uses_median_so_one_blunder_corner_cant_sink_the_camera():
+    """FR-RIG-018: a few mis-detected corners on an otherwise correctly-calibrated camera must
+    not blow up the depth-driving error via the mean -- ``_camera_frame_errors`` uses the
+    median, matching the real report ("only one camera showed up" fixed by this)."""
+    obj, obs, rig = _minimal_rig_and_obs()
+    dirty = obs[0]
+    dirty.pts_2d = dirty.pts_2d.copy()
+    dirty.pts_2d[0] += [80.0, -80.0]              # one of six corners is a gross blunder
+
+    anim = web3d.WebLive3DAnimator(verbose=True, auto_open=False, stream=_FakeNonTTY())
+    try:
+        anim.bind_scene(obj, [dirty, obs[1]])
+        errs, _ = anim._camera_frame_errors(rig)
+
+        Xo = obj.pts_3d[dirty.point_rows]
+        T_g_o = rig.object_poses[(dirty.object_id, dirty.frame_id)]
+        Xg = (T_g_o[:3, :3] @ Xo.T).T + T_g_o[:3, 3]
+        Xc = (rig.T_c_g[0][:3, :3] @ Xg.T).T + rig.T_c_g[0][:3, 3]
+        uv, valid = rig.cameras[0].project(Xc)
+        per_point = np.linalg.norm(uv[valid] - dirty.pts_2d[valid], axis=1)
+
+        assert errs[0] == pytest.approx(float(np.median(per_point)))
+        assert errs[0] < 5.0                        # stays afloat -- five of six corners are exact
+        assert float(np.mean(per_point)) > 5 * errs[0]   # the mean would have sunk it
+    finally:
+        _shutdown(anim)
+
+
 def test_web_animator_bind_scene_populates_frame_obs_after_construction():
     obj, obs, rig = _minimal_rig_and_obs()
     anim = web3d.WebLive3DAnimator(verbose=True, auto_open=False, stream=_FakeNonTTY())

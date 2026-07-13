@@ -19,7 +19,8 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0009](ADR-0009-board-protocol.md) | One `Board` protocol unifies checkerboard / ChArUco / AprilGrid for single-camera calibration | Accepted | Config-driven, board-agnostic single-camera calibration |
 | [ADR-0010](ADR-0010-mit-relicense-and-eucmplus-removal.md) | Remove EUCM⁺; relicense the whole project to plain MIT | Accepted | Simpler model surface (measured, not assumed); permissive adoption over engine protection |
 | [ADR-0011](ADR-0011-rig-multiobject-merge.md) | Multi-object board fusion + merge for non-overlapping rigs | Accepted | Fix confirmed real-data bug: a rig whose cameras share no board co-observation silently calibrated as a smaller, wrong rig |
-| [ADR-0012](ADR-0012-docs-top-level-allowlist.md) | Positive allowlist for top-level docs/ entries, enforced in CI | Accepted | Closes a real leak (an internal planning doc public since PR #49) that a content-only denylist and a local-only, occasionally-misconfigured hook both failed to catch |
+| [ADR-0012](ADR-0012-docs-top-level-allowlist.md) | Positive allowlist for top-level docs/ entries, enforced in CI | Accepted | A new top-level docs/ file with no structural check could ship to the public site unnoticed; a content-only pattern scan can miss unfamiliar phrasing |
+| [ADR-0013](ADR-0013-rig-gross-outlier-reporting-and-gate.md) | Robust reporting for gross-outlier board detections, with an opt-in hard-drop gate | Accepted | A correctly down-weighted blunder no longer misreads as a failed calibration; MC-Calib's `ransac_threshold` hard-drop stays available as an explicit opt-in |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the

@@ -69,7 +69,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        refine_structure: bool = False,
                        noise_bound: Optional[float] = None,
                        verbose: bool = False, on_iter=None,
-                       objects: Optional[list] = None) -> Dict:
+                       objects: Optional[list] = None,
+                       reproj_gate_px: Optional[float] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -98,7 +99,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                         fix_intrinsics=fix_intrinsics, front_end=front_end,
                         he_approach=he_approach, refine_structure=refine_structure,
                         noise_bound=noise_bound, verbose=verbose, on_iter=on_iter,
-                        objects=objects)
+                        objects=objects, reproj_gate_px=reproj_gate_px)
     # keep the (possibly structure-refined) object the rig actually solved with
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
 
