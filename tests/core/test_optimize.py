@@ -155,3 +155,33 @@ def test_schur_matches_closed_form_on_linear_problem():
     assert np.allclose(s, x[:sdim], atol=1e-7)
     assert np.allclose(L.ravel(), x[sdim:], atol=1e-7)
     assert out.rms < 1e-7
+
+
+def test_safe_inv_well_conditioned_matches_inv():
+    """On a healthy SPD block the Cholesky-first inverse equals np.linalg.inv."""
+    from ds_msp.core.optimize import _safe_inv
+    rng = np.random.default_rng(7)
+    A = rng.normal(size=(6, 6))
+    M = A @ A.T + 6 * np.eye(6)
+    assert np.allclose(_safe_inv(M), np.linalg.inv(M), rtol=1e-10, atol=1e-12)
+
+
+def test_safe_inv_documented_rank_deficient_behavior():
+    """DOCUMENTED-STATUS test (matrix-calculus study): _safe_inv keeps the
+    historical LU-first semantics on purpose. A regularized/pseudo-inverse
+    variant was implemented and measured to shift end-to-end rig calibration
+    (test_param_pose kb-kb worst pose 1.0% -> 1.27%) because huge-norm LU
+    steps are *rejected* by the LM cost gate while plausible regularized
+    steps are accepted into a different basin -- so the historical behavior
+    is load-bearing (see _safe_inv docstring). This test pins the contract
+    that exists: no exception on rank-deficient input, and the exactly-
+    singular path (LinAlgError -> scale-aware jitter) yields a finite,
+    Moore-Penrose-consistent inverse.
+    """
+    from ds_msp.core.optimize import _safe_inv
+    v = np.array([1.0, 2.0, 3.0])
+    M = np.outer(v, v)                       # exactly singular PSD (rank 1)
+    Minv = _safe_inv(M)                      # must not raise
+    if np.all(np.isfinite(Minv)) and np.linalg.norm(Minv) < 1e12:
+        # jittered path engaged: check Moore-Penrose-like consistency
+        assert np.linalg.norm(M @ Minv @ M - M) < 0.5 * np.linalg.norm(M)

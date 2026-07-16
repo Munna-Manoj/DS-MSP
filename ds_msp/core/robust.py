@@ -175,6 +175,76 @@ def gnc_tls_mu_init(block_sq: np.ndarray, barc2: float) -> float:
 STUDENT_EPS = 0.05
 
 
+def _deflation_blocks(J: np.ndarray, weights: np.ndarray | None, block: int,
+                      eps: float) -> np.ndarray:
+    r"""Per-block deflation matrices ``M_i = I − H_ii + εI`` of shape
+    ``(n_blocks, block, block)``, with ``H_ii = w_i·J_i (JᵀWJ)⁻¹ J_iᵀ`` the hat-matrix
+    diagonal block. ``weights`` are per-block user weights only — the kernel's ω is
+    deliberately excluded so a down-weighted outlier cannot launder its own leverage.
+    Hat blocks are PSD with eigenvalues in ``[0, 1]``; the floor ``ε`` guarantees
+    invertibility and caps the studentization inflation at ``1/ε`` (default 20×)."""
+    n_rows, p = J.shape
+    n = n_rows // block
+    Jp = J.reshape(n, block, p)
+    if weights is not None:
+        w = np.asarray(weights, float).reshape(n, 1, 1)
+        H = np.einsum("nki,nkj->ij", Jp * w, Jp)
+    else:
+        H = np.einsum("nki,nkj->ij", Jp, Jp)
+    tr = np.trace(H)
+    Hinv = np.linalg.inv(H + (1e-10 * tr / max(p, 1)) * np.eye(p))
+    Hii = np.einsum("nik,kl,njl->nij", Jp, Hinv, Jp)          # (n, block, block)
+    if weights is not None:
+        Hii = Hii * np.asarray(weights, float).reshape(n, 1, 1)
+    eye = np.eye(block)
+    M = eye - Hii + eps * eye
+    return 0.5 * (M + M.transpose(0, 2, 1))
+
+
+def _inv_2x2(M: np.ndarray) -> np.ndarray:
+    r"""Closed-form adjugate inverse of a batch of 2×2 matrices ``(n, 2, 2)``:
+    ``inv([[a, b], [c, d]]) = [[d, −b], [−c, a]] / (ad − bc)`` — 6 fused elementwise
+    ops instead of a batched LAPACK factorization over n tiny systems. The caller
+    guarantees ``det > 0`` (deflation blocks are SPD by the ε floor); the clamp is
+    belt-and-braces against float underflow."""
+    a = M[:, 0, 0]
+    b = M[:, 0, 1]
+    c = M[:, 1, 0]
+    d = M[:, 1, 1]
+    det = a * d - b * c
+    det = np.where(np.abs(det) < 1e-300, 1e-300, det)
+    out = np.empty_like(M)
+    out[:, 0, 0] = d
+    out[:, 0, 1] = -b
+    out[:, 1, 0] = -c
+    out[:, 1, 1] = a
+    return out / det[:, None, None]
+
+
+def studentized_scale_factors(J: np.ndarray, weights: np.ndarray | None = None, *,
+                              block: int = 2, eps: float = STUDENT_EPS) -> np.ndarray:
+    r"""Per-block studentization factors ``F_i = (I − H_ii + εI)⁻¹``, shape
+    ``(n_blocks, block, block)``.
+
+    ``H_ii = w_i·J_i (JᵀWJ)⁻¹ J_iᵀ`` is the hat-matrix diagonal block; its trace is
+    the block's leverage ``h_i ∈ [0, block]``. The bounded-influence (Mallows-type)
+    studentized squared residual is the quadratic form ``s̃_i = r_iᵀ F_i r_i`` — it
+    inflates the residual of high-leverage points (which pull the fit toward
+    themselves so their *raw* residual self-masks) by up to ``1/ε`` so a redescending
+    kernel can finally see them. For ``block=2`` (image points) the inverse is the
+    closed-form 2×2 adjugate; other block sizes fall back to ``np.linalg.inv``.
+
+    This is the factor-only companion of :func:`studentized_sq`: compute ``F`` once
+    per linearization and evaluate ``s̃`` for several residual vectors (e.g. the
+    accept/reject comparison inside :func:`ds_msp.core.optimize.lm_solve` with
+    ``studentize=True``).
+    """
+    M = _deflation_blocks(J, weights, block, eps)
+    if block == 2:
+        return _inv_2x2(M)
+    return np.linalg.inv(M)
+
+
 def studentized_sq(J: np.ndarray, r: np.ndarray, *, block: int = 2,
                    weights: np.ndarray | None = None, eps: float = STUDENT_EPS) -> np.ndarray:
     r"""Bounded-influence (Mallows-type) studentized squared residual per block.
@@ -190,22 +260,8 @@ def studentized_sq(J: np.ndarray, r: np.ndarray, *, block: int = 2,
     (2 for an image point). ``weights`` are per-block user weights (the kernel's ω is
     deliberately excluded so a down-weighted outlier cannot launder its own leverage).
     """
-    n_rows, p = J.shape
-    n = n_rows // block
-    Jp = J.reshape(n, block, p)
+    n = r.size // block
     rp = r.reshape(n, block)
-    if weights is not None:
-        w = np.asarray(weights, float).reshape(n, 1, 1)
-        H = np.einsum("nki,nkj->ij", Jp * w, Jp)
-    else:
-        H = np.einsum("nki,nkj->ij", Jp, Jp)
-    tr = np.trace(H)
-    Hinv = np.linalg.inv(H + (1e-10 * tr / max(p, 1)) * np.eye(p))
-    Hii = np.einsum("nik,kl,njl->nij", Jp, Hinv, Jp)          # (n, block, block)
-    if weights is not None:
-        Hii = Hii * np.asarray(weights, float).reshape(n, 1, 1)
-    eye = np.eye(block)
-    M = eye - Hii + eps * eye
-    M = 0.5 * (M + M.transpose(0, 2, 1))
+    M = _deflation_blocks(J, weights, block, eps)
     sol = np.linalg.solve(M, rp[:, :, None])[:, :, 0]        # M_i⁻¹ r_i
     return np.einsum("nk,nk->n", rp, sol)

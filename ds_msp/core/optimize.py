@@ -40,10 +40,12 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import numpy as np
+from scipy.linalg import solve_triangular
 
 from .robust import (
     auto_kernel_scale, gnc_scale, gnc_tls_mu_init, gnc_tls_weight,
-    robust_cost, robust_weight, GNC_TLS_CONTINUATION, VALID_KERNELS,
+    robust_cost, robust_weight, studentized_scale_factors,
+    GNC_TLS_CONTINUATION, VALID_KERNELS,
 )
 
 
@@ -89,7 +91,22 @@ def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
 
 
 def _safe_inv(M: np.ndarray) -> np.ndarray:
-    """Inverse of a small SPD block with scale-aware jitter if near-singular."""
+    """Inverse of a small SPD block with scale-aware jitter if near-singular.
+
+    NOTE (matrix-calculus study, 2026-07): instrumentation showed a single rig
+    calibration LU-inverts thousands of near-singular blocks here (Cholesky-
+    diagonal rcond estimates down to 1e-26). Replacing this with a regularized
+    (jittered-Cholesky) or pseudo-inverse changes end-to-end calibration
+    results enough to shift tests/rig/test_param_pose.py::
+    test_model_of_choice_clean[kb-kb] from 'worst pose' <1.0% to ~1.27%: the
+    huge-norm LU steps are rejected by lm_solve/schur_lm's cost gate (after
+    which a larger lambda re-conditions the block), whereas plausible
+    regularized steps get *accepted* into a slightly different basin. The
+    historical behavior is therefore load-bearing; changing it needs a
+    maintainer decision with recalibrated end-to-end thresholds, not a
+    drive-by swap. See docs/matrix_calculus_study/dsmsp_implementation_notes
+    in the diffpnp repo for the full data.
+    """
     try:
         return np.linalg.inv(M)
     except np.linalg.LinAlgError:
@@ -106,7 +123,7 @@ def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
     A = H + lam * np.diag(D)
     try:
         L = np.linalg.cholesky(A)
-        return np.linalg.solve(L.T, np.linalg.solve(L, -g))
+        return solve_triangular(L.T, solve_triangular(L, -g, lower=True), lower=False)
     except np.linalg.LinAlgError:
         pass
     # A fixed +εI is negligible against a ~1e6-trace pixel² Hessian, so tie the
@@ -117,7 +134,7 @@ def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
         try:
             jit = (fb + 1e-8 * fb * scale)
             L = np.linalg.cholesky(A + jit * np.eye(K))
-            return np.linalg.solve(L.T, np.linalg.solve(L, -g))
+            return solve_triangular(L.T, solve_triangular(L, -g, lower=True), lower=False)
         except np.linalg.LinAlgError:
             fb *= 100.0
     # Last resort: pure scaled-identity step (a tiny gradient-descent move).
@@ -144,6 +161,7 @@ def lm_solve(
     gnc_start: float = 0.0,
     gnc_iters: int = 0,
     weights: Optional[np.ndarray] = None,
+    studentize: bool = False,
     linear_solve: Optional[Callable[[np.ndarray, np.ndarray, float, np.ndarray], np.ndarray]] = None,
     on_iter: Optional[Callable[[int, int, float, float, Any], None]] = None,
 ) -> OptResult:
@@ -174,6 +192,15 @@ def lm_solve(
         the calibrated scale over ``gnc_iters`` iterations (0 disables).
     weights
         Optional per-block confidence weights ``(M//block,)``.
+    studentize
+        **Opt-in** bounded-influence IRLS (default ``False`` = behavior unchanged).
+        When ``True``, the robust kernel is applied to the *studentized* squared
+        residual ``s̃_i = r_iᵀ (I − H_ii + εI)⁻¹ r_i`` instead of the raw ``‖r_i‖²``
+        (:func:`ds_msp.core.robust.studentized_scale_factors`), so a high-leverage
+        outlier whose raw residual self-masks (it pulled the fit toward itself) is
+        still inflated and down-weighted. The deflation factors are rebuilt from the
+        Jacobian at each re-based iterate; the MAD auto-scale and the accept/reject
+        cost use the same studentized metric so the comparison stays consistent.
     linear_solve(H, g, lam, D) -> δ
         Optional custom linear solver (e.g. a Schur-complement BA solve). Defaults to
         dense damped Cholesky :func:`_solve_damped`.
@@ -204,10 +231,20 @@ def lm_solve(
     def block_norms(r: np.ndarray) -> np.ndarray:
         return np.linalg.norm(r.reshape(-1, block), axis=1)
 
-    def scale_at(it: int, r: np.ndarray) -> float:
+    def block_sq(r: np.ndarray, F: Optional[np.ndarray]) -> np.ndarray:
+        """Squared block residual ``s_i`` — studentized ``r_iᵀ F_i r_i`` when the
+        deflation factors ``F`` are given, plain ``‖r_i‖²`` otherwise."""
+        if F is None:
+            return block_norms(r) ** 2
+        rp = r.reshape(-1, block)
+        return np.einsum("nk,nkl,nl->n", rp, F, rp)
+
+    def scale_at(it: int, r: np.ndarray, F: Optional[np.ndarray] = None) -> float:
         if robust_kernel == "none":
             return 1.0
-        c = (auto_kernel_scale(block_norms(r), robust_kernel, robust_scale_floor)
+        bn = (block_norms(r) if F is None
+              else np.sqrt(np.maximum(block_sq(r, F), 0.0)))
+        c = (auto_kernel_scale(bn, robust_kernel, robust_scale_floor)
              if auto else float(robust_scale))
         if gnc_iters > 0 and gnc_start > 0:
             # With auto scale, GNC multiplies the current σ̂; otherwise it is the
@@ -218,17 +255,18 @@ def lm_solve(
                 c = gnc_scale(it, gnc_iters, gnc_start, c)
         return c
 
-    def cost(r: np.ndarray, c: float) -> float:
-        s = block_norms(r) ** 2
+    def cost(r: np.ndarray, c: float, F: Optional[np.ndarray] = None) -> float:
+        s = block_sq(r, F)
         rho = robust_cost(s, robust_kernel, c)
         if weights is not None:
             rho = rho * weights
         return float(rho.sum())
 
-    def row_weights(r: np.ndarray, c: float) -> Optional[np.ndarray]:
+    def row_weights(r: np.ndarray, c: float,
+                    F: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         if robust_kernel == "none" and weights is None:
             return None
-        s = block_norms(r) ** 2
+        s = block_sq(r, F)
         w = robust_weight(s, robust_kernel, c)
         if weights is not None:
             w = w * weights
@@ -245,11 +283,18 @@ def lm_solve(
     it = 0
 
     for it in range(1, max_iter + 1):
-        c = scale_at(it - 1, r)
-        if auto or (gnc_iters > 0 and gnc_start > 0):
-            f = cost(r, c)                                  # kernel moved: recompare
-        J = np.asarray(jacobian(state), float)
-        wr = row_weights(r, c)
+        J = F = None
+        if studentize:
+            # Deflation factors are Jacobian-only, so build them once per iterate
+            # and reuse for the scale, the cost recompare, and the accept/reject.
+            J = np.asarray(jacobian(state), float)
+            F = studentized_scale_factors(J, weights, block=block)
+        c = scale_at(it - 1, r, F)
+        if auto or (gnc_iters > 0 and gnc_start > 0) or studentize:
+            f = cost(r, c, F)                               # kernel moved: recompare
+        if J is None:
+            J = np.asarray(jacobian(state), float)
+        wr = row_weights(r, c, F)
         if wr is None:
             H = J.T @ J
             g = J.T @ r
@@ -263,7 +308,7 @@ def lm_solve(
         delta = solve(H, g, lam, D)
         state_try = retract(state, delta)
         r_try = np.asarray(residual(state_try), float)
-        f_try = cost(r_try, c)
+        f_try = cost(r_try, c, F)                    # same F: consistent comparison
 
         accepted = f_try < f
         pred = 0.5 * float(delta @ (lam * D * delta - g))   # model's predicted reduction
@@ -578,12 +623,17 @@ def schur_lm(
             Y = W @ Vinv                              # (shared, local)
             S -= Y @ W.T
             rhs += Y @ gb
+        # Re-symmetrize: ``S -= Y@W.T`` accumulates float asymmetry, and
+        # np.linalg.cholesky silently truncates to the lower triangle otherwise.
+        S = 0.5 * (S + S.T)
         try:
             L = np.linalg.cholesky(S)
-            d_shared = np.linalg.solve(L.T, np.linalg.solve(L, rhs))
+            d_shared = solve_triangular(L.T, solve_triangular(L, rhs, lower=True),
+                                        lower=False)
         except np.linalg.LinAlgError:
-            d_shared = np.linalg.solve(S + 1e-9 * (np.trace(S) / shared_dim + 1.0)
-                                       * np.eye(shared_dim), rhs)
+            # Route through the same escalating scale-aware jitter ladder as the
+            # dense path (λ=0, D=0 makes _solve_damped solve S·δ = rhs directly).
+            d_shared = _solve_damped(S, -rhs, 0.0, np.zeros(shared_dim))
 
         d_local = np.zeros((n_groups, local_dim))
         for i, (Vinv, W, gb) in enumerate(zip(Vinvs, Ws, gbs)):

@@ -33,23 +33,50 @@ def _build_small_rig():
                     object_poses=object_poses, objects={0: obj}, img_size=img_size), obs
 
 
+def _tangent_scales(rig, fix_intrinsics, fix_extrinsics):
+    """Per-coordinate natural scales of the tangent layout built by
+    ``bundle.build_problem`` — 1.0 for the pose blocks (radians / metres, O(1))
+    and ``|param|`` for the intrinsics blocks, whose values span ~1e-9..1e3
+    (focals vs high-order distortion coefficients)."""
+    scales = []
+    if not fix_extrinsics:
+        scales += [1.0] * (6 * sum(1 for c in rig.cameras if c != rig.ref_cam_id))
+    scales += [1.0] * (6 * len(rig.object_poses))
+    if not fix_intrinsics:
+        for c in sorted(rig.cameras):
+            scales += list(np.abs(np.asarray(rig.cameras[c].params, float)))
+    return np.asarray(scales)
+
+
+def _fd_check_columns(J, residual, retract, state0, scales, rng, *, n_cols=25,
+                      rel_tol=1e-6, label=""):
+    """Central-difference check of random Jacobian columns with a per-coordinate
+    RELATIVE step ``h_j = 1e-6 · max(1, scale_j)`` (testing.py's convention) —
+    a fixed absolute 1e-6 step on a focal-length coordinate (~1e3) is a 1e-9
+    relative perturbation sitting at the cancellation floor, which is why the
+    old tolerance had to be a loose 1e-3."""
+    K = J.shape[1]
+    assert scales.size == K, f"tangent-scale layout out of sync: {scales.size} != {K}"
+    for j in rng.choice(K, size=min(K, n_cols), replace=False):
+        h = 1e-6 * max(1.0, float(scales[j]))
+        d = np.zeros(K)
+        d[j] = h
+        fd = (residual(retract(state0, d)) - residual(retract(state0, -d))) / (2 * h)
+        err = np.linalg.norm(J[:, j] - fd)
+        ref = max(np.linalg.norm(J[:, j]), 1.0)
+        assert err <= rel_tol * ref, \
+            f"Jacobian column {j} mismatch ({label}): rel err {err / ref:.3e}"
+
+
 def _check(fix_intrinsics, fix_extrinsics=False):
     rig, obs = _build_small_rig()
     state0, residual, jacobian, retract, K = bundle.build_problem(
         rig, obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
-    J = jacobian(state0)
-    eps = 1e-6
-    rng = np.random.default_rng(1)
-    # check a random subset of tangent directions
-    for j in rng.choice(K, size=min(K, 25), replace=False):
-        d = np.zeros(K)
-        d[j] = eps
-        rp = residual(retract(state0, d))
-        rm = residual(retract(state0, -d))
-        fd = (rp - rm) / (2 * eps)
-        assert np.allclose(J[:, j], fd, atol=1e-3, rtol=1e-3), \
-            f"Jacobian column {j} mismatch (fix_intrinsics={fix_intrinsics}, " \
-            f"fix_extrinsics={fix_extrinsics})"
+    scales = _tangent_scales(rig, fix_intrinsics, fix_extrinsics)
+    _fd_check_columns(jacobian(state0), residual, retract, state0, scales,
+                      np.random.default_rng(1),
+                      label=f"fix_intrinsics={fix_intrinsics}, "
+                            f"fix_extrinsics={fix_extrinsics}")
 
 
 def test_jacobian_poses_only():
@@ -71,14 +98,9 @@ def test_jacobian_angular_bearing_residual():
     rig, obs = _build_small_rig()
     state0, residual, jacobian, retract, K = bundle.build_problem(
         rig, obs, fix_intrinsics=True, residual_mode="angular")
-    J = jacobian(state0)
-    eps = 1e-6
-    rng = np.random.default_rng(2)
-    for j in rng.choice(K, size=min(K, 25), replace=False):
-        d = np.zeros(K)
-        d[j] = eps
-        fd = (residual(retract(state0, d)) - residual(retract(state0, -d))) / (2 * eps)
-        assert np.allclose(J[:, j], fd, atol=1e-3, rtol=1e-3), f"angular Jac col {j}"
+    scales = _tangent_scales(rig, fix_intrinsics=True, fix_extrinsics=False)
+    _fd_check_columns(jacobian(state0), residual, retract, state0, scales,
+                      np.random.default_rng(2), label="angular")
 
 
 def test_angular_refine_recovers_extrinsics():
