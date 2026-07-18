@@ -64,8 +64,9 @@ def robust_weight_derivative(s: np.ndarray, kernel: str, scale: float,
     raise ValueError(f"kernel must be one of {VALID_KERNELS!r}, got {kernel!r}")
 
 
-def _blocks(J: np.ndarray, r: np.ndarray, weights, kernel: str, scale: float,
-            alpha: float, block: int):
+def _blocks(J: np.ndarray, r: np.ndarray, weights: np.ndarray | None, kernel: str, scale: float,
+            alpha: float, block: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+                                                np.ndarray]:
     """Shared per-block quantities: reshaped ``(J_i, r_i)``, squared block
     residuals ``s_i``, user weights ``w_i``, and kernel weights ``ω_i``."""
     n_rows, p = J.shape
@@ -122,6 +123,96 @@ def sandwich_covariance(J: np.ndarray, r: np.ndarray,
     M = np.einsum("ni,n,nj->ij", a, (w * om) ** 2, a)
     m_rows = float(J.shape[0])
     M *= m_rows / max(m_rows - p, 1.0)                     # HC1
+    Ginv = _sym_inv(G, jitter)
+    cov = Ginv @ M @ Ginv.T
+    return 0.5 * (cov + cov.T)
+
+
+def clustered_sandwich_covariance(J: np.ndarray, r: np.ndarray, cluster_id: np.ndarray,
+                                  weights: np.ndarray | None = None,
+                                  kernel: str = "none", scale: float = 1.0, *,
+                                  alpha: float = -2.0, block: int = 2,
+                                  jitter: float = 1e-12,
+                                  small_cluster_correction: bool = True) -> np.ndarray:
+    r"""Frame/cluster-robust sandwich covariance — the fix for
+    :func:`sandwich_covariance`'s measured real-data under-coverage (4-9x on a real rig's
+    frame bootstrap) when per-block scores are actually correlated within a cluster (e.g.
+    corners from the same synchronized board placement, across cameras) but the plain
+    sandwich treats every corner as independent.
+
+    Same bread ``G`` as :func:`sandwich_covariance` (clustering does not change it: ``G`` is
+    the derivative of the *total* score equation and carries no grouping). The fix is
+    entirely in the meat, following Liang & Zeger (1986) / Cameron & Miller (2015) eq. 11's
+    clustered "sandwich": sum each cluster's per-block scores FIRST, then outer-product
+    (instead of outer-producting every block independently)::
+
+        ψ_i = w_i·ω_i·(J_iᵀ r_i)     (per-block score, same as the plain sandwich's meat)
+        Ψ_g = Σ_{i∈g} ψ_i             (summed within cluster g)
+        M   = Σ_g Ψ_g Ψ_gᵀ
+
+    which lets correlated within-cluster scores reinforce instead of averaging away as if
+    independent — verified on a synthetic known-correlation Monte-Carlo to close a 6.2x
+    (std) / 38x (variance) under-coverage of the frame-level parameter direction down to a
+    0.98x coverage ratio (0.98-1.10x under a contaminated/robust refit); see
+    ``.ai/experiments/2026-07-17-stage-I-frame-clustered-sandwich-derivation.md``.
+
+    With few clusters (DS-MSP's real rigs: ``G≈30-35`` frames), the cluster-robust variance
+    estimator is downward-biased; ``small_cluster_correction=True`` (default) applies the
+    standard scalar fix ``c = [G/(G−1)]·[(N−1)/(N−K)]`` (Cameron, Gelbach & Miller 2008,
+    *Rev. Econ. Stat.* 90(3)) where ``N`` is the number of blocks (corners) and ``K = p`` —
+    measured ``c ≈ 1.24`` on both this repo's real rigs, dominated by the ordinary
+    ``(N−1)/(N−K)`` term (nuisance frame-pose parameters make ``K`` large relative to ``N``),
+    not by ``G/(G−1)`` itself. **For inference downstream, use ``df = G − 1``, not ``N − K``.**
+
+    Parameters
+    ----------
+    cluster_id : (n_blocks,) array-like
+        Groups blocks into clusters, e.g. the frame id a ChArUco corner was detected in,
+        **pooled across cameras** for a synchronized multi-camera rig (the independent
+        replication unit is a physical board placement, not a per-camera image — see the
+        derivation doc §"cluster definition" for the physical reasoning). Any hashable/
+        ``np.unique``-able dtype; need not be contiguous integers.
+    J, r, weights, kernel, scale, alpha, block, jitter
+        Same as :func:`sandwich_covariance`.
+
+    Returns
+    -------
+    (p, p) ndarray
+        Symmetric clustered-sandwich covariance.
+
+    References
+    ----------
+    Liang, K.-Y. & Zeger, S.L. (1986), "Longitudinal Data Analysis Using Generalized Linear
+    Models," Biometrika 73(1):13-22. Cameron, A.C. & Miller, D.L. (2015), "A Practitioner's
+    Guide to Cluster-Robust Inference," J. Human Resources 50(2), eq. 11. Cameron, A.C.,
+    Gelbach, J.B. & Miller, D.L. (2008), "Bootstrap-Based Improvements for Inference with
+    Clustered Errors," Rev. Econ. Stat. 90(3), small-cluster correction.
+    """
+    Jp, rp, s, w, om = _blocks(J, r, weights, kernel, scale, alpha, block)
+    p = J.shape[1]
+    n = Jp.shape[0]
+    omp = robust_weight_derivative(s, kernel, scale, alpha)
+    a = np.einsum("nkp,nk->np", Jp, rp)                    # J_iᵀ r_i  (n, p)
+    JtJ = np.einsum("nki,nkj->nij", Jp, Jp)
+    G = (np.einsum("n,nij->ij", w * om, JtJ)
+         + 2.0 * np.einsum("n,ni,nj->ij", w * omp, a, a))
+
+    cluster_id = np.asarray(cluster_id)
+    if cluster_id.shape[0] != n:
+        raise ValueError(f"cluster_id has {cluster_id.shape[0]} entries, expected {n} "
+                         "(one per block)")
+    psi = (w * om)[:, None] * a                             # (n, p) per-block score
+    _, inv = np.unique(cluster_id, return_inverse=True)
+    n_clusters = int(inv.max()) + 1 if n else 0
+    Psi_g = np.zeros((n_clusters, p))
+    np.add.at(Psi_g, inv, psi)                              # sum within cluster, THEN...
+    M = Psi_g.T @ Psi_g                                     # ...outer-product (Liang-Zeger)
+
+    if small_cluster_correction and n_clusters > 1:
+        Gc = float(n_clusters)
+        c = (Gc / max(Gc - 1.0, 1.0)) * ((float(n) - 1.0) / max(float(n) - p, 1.0))
+        M = M * c
+
     Ginv = _sym_inv(G, jitter)
     cov = Ginv @ M @ Ginv.T
     return 0.5 * (cov + cov.T)
