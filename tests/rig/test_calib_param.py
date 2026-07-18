@@ -158,6 +158,34 @@ def test_bool_config_field_rejects_an_unrecognized_value(tmp_path):
         load_config(cfgp)
 
 
+# --- noise_bound configurability (GNC-TLS on/off from config, FR-RIG-019) ---
+
+@pytest.mark.req("FR-RIG-019")
+def test_noise_bound_defaults_to_gnc_tls_on_unchanged_for_existing_configs(tmp_path):
+    """The pre-existing default (GNC-TLS active, noise_bound=1.0) must be untouched --
+    no config that doesn't mention noise_bound moves."""
+    cfgp = _write_cfg(tmp_path, "number_camera: 1\n")
+    assert load_config(cfgp).noise_bound == 1.0
+
+
+@pytest.mark.req("FR-RIG-019")
+def test_noise_bound_le_zero_disables_gnc_tls(tmp_path):
+    """noise_bound<=0 (physically meaningless as a pixel sigma) is the config-layer sentinel for
+    None -- the only way to express "plain robust IRLS, no GNC-TLS" from calib_param.yml,
+    since refine() routes to the GNC-TLS path whenever noise_bound is not None."""
+    cfgp = _write_cfg(tmp_path, "number_camera: 1\nnoise_bound: 0\n")
+    assert load_config(cfgp).noise_bound is None
+
+
+@pytest.mark.req("FR-RIG-019")
+def test_noise_bound_honors_set_override(tmp_path):
+    """noise_bound previously did not honor --set/overrides at all, unlike every other config
+    field (path_key, _bool_field) -- a real gap closed by _noise_bound_field."""
+    cfgp = _write_cfg(tmp_path, "number_camera: 1\nnoise_bound: 1.0\n")
+    assert load_config(cfgp, overrides={"noise_bound": 0}).noise_bound is None
+    assert load_config(cfgp, overrides={"noise_bound": 0.5}).noise_bound == 0.5
+
+
 @pytest.mark.req("FR-RIG-014")
 def test_webviewer_defaults_true_and_is_independent_of_verbose(tmp_path):
     """`webviewer` must default to the pre-existing always-on behavior (no silent UX change for

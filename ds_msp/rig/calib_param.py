@@ -245,6 +245,23 @@ def _bool_field(ov: Dict, fs, name: str, default: int) -> bool:
     return bool(int(raw))
 
 
+def _noise_bound_field(ov: Dict, fs) -> Optional[float]:
+    """Parse ``noise_bound`` (per-corner reprojection sigma, pixels) as ``Optional[float]``,
+    honoring ``--set noise_bound=...`` like every other override-able field (previously it did
+    not, unlike ``_bool_field``/``path_key`` -- a real gap, not by design).
+
+    ``noise_bound<=0`` -- physically meaningless as a pixel sigma -- is the config-layer sentinel
+    for ``None`` (GNC-TLS disabled): ``bundle.refine`` treats any non-``None`` ``noise_bound``
+    as "run GNC-TLS, ignore ``robust_kernel``/``gnc_*`` entirely" (see its docstring), and
+    before this there was no way to express "plain robust IRLS, no GNC-TLS" from a config file
+    at all (FR-RIG-019). Default ``1.0`` (GNC-TLS on) is unchanged for every existing config,
+    so no prior calibration's behavior moves.
+    """
+    raw = ov["noise_bound"] if "noise_bound" in ov else _scalar(fs, "noise_bound", 1.0)
+    nb = float(raw)
+    return None if nb <= 0 else nb
+
+
 def _int_seq(fs, name) -> List[int]:
     n = fs.getNode(name)
     if n is None or n.empty() or not n.isSeq():
@@ -277,10 +294,11 @@ class RigConfig:
     ransac_threshold: float
     number_iterations: int
     he_approach: int
-    noise_bound: float = 1.0
+    noise_bound: Optional[float] = 1.0
     verbose: bool = True
     webviewer: bool = True                      # launch the live browser view (independent of `verbose`)
     object_path: Optional[str] = None
+    report_covariance: bool = False              # opt-in parameter-uncertainty report (FR-RIG-020)
     raw: Dict = field(default_factory=dict)
 
     @property
@@ -359,10 +377,11 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         ransac_threshold=float(_scalar(fs, "ransac_threshold", 10.0)),
         number_iterations=int(_scalar(fs, "number_iterations", 1000)),
         he_approach=int(_scalar(fs, "he_approach", 0)),
-        noise_bound=float(_scalar(fs, "noise_bound", 1.0)),
+        noise_bound=_noise_bound_field(ov, fs),
         verbose=_bool_field(ov, fs, "verbose", 1),
         webviewer=_bool_field(ov, fs, "webviewer", 1),
         object_path=path_key("object_path", "None"),
+        report_covariance=_bool_field(ov, fs, "report_covariance", 0),
         raw={"path": config_path},
     )
     fs.release()
@@ -614,7 +633,8 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              he_approach=cfg.he_approach,
                              refine_structure=(cfg.number_board > 1),
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
-                             on_iter=animator, objects=objects)
+                             on_iter=animator, objects=objects,
+                             report_covariance=cfg.report_covariance)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
     # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical
