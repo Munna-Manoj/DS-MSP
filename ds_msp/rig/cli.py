@@ -47,14 +47,42 @@ from . import report as rpt
 from .pipeline import calibrate_scenario, random_model_assignment
 
 
-def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_path):
-    """Shared tail for both entry points: distribution-stats table, verdict, and the
-    self-contained HTML digital-twin report. Returns the process exit code (0 PASS/WARN,
-    1 FAIL) so a CI/cron caller can tell success from failure without parsing text."""
+def _print_certificate(cert) -> None:
+    """One-line terminal rendering of the rotation-backbone optimality certificate."""
+    if cert is None:
+        return
+    if cert["certified"] is None:
+        print(f"certificate: skipped — {cert['message']}")
+        return
+    if cert["certified"] and cert["ba_consistent"]:
+        tag = "CERTIFIED"
+    elif cert["certified"]:
+        tag = "WRONG-BASIN WARNING"
+    else:
+        tag = "NOT CERTIFIED (inconclusive)"
+    out = f", {cert['n_outlier_edges']} outlier meas." if cert["n_outlier_edges"] else ""
+    print(f"certificate: {tag}  eta={cert['eta']:.2e}  "
+          f"d_cam={cert['d_cam_deg']:.3f} deg  "
+          f"({cert['n_edges']} measurements{out}, {cert['n_components']} component(s))")
+    print(f"  {cert['message']}")
+
+
+def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_path,
+                          audit=None, certificate=None):
+    """Shared tail for both entry points: distribution-stats table, verdict, the
+    observability-audit line(s), the optional certificate line, and the self-contained HTML
+    digital-twin report. Returns the process exit code (0 PASS/WARN, 1 FAIL) so a CI/cron
+    caller can tell success from failure without parsing text. The audit prints its own
+    OK/WARN line and never changes the exit code — ``audit_gate: refuse`` (the hard form)
+    raises upstream instead; likewise a NOT-CERTIFIED result is inconclusive by
+    construction and never fails the run."""
     per_cam, overall = rpt.camera_and_overall_stats(rig, scn.object_obs)
     level, message = rpt.verdict(overall, pass_px=pass_px, warn_px=warn_px)
     print()
     rpt.print_report(models, per_cam, overall, level, message)
+    if audit is not None:
+        print(rpt.render_audit(audit))
+    _print_certificate(certificate)
     if html_path:
         rpt.write_html_report(html_path, rig, scn, models, per_cam, overall, level, message)
         print(f"\ninteractive report: {html_path}  (open in any browser, no server needed)")
@@ -82,7 +110,8 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
     html_path = report_path or (os.path.join(cfg.save_path, "report.html") if cfg.save_path
                                 else None)
     code = _report_and_exit_code(res["rig"], res["scenario"], res["models"], cfg.save_path,
-                                 pass_px=pass_px, warn_px=warn_px, html_path=html_path)
+                                 pass_px=pass_px, warn_px=warn_px, html_path=html_path,
+                                 audit=res.get("audit"), certificate=res.get("certificate"))
     res["exit_code"] = code
     return res
 
@@ -212,7 +241,8 @@ def main():
     html_path = args.report if args.report is not None else os.path.join(save_dir, "report.html")
     code = _report_and_exit_code(res["rig"], scn, res["models"], save_dir,
                                  pass_px=args.pass_px, warn_px=args.warn_px,
-                                 html_path=html_path or None)
+                                 html_path=html_path or None, audit=res.get("audit"),
+                                 certificate=res.get("certificate"))
     raise SystemExit(code)
 
 

@@ -564,6 +564,39 @@ def render_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overal
     return "\n".join(lines)
 
 
+def render_audit(audit: Dict, *, color: Optional[bool] = None) -> str:
+    """Render an observability audit (:func:`ds_msp.rig.audit.audit_rig`) as terminal text.
+
+    One quiet line when the capture is well-constrained; a named, actionable finding list
+    when it is not. Reprojection error and this audit answer different questions: the error
+    says how well the model fits the corners it saw, the audit says which parameter
+    combinations those corners never constrained at all — a capture can score sub-pixel RMS
+    while a focal/distortion combination is free to drift (the silent-confident-wrong class).
+    """
+    if color is None:
+        color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    lines: List[str] = []
+    ok = audit["n_weak"] == 0 and audit["gauge_ok"]
+    badge = _c("32", " OK ", enabled=color) if ok else _c("33", " WARN ", enabled=color)
+    soft = f", {audit['n_soft']} soft" if audit.get("n_soft") else ""
+    lines.append(f"observability:{badge} cond(H_hat)={audit['cond']:.1e}"
+                 f"  weak={audit['n_weak']}{soft}")
+    for f in audit["findings"]:
+        lines.append(f"  - {f['message']}")
+    weak_cov = []
+    for c, cov in sorted(audit.get("coverage", {}).items()):
+        notes = []
+        if cov["periphery_frac"] < 0.02:
+            notes.append(f"periphery {100 * cov['periphery_frac']:.0f}%")
+        if cov["tilt_range_deg"] < 15.0:
+            notes.append(f"tilt range {cov['tilt_range_deg']:.0f} deg")
+        if notes and not ok:
+            weak_cov.append(f"cam{c}: " + ", ".join(notes))
+    if weak_cov:
+        lines.append("  coverage: " + " ; ".join(weak_cov))
+    return "\n".join(lines)
+
+
 def print_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overall: ErrorStats,
                  level: str, message: str) -> None:
     """Print the per-camera stats table + verdict to stdout.
