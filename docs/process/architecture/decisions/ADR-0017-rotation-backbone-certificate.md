@@ -9,15 +9,15 @@
 
 Every stage of the rig pipeline is a local solver from a seed; GNC widens the robust basin
 but certifies nothing. A user cannot distinguish "global optimum" from "nice-looking local
-minimum" — and no calibration tool anywhere gives them the means to (13-tool gap audit,
+minimum" — and none of the 13 calibration tools audited gives them the means to (13-tool gap audit,
 2026-07-18: the strongest global-optimality move in any calibration library is robust
 *initialization*). Meanwhile the certifiable-estimation literature has a mature,
 a-posteriori, cheap answer for the rotation sub-problem: rotation-synchronization strong
 duality (Eriksson, Olsson, Kahl, Chin, CVPR 2018; Rosen, Carlone, Bandeira, Leonard,
 SE-Sync, IJRR 2019; Dellaert et al., Shonan, ECCV 2020). **Prior art is cited, not
 claimed away**: GTSAM ships the identical construction (`ShonanAveraging::checkOptimality`)
-for SLAM factor graphs, as do TEASER++/SE-Sync reference implementations. What no
-*camera-calibration* library has ever done is surface it as a user-facing calibration-trust
+for SLAM factor graphs, as do TEASER++/SE-Sync reference implementations. What none of the
+audited camera-calibration libraries does is surface it as a user-facing calibration-trust
 output; the 2025 certifiable-BA literature (arXiv 2502.04640, 2506.23808) assumes known
 pinhole intrinsics and does not cover fisheye rig calibration.
 
@@ -104,7 +104,8 @@ pinhole intrinsics and does not cover fisheye rig calibration.
 
 ## Consequences
 
-- DS-MSP becomes the first camera-calibration library whose report can say, with a proof:
+- To our knowledge (per the same audit), DS-MSP becomes the first camera-calibration
+  library whose report can say, with a proof:
   "this extrinsic rotation configuration is the global optimum of its measurement graph" —
   or, stronger, positively flag a wrong-basin BA result that reprojection statistics alone
   can look acceptable on.

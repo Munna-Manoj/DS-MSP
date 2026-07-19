@@ -269,7 +269,7 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     to a named finding with an actionable capture suggestion.
 
     **Two-tier thresholds, set from measured spectra, not theory.** Characterization on
-    synthetic captures (2026-07-18 experiment log) measured: structural degeneracies (true
+    synthetic captures (characterization runs of 2026-07-18) measured: structural degeneracies (true
     gauge modes, the planar focal/xi coupling) collapse to equilibrated-eigenvalue ratios
     ``<= 1e-10``, while the softest directions a healthy 3D-target capture carries (e.g. the
     ubiquitous RadTan k2/k3 near-collinearity) sit at ``>= 1e-4`` — a ~6-order empty gap.

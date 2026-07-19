@@ -1,6 +1,6 @@
 """Rotation-backbone optimality certificate (rig/certify.py, FR-RIG-022).
 
-Assertions locked to the measured characterization (experiment log 2026-07-18): zero-noise
+Assertions locked to the measured characterization (characterization runs, 2026-07-18): zero-noise
 BA==truth certifies with d(BA,chordal)=0; noise keeps d tracking the residual RMS ~1:1; a
 planted 60-deg wrong camera yields d~57 deg against ~1 deg residuals — the wrong-basin
 detection contract.

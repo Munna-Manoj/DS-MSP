@@ -1,6 +1,6 @@
 """Observability audit (rig/audit.py, FR-RIG-021).
 
-Assertions are locked to the measured characterization (experiment log 2026-07-18):
+Assertions are locked to the measured characterization (characterization runs 2026-07-18):
 structural degeneracies sit at equilibrated-eigenvalue ratios <= 1e-10, the softest healthy
 directions at >= 1e-5 — the two-tier thresholds (1e-6 critical / 1e-3 soft) sit inside that
 measured gap, not at hand-tuned values.

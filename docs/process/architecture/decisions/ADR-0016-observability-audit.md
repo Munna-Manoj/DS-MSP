@@ -31,7 +31,7 @@ Calibration Wizard (ICCV 2019) did the covariance-guidance math as standalone ca
    Core math in `ds_msp/core/observability.py` (NumPy-only, ADR-0004 respected); rig
    semantics in `ds_msp/rig/audit.py`.
 2. **Two-tier thresholds locked from measured spectra, not theory.** Characterization
-   (experiment log 2026-07-18) measured structural degeneracies (gauge modes, the planar
+   (characterization runs, 2026-07-18) measured structural degeneracies (gauge modes, the planar
    focal↔ξ coupling) at equilibrated-eigenvalue ratios ≤1e-10 and the softest *healthy*
    directions (e.g. RadTan k2/k3 near-collinearity) at ≥1e-5: a ~6-order empty gap.
    Critical `tau_rel=1e-6` (named findings, gate-relevant) and soft `1e-3` (counted,
@@ -72,7 +72,7 @@ Calibration Wizard (ICCV 2019) did the covariance-guidance math as standalone ca
 
 ## Consequences
 
-- DS-MSP becomes the first calibration library whose *default* output states whether the
+- To our knowledge (the 13-tool audit above), DS-MSP is the first calibration library whose *default* output states whether the
   capture actually constrains the parameters it reports — with named directions and
   concrete capture advice, not a bare condition number.
 - The audit reads the same `build_problem` Jacobian the BA uses (no second derivation to
