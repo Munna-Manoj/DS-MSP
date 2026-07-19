@@ -99,8 +99,8 @@ pinhole intrinsics and does not cover fisheye rig calibration.
   8-cam fisheye — CERTIFIED + consistent (η = −1.7e-15), `d_cam 6.2°` vs median residual
   2.34°, twelve outliers named (worst 176.6°). Before the trim, Seltos raised a *false*
   WRONG-BASIN warning and MC-Calib failed certification outright.
-- Characterization log: `.ai`-side experiment record 2026-07-18 (convention bug, measured
-  separations, wall times ~2 s at 3 cam × 20 frames).
+- Characterization (2026-07-18): convention bug caught by the zero-noise sign test,
+  measured regime separations quoted above, wall time ~2 s at 3 cam × 20 frames.
 
 ## Consequences
 
