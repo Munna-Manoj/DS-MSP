@@ -22,8 +22,8 @@ of ~1365 corners as an independent observation, when in reality corners cluster 
 poses (frames) and share correlated board-pose noise — a single mis-estimated board pose moves
 every corner on that board together, which plain HC1 cannot see.
 
-The user explicitly required deriving and closing this gap *before* wiring anything into
-user-facing reports, rather than shipping the known-under-covering estimator with a caveat.
+Policy for this change: derive and close the gap *before* wiring anything into user-facing
+reports, rather than shipping the known-under-covering estimator with a caveat.
 
 ## Decision
 
@@ -55,12 +55,11 @@ user-facing reports, rather than shipping the known-under-covering estimator wit
    by the unit/Monte-Carlo tests, not as user-facing output.
 3. **Not yet wired into the HTML report** (`ds_msp/rig/report.py`) — only into the
    `calibrate_scenario()` return dict's `"covariance"` key. Tracked as a fast-follow (see Scope
-   deferred); the report-rendering surface was out of scope for "wire it in" as a numerics change.
+   deferred); the report-rendering surface is out of scope for this numerics change.
 
 ## Verification
 
-- **Real-data cluster bootstrap — the decisive coverage proof** (2026-07-18, logged in the local
-  experiment record "realdata bootstrap covariance coverage"): 200 replicates on the real Seltos
+- **Real-data cluster bootstrap — the decisive coverage proof** (2026-07-18): 200 replicates on the real Seltos
   rig, resampling the 33 board placements (clusters) *with replacement* and refitting each
   replicate (warm-started `bundle.refine`, Cauchy/auto). The empirical std of the fitted
   parameters across replicates is the measured truth (cluster bootstrap, Cameron & Miller 2015
@@ -145,7 +144,7 @@ user-facing reports, rather than shipping the known-under-covering estimator wit
   the `noise_bound<=0` config sentinel that disables it is the FR-RIG-019 fix recorded in
   ADR-0014's "What survives" section), not a Cauchy IRLS solve. The reported covariance is then evaluated at a
   point that is not exactly stationary for the Cauchy score it assumes — a real approximation
-  (caught in independent red-team review), not measured to be large on this repo's data (the
+  (identified during independent review of this change), not measured to be large on this repo's data (the
   fitted state is a converged least-squares-like minimum regardless of which robust loss reached
   it, so the mismatch is a curvature/weighting approximation, not a location error) but not
   quantified either. Matching `parameter_covariance`'s kernel to whichever loss actually produced
@@ -154,23 +153,23 @@ user-facing reports, rather than shipping the known-under-covering estimator wit
 ## Scope explicitly deferred (not accidental omissions)
 
 - **Wiring into `ds_msp/rig/report.py`'s rendered HTML/terminal output.** Deliberately deferred:
-  the user's "wire them in" scope was about making the numerics reachable and correct, not about
-  designing a new report UI section. `bundle.parameter_covariance()`'s docstring flags this
-  explicitly as a fast-follow.
+  this change's scope is making the numerics reachable and correct, not designing a new report
+  UI section. `bundle.parameter_covariance()`'s docstring flags this explicitly as a
+  fast-follow.
 - **Finite-cluster-count correction beyond the CGM08 scalar factor** (e.g. wild cluster
   bootstrap) — no real-data motivation yet at `G=33`; the scalar correction already moves the
   synthetic coverage ratio into the acceptance band.
 - **Matching `parameter_covariance`'s evaluation kernel to whichever robust loss actually
   produced the fitted state** (GNC-TLS vs. a specific IRLS kernel) — flagged above as a real
   approximation; deferred because it requires `calibrate_rig`/`calibrate_scenario` to report back
-  which objective the final BA pass actually used, a small API extension out of scope for this
-  ADR's "wire in what already exists" mandate.
+  which objective the final BA pass actually used, a small API extension out of scope for
+  this ADR.
 
 ## Alternatives considered
 
-- *Ship the unclustered sandwich with a documented under-coverage caveat* — explicitly rejected
-  by the user before this work started: a known-wrong uncertainty number is worse than no number
-  in a calibration report, where downstream consumers may treat a std as actionable.
+- *Ship the unclustered sandwich with a documented under-coverage caveat* — rejected: a
+  known-wrong uncertainty number is worse than no number in a calibration report, where
+  downstream consumers may treat a std as actionable.
 - *Cluster by (camera, frame) pair instead of frame alone* — considered; rejected because the
   under-coverage's actual mechanism (shared board-pose noise) is a per-frame phenomenon that
   couples observations *across* cameras co-observing the same frame, so clustering by

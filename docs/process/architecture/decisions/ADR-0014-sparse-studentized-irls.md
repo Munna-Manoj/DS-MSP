@@ -36,9 +36,9 @@ independently useful configurability gap, kept with its three regression tests.
 
 ## Why rejected — the formal trichotomy (measured, real Seltos rig data)
 
-The maintainer's challenge: "either the algorithm can help but you implemented it incorrectly, or
-we are using it correctly [and it should help]." Resolved by a
-formal trichotomy experiment (2026-07-18), whose load-bearing numbers are quoted below:
+The keep-or-remove audit had to resolve a formal trichotomy — the implementation is
+incorrect, or the feature helps and should ship, or the feature is measurably valueless on
+this pipeline's regime. Resolved by experiment (2026-07-18), load-bearing numbers below:
 
 1. **Implemented incorrectly? No — proven correct.** The hat matrix of an undamped,
    user-weight-only LS problem is an orthogonal projector, so `Σ_i tr(H_ii) = K_free` is an exact
@@ -78,14 +78,14 @@ a regime its assumptions exclude.
 - The `noise_bound` configurability fix ships independently (FR-RIG-019, three tests).
 - If a future pipeline *does* feed the sparse solver a non-robust init (e.g. a linear-only
   front-end with no RANSAC gate), this analysis does not apply and the decision should be
-  revisited — the sparse derivation and its verification record are preserved in this ADR and the
-  experiment log for that eventuality.
+  revisited — the sparse derivation and its verification record are preserved in this ADR for
+  that eventuality.
 
 ## Alternatives considered
 
 - *Ship it anyway, default-off* — rejected: default-off code that is formally shown to make
   results slightly worse whenever enabled on this pipeline's regime is pure bloat plus a
-  misconfiguration hazard, failing the maintainer's explicit "no functions with no practical
-  implication" criterion.
+  misconfiguration hazard, failing this repo's criterion that a shipped function must have a
+  practical effect on results.
 - *Keep only `schur_lm(studentize=)` without rig wiring* — rejected: that is exactly the
   dead-code state this work set out to eliminate.
