@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
     "Operating System :: OS Independent",
 ]
-dependencies = ["numpy", "opencv-python", "scipy", "pyyaml"]
+dependencies = ["numpy", "opencv-python>=4.7", "scipy", "pyyaml"]
 
 [project.urls]
 Homepage = "https://github.com/Munna-Manoj/DS-MSP"
