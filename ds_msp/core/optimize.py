@@ -103,8 +103,7 @@ def _safe_inv(M: np.ndarray) -> np.ndarray:
     regularized steps get *accepted* into a slightly different basin. The
     historical behavior is therefore load-bearing; changing it needs a
     maintainer decision with recalibrated end-to-end thresholds, not a
-    drive-by swap. See docs/matrix_calculus_study/dsmsp_implementation_notes
-    in the diffpnp repo for the full data.
+    drive-by swap.
     """
     try:
         return np.linalg.inv(M)
