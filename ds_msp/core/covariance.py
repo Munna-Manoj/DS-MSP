@@ -153,8 +153,8 @@ def clustered_sandwich_covariance(J: np.ndarray, r: np.ndarray, cluster_id: np.n
     which lets correlated within-cluster scores reinforce instead of averaging away as if
     independent — verified on a synthetic known-correlation Monte-Carlo to close a 6.2x
     (std) / 38x (variance) under-coverage of the frame-level parameter direction down to a
-    0.98x coverage ratio (0.98-1.10x under a contaminated/robust refit); see
-    ``.ai/experiments/2026-07-17-stage-I-frame-clustered-sandwich-derivation.md``.
+    0.98x coverage ratio (0.98-1.10x under a contaminated/robust refit); the reduced
+    regression version of that Monte-Carlo runs in ``tests/core/test_clustered_covariance.py``.
 
     With few clusters (DS-MSP's real rigs: ``G≈30-35`` frames), the cluster-robust variance
     estimator is downward-biased; ``small_cluster_correction=True`` (default) applies the

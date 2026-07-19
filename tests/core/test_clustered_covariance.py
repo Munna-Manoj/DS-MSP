@@ -1,9 +1,9 @@
 """Frame-clustered sandwich covariance: closes the real-data under-coverage the plain
 (unclustered) sandwich measures when per-block scores are correlated within a cluster.
 
-Derivation + full Monte-Carlo numbers:
-.ai/experiments/2026-07-17-stage-I-frame-clustered-sandwich-derivation.md. This module is
-the fast (reduced seed-count) regression version of that derivation's verification script.
+This module is the fast (reduced seed-count) regression version of the full
+Monte-Carlo verification (2026-07-17): known-correlation synthetic closes a 6.2x std /
+38x variance under-coverage of the frame-level direction to a 0.98x coverage ratio.
 """
 
 from __future__ import annotations

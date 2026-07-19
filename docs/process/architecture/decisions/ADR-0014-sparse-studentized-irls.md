@@ -37,8 +37,8 @@ independently useful configurability gap, kept with its three regression tests.
 ## Why rejected — the formal trichotomy (measured, real Seltos rig data)
 
 The maintainer's challenge: "either the algorithm can help but you implemented it incorrectly, or
-we are using it correctly [and it should help]." Resolved by experiment
-(`.ai`-logged 2026-07-18, "studentize formal trichotomy"; scripts in the session scratchpad):
+we are using it correctly [and it should help]." Resolved by a
+formal trichotomy experiment (2026-07-18), whose load-bearing numbers are quoted below:
 
 1. **Implemented incorrectly? No — proven correct.** The hat matrix of an undamped,
    user-weight-only LS problem is an orthogonal projector, so `Σ_i tr(H_ii) = K_free` is an exact
