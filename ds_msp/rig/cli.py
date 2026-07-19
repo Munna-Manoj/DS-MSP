@@ -47,47 +47,39 @@ from . import report as rpt
 from .pipeline import calibrate_scenario, random_model_assignment
 
 
-def _print_certificate(cert) -> None:
-    """One-line terminal rendering of the rotation-backbone optimality certificate."""
-    if cert is None:
-        return
-    if cert["certified"] is None:
-        print(f"certificate: skipped — {cert['message']}")
-        return
-    if cert["certified"] and cert["ba_consistent"]:
-        tag = "CERTIFIED"
-    elif cert["certified"]:
-        tag = "WRONG-BASIN WARNING"
-    else:
-        tag = "NOT CERTIFIED (inconclusive)"
-    out = f", {cert['n_outlier_edges']} outlier meas." if cert["n_outlier_edges"] else ""
-    print(f"certificate: {tag}  eta={cert['eta']:.2e}  "
-          f"d_cam={cert['d_cam_deg']:.3f} deg  "
-          f"({cert['n_edges']} measurements{out}, {cert['n_components']} component(s))")
-    print(f"  {cert['message']}")
-
-
 def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_path,
-                          audit=None, certificate=None):
-    """Shared tail for both entry points: distribution-stats table, verdict, the
-    observability-audit line(s), the optional certificate line, and the self-contained HTML
-    digital-twin report. Returns the process exit code (0 PASS/WARN, 1 FAIL) so a CI/cron
-    caller can tell success from failure without parsing text. The audit prints its own
-    OK/WARN line and never changes the exit code — ``audit_gate: refuse`` (the hard form)
-    raises upstream instead; likewise a NOT-CERTIFIED result is inconclusive by
+                          audit=None, certificate=None, covariance=None, metrics=None,
+                          output_paths=None):
+    """Shared tail for both entry points: assemble the full calibration deliverable ONCE
+    (:func:`ds_msp.rig.report.full_report_data` — capture summary, error distributions +
+    verdict, calibrated intrinsics/extrinsics with 1σ when covariance is on, trust layer,
+    reference comparisons, output listing), print it to the terminal, and persist the
+    identical content as ``calibration_report.txt`` + ``calibration_report.json`` beside
+    the MC-Calib output (plus the interactive HTML digital twin). Returns the process exit
+    code (0 PASS/WARN, 1 FAIL) so a CI/cron caller can tell success from failure without
+    parsing text. The audit never changes the exit code — ``audit_gate: refuse`` (the hard
+    form) raises upstream instead; likewise a NOT-CERTIFIED certificate is inconclusive by
     construction and never fails the run."""
     per_cam, overall = rpt.camera_and_overall_stats(rig, scn.object_obs)
     level, message = rpt.verdict(overall, pass_px=pass_px, warn_px=warn_px)
+    files = dict(output_paths or {})
+    if save_dir:
+        files.setdefault("mccalib_output_dir", save_dir)
+        files["calibration_report_txt"] = os.path.join(save_dir, "calibration_report.txt")
+        files["calibration_report_json"] = os.path.join(save_dir, "calibration_report.json")
+    if html_path:
+        files["interactive_html"] = html_path
+    data = rpt.full_report_data(rig, scn, models, per_cam, overall, level, message,
+                                metrics=metrics, audit=audit, certificate=certificate,
+                                covariance=covariance, output_files=files)
     print()
-    rpt.print_report(models, per_cam, overall, level, message)
-    if audit is not None:
-        print(rpt.render_audit(audit))
-    _print_certificate(certificate)
+    print(rpt.render_full_report(data))
     if html_path:
         rpt.write_html_report(html_path, rig, scn, models, per_cam, overall, level, message)
         print(f"\ninteractive report: {html_path}  (open in any browser, no server needed)")
     if save_dir:
-        print(f"wrote MC-Calib-format output to: {save_dir}")
+        paths = rpt.write_report_files(save_dir, data)
+        print(f"report saved: {paths['report_txt']}  +  {paths['report_json']}")
     return 0 if level in ("PASS", "WARN") else 1
 
 
@@ -104,14 +96,14 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
     print(f"=== {os.path.basename(config_path)}: {cfg.number_camera} cameras, "
           f"{cfg.number_board} board(s), {len(res['rig'].cameras)} calibrated ===")
     print(f"per-camera model: {res['models']}")
-    m = res["metrics"]
-    if m.get("worst_baseline_pct_vs_gt") is not None:
-        print(f"worst baseline error vs GroundTruth : {m['worst_baseline_pct_vs_gt']:.3f}%")
     html_path = report_path or (os.path.join(cfg.save_path, "report.html") if cfg.save_path
                                 else None)
     code = _report_and_exit_code(res["rig"], res["scenario"], res["models"], cfg.save_path,
                                  pass_px=pass_px, warn_px=warn_px, html_path=html_path,
-                                 audit=res.get("audit"), certificate=res.get("certificate"))
+                                 audit=res.get("audit"), certificate=res.get("certificate"),
+                                 covariance=res.get("covariance"),
+                                 metrics=res.get("metrics"),
+                                 output_paths=res.get("paths"))
     res["exit_code"] = code
     return res
 
@@ -232,17 +224,13 @@ def main():
     m = res["metrics"]
     animator.finish(res["rig"], rms=m["max_rms_px"])
 
-    if m["worst_baseline_pct_vs_gt"] is not None:
-        print(f"worst baseline error vs GroundTruth : {m['worst_baseline_pct_vs_gt']:.3f}%")
-    if m["worst_baseline_pct_vs_mccalib"] is not None:
-        print(f"worst baseline error vs MC-Calib    : {m['worst_baseline_pct_vs_mccalib']:.3f}%")
-    for k, v in res["paths"].items():
-        print(f"  {k}: {os.path.basename(v)}")
     html_path = args.report if args.report is not None else os.path.join(save_dir, "report.html")
     code = _report_and_exit_code(res["rig"], scn, res["models"], save_dir,
                                  pass_px=args.pass_px, warn_px=args.warn_px,
                                  html_path=html_path or None, audit=res.get("audit"),
-                                 certificate=res.get("certificate"))
+                                 certificate=res.get("certificate"),
+                                 covariance=res.get("covariance"), metrics=m,
+                                 output_paths=res.get("paths"))
     raise SystemExit(code)
 
 

@@ -12,6 +12,7 @@ a robust fit — report the full distribution instead.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -20,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from ..core.lie import so3_log
 from . import bundle
 from .types import RigState
 
@@ -579,7 +581,9 @@ def render_audit(audit: Dict, *, color: Optional[bool] = None) -> str:
     ok = audit["n_weak"] == 0 and audit["gauge_ok"]
     badge = _c("32", " OK ", enabled=color) if ok else _c("33", " WARN ", enabled=color)
     soft = f", {audit['n_soft']} soft" if audit.get("n_soft") else ""
-    lines.append(f"observability:{badge} cond(H_hat)={audit['cond']:.1e}"
+    cond = audit["cond"]
+    cond_s = f"{cond:.1e}" if isinstance(cond, (int, float)) and math.isfinite(cond) else "inf"
+    lines.append(f"observability:{badge} cond(H_hat)={cond_s}"
                  f"  weak={audit['n_weak']}{soft}")
     for f in audit["findings"]:
         lines.append(f"  - {f['message']}")
@@ -595,6 +599,295 @@ def render_audit(audit: Dict, *, color: Optional[bool] = None) -> str:
     if weak_cov:
         lines.append("  coverage: " + " ; ".join(weak_cov))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------------------
+# Full-deliverable report: ONE data dict -> terminal text AND persisted .txt/.json.
+# The terminal print and the saved files render from the same `data` through the same
+# renderer (only the ANSI-color flag differs), so their content cannot drift apart.
+# ---------------------------------------------------------------------------------------
+
+def _jsonify(x):
+    """Recursively convert to JSON-safe types: numpy scalars/arrays -> python, tuples ->
+    lists, dict keys -> str, non-finite floats -> None (strict-JSON friendly)."""
+    if isinstance(x, dict):
+        return {str(k): _jsonify(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_jsonify(v) for v in x]
+    if isinstance(x, np.ndarray):
+        return _jsonify(x.tolist())
+    if isinstance(x, (bool, np.bool_)):
+        return bool(x)
+    if isinstance(x, (int, np.integer)):
+        return int(x)
+    if isinstance(x, (float, np.floating)):
+        f = float(x)
+        return f if math.isfinite(f) else None
+    return x
+
+
+def _intrinsics_data(rig: RigState, covariance: Optional[Dict]) -> List[Dict]:
+    """Per-camera calibrated intrinsics; each parameter carries its 1-sigma std when a
+    frame-clustered covariance report (``bundle.parameter_covariance``) is provided."""
+    clustered = (covariance or {}).get("clustered", {})
+    out = []
+    for c in sorted(rig.cameras):
+        cam = rig.cameras[c]
+        std = clustered.get(c, {}).get("intrinsic_std")
+        params = []
+        for i, (name, val) in enumerate(zip(cam.param_names, cam.params)):
+            sig = float(std[i]) if std is not None else None
+            params.append({"name": str(name), "value": float(val), "sigma": sig})
+        w, h = rig.img_size.get(c, (0, 0))
+        out.append({"cam_id": c, "model": getattr(cam, "name", "?"),
+                    "width": int(w), "height": int(h), "params": params})
+    return out
+
+
+def _extrinsics_data(rig: RigState, covariance: Optional[Dict]) -> List[Dict]:
+    """Per-camera extrinsics relative to the reference camera: full ``T_c_ref``, camera
+    center in the ref frame, baseline, rotation angle/axis (``so3_log``, manifold-correct),
+    and — when a covariance report is provided — 1-sigma rotation/translation summaries
+    (RSS over the three tangent axes; per-axis values are in the JSON)."""
+    ref = rig.ref_cam_id
+    clustered = (covariance or {}).get("clustered", {})
+    T_ref_inv = np.linalg.inv(rig.T_c_g[ref])
+    out = []
+    for c in sorted(rig.T_c_g):
+        T = rig.T_c_g[c] @ T_ref_inv
+        R, t = T[:3, :3], T[:3, 3]
+        w = so3_log(R)
+        ang = float(np.degrees(np.linalg.norm(w)))
+        axis = (w / np.linalg.norm(w)).tolist() if np.linalg.norm(w) > 1e-12 else [0.0, 0.0, 0.0]
+        center = (-R.T @ t)
+        std = clustered.get(c, {}).get("extrinsic_std")
+        entry = {"cam_id": c, "is_ref": bool(c == ref), "T_c_ref": T.tolist(),
+                "center_in_ref": center.tolist(), "baseline": float(np.linalg.norm(center)),
+                "rot_deg": ang, "rot_axis": axis,
+                "rot_sigma_deg_rss": None, "trans_sigma_rss": None,
+                "rot_sigma_deg_axes": None, "trans_sigma_axes": None}
+        if std is not None:
+            std = np.asarray(std, float)
+            entry["rot_sigma_deg_rss"] = float(np.degrees(np.linalg.norm(std[:3])))
+            entry["trans_sigma_rss"] = float(np.linalg.norm(std[3:]))
+            entry["rot_sigma_deg_axes"] = np.degrees(std[:3]).tolist()
+            entry["trans_sigma_axes"] = std[3:].tolist()
+        out.append(entry)
+    return out
+
+
+def full_report_data(rig: RigState, scn, models: Dict[int, str],
+                     per_cam: Dict[int, ErrorStats], overall: ErrorStats,
+                     level: str, message: str, *, metrics: Optional[Dict] = None,
+                     audit: Optional[Dict] = None, certificate: Optional[Dict] = None,
+                     covariance: Optional[Dict] = None,
+                     output_files: Optional[Dict] = None) -> Dict:
+    """Assemble the complete, JSON-safe calibration deliverable: capture summary, verdict,
+    per-camera error distributions, calibrated intrinsics/extrinsics (with 1-sigma
+    uncertainties when ``covariance`` is given), trust layer (audit + certificate),
+    reference comparisons, and the list of written output files. This dict is the single
+    source both the terminal report and the persisted ``.txt``/``.json`` render from."""
+    obs = [o for o in getattr(scn, "object_obs", []) if o.cam_id in rig.cameras]
+    cov_meta = None
+    if covariance is not None:
+        cov_meta = {"estimator": "frame-clustered M-estimator sandwich",
+                    "n_clusters": covariance.get("n_clusters"),
+                    "kernel": covariance.get("kernel"), "scale": covariance.get("scale")}
+    return _jsonify({
+        "report": "DS-MSP rig calibration",
+        "scenario": getattr(scn, "name", ""),
+        "verdict": {"level": level, "message": message},
+        "capture": {"n_cameras": len(rig.cameras), "ref_cam_id": rig.ref_cam_id,
+                    "n_objects": len(rig.objects), "n_frames": len(rig.object_poses),
+                    "n_observations": len(obs),
+                    "n_corners": int(sum(len(o.point_rows) for o in obs))},
+        "models": {c: models.get(c, "?") for c in sorted(rig.cameras)},
+        "per_camera_errors_px": {c: per_cam[c].to_dict() for c in sorted(per_cam)},
+        "overall_errors_px": overall.to_dict(),
+        "gross_outlier_px": GROSS_PX,
+        "intrinsics": _intrinsics_data(rig, covariance),
+        "extrinsics": _extrinsics_data(rig, covariance),
+        "covariance": cov_meta,
+        "metrics": metrics,
+        "audit": audit,
+        "certificate": certificate,
+        "output_files": output_files or {},
+    })
+
+
+def _fmt(v: Optional[float], nd: int = 3) -> str:
+    if v is None or (isinstance(v, float) and not math.isfinite(v)):
+        return "--"
+    return f"{v:.{nd}f}"
+
+
+def _pct(v: Optional[float]) -> str:
+    return _fmt(100 * v, 2) if v is not None else "--"
+
+
+def _fmt_pm(value: Optional[float], sigma: Optional[float]) -> str:
+    s = f"{value:.6g}" if value is not None else "--"
+    return f"{s} ± {sigma:.2g}" if sigma is not None else s
+
+
+def _render_certificate_lines(cert: Dict, *, color: bool) -> List[str]:
+    """Terminal/text rendering of the rotation-backbone optimality certificate."""
+    if cert.get("certified") is None:
+        return [f"certificate: skipped — {cert['message']}"]
+    if cert["certified"] and cert.get("ba_consistent"):
+        tag, code = "CERTIFIED", "32"
+    elif cert["certified"]:
+        tag, code = "WRONG-BASIN WARNING", "31"
+    else:
+        tag, code = "NOT CERTIFIED (inconclusive)", "33"
+    n_out = cert.get("n_outlier_edges") or 0
+    out = f", {n_out} outlier meas." if n_out else ""
+    eta_s = f"{cert['eta']:.2e}" if cert.get("eta") is not None else "--"
+    lines = [f"certificate: {_c(code, tag, enabled=color)}  eta={eta_s}  "
+             f"d_cam={_fmt(cert.get('d_cam_deg'))} deg  d_frame={_fmt(cert.get('d_frame_deg'))} deg"
+             f"  ({cert['n_edges']} measurements{out}, {cert['n_components']} component(s))"]
+    for e in (cert.get("outlier_edges") or []):
+        cam_id, key, deg = e[0], e[1], e[2]
+        lines.append(f"  outlier measurement: cam {cam_id} frame {key}  {deg:.1f} deg off")
+    lines.append(f"  {cert['message']}")
+    return lines
+
+
+def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
+    """Render the full calibration deliverable (:func:`full_report_data`) as text. The
+    persisted ``calibration_report.txt`` uses ``color=False``; the terminal uses auto/ANSI —
+    same data, same renderer, identical content."""
+    if color is None:
+        color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    L: List[str] = []
+    title = "DS-MSP rig calibration report"
+    scen = data.get("scenario") or ""
+    L.append("=" * 78)
+    L.append(f"{title}{('  --  ' + scen) if scen else ''}")
+    L.append("=" * 78)
+    cap = data["capture"]
+    L.append(f"cameras: {cap['n_cameras']} (reference cam {cap['ref_cam_id']})   "
+             f"objects: {cap['n_objects']}   frames: {cap['n_frames']}   "
+             f"observations: {cap['n_observations']}   corners: {cap['n_corners']}")
+    L.append("")
+
+    # --- reprojection error distribution + verdict -------------------------------------
+    L.append("-- reprojection error (px) --")
+    header = (f"{'cam':>4}  {'model':13s} {'n':>6} {'mean':>7} {'median':>7} "
+              f"{'p95':>7} {'max':>7} {'rms':>7} {'inl_rms':>8} {'inlier%':>8}")
+    L.append(header)
+    L.append("-" * len(header))
+    per_cam = data["per_camera_errors_px"]
+    models = data["models"]
+    for c in sorted(per_cam, key=lambda k: int(k)):
+        s = per_cam[c]
+        L.append(f"{c:>4}  {models.get(c, '?'):13s} {s['n']:>6d} {_fmt(s['mean']):>7} "
+                 f"{_fmt(s['median']):>7} {_fmt(s['p95']):>7} {_fmt(s['max']):>7} "
+                 f"{_fmt(s['rms']):>7} {_fmt(s['inlier_rms']):>8} "
+                 f"{_pct(s['inlier_frac']):>7}%")
+    L.append("-" * len(header))
+    o = data["overall_errors_px"]
+    L.append(f"{'all':>4}  {'':13s} {o['n']:>6d} {_fmt(o['mean']):>7} {_fmt(o['median']):>7} "
+             f"{_fmt(o['p95']):>7} {_fmt(o['max']):>7} {_fmt(o['rms']):>7} "
+             f"{_fmt(o['inlier_rms']):>8} {_pct(o['inlier_frac']):>7}%")
+    gross = {c: per_cam[c]["n_gross"] for c in sorted(per_cam, key=lambda k: int(k))
+             if per_cam[c]["n_gross"]}
+    if gross:
+        detail = ", ".join(f"cam {c}: {n}" for c, n in gross.items())
+        gp = data.get("gross_outlier_px", GROSS_PX)
+        L.append(f"note: {o['n_gross']} corner(s) reproject > {gp:.0f}px ({detail}) — likely "
+                 f"mis-detections; they are DOWN-WEIGHTED in the solve, not fitted. Judge "
+                 f"accuracy by median / inl_rms, not max / rms.")
+    v = data["verdict"]
+    badge = _c(_COLOR.get(v["level"], "0"), f" {v['level']} ", enabled=color)
+    L.append(f"verdict:{badge} {v['message']}")
+    L.append("")
+
+    # --- calibrated intrinsics ---------------------------------------------------------
+    have_sigma = any(p["sigma"] is not None for e in data["intrinsics"] for p in e["params"])
+    L.append("-- calibrated intrinsics" + (" (value ± 1σ) --" if have_sigma else " --"))
+    for e in data["intrinsics"]:
+        L.append(f"cam {e['cam_id']}  {e['model']}  {e['width']}x{e['height']}")
+        parts = [f"{p['name']}={_fmt_pm(p['value'], p['sigma'])}" for p in e["params"]]
+        # wrap at ~4 params per line to stay readable for long fisheye parameter lists
+        for i in range(0, len(parts), 4):
+            L.append("    " + "   ".join(parts[i:i + 4]))
+    cov = data.get("covariance")
+    if cov and have_sigma:
+        L.append(f"  (uncertainty: 1σ from the {cov['estimator']} covariance, "
+                 f"{cov['n_clusters']} frame clusters, kernel={cov['kernel']})")
+    elif cov:
+        L.append("  (intrinsics were held fixed during the solve (fix_intrinsic) — no "
+                 "intrinsic uncertainty to report; extrinsic 1σ below)")
+    else:
+        L.append("  (parameter uncertainties available with report_covariance: true)")
+    L.append("")
+
+    # --- extrinsics vs reference -------------------------------------------------------
+    L.append(f"-- extrinsics (camera pose relative to reference cam "
+             f"{cap['ref_cam_id']}; length in dataset units) --")
+    eh = (f"{'cam':>4} {'baseline':>9} {'center x':>10} {'y':>10} {'z':>10} "
+          f"{'rot(deg)':>9}  axis")
+    L.append(eh)
+    L.append("-" * len(eh))
+    for e in data["extrinsics"]:
+        cx, cy, cz = e["center_in_ref"]
+        ax = "  [{:+.2f} {:+.2f} {:+.2f}]".format(*e["rot_axis"]) if not e["is_ref"] else "  (reference)"
+        L.append(f"{e['cam_id']:>4} {_fmt(e['baseline'], 4):>9} {_fmt(cx, 4):>10} "
+                 f"{_fmt(cy, 4):>10} {_fmt(cz, 4):>10} {_fmt(e['rot_deg'], 3):>9}{ax}")
+        if e["rot_sigma_deg_rss"] is not None:
+            L.append(f"{'':>4} ± 1σ: rotation {e['rot_sigma_deg_rss']:.3g} deg, "
+                     f"translation {e['trans_sigma_rss']:.3g} (RSS over axes)")
+    L.append("")
+
+    # --- trust layer -------------------------------------------------------------------
+    L.append("-- trust layer --")
+    if data.get("audit"):
+        L.append(render_audit(data["audit"], color=color))
+    else:
+        L.append("observability: not run (audit_gate: off)")
+    if data.get("certificate"):
+        L.extend(_render_certificate_lines(data["certificate"], color=color))
+    else:
+        L.append("certificate: not run (enable with certify: true — proves the rotation "
+                 "backbone is the global optimum of its measurement graph)")
+    L.append("")
+
+    # --- reference comparisons ---------------------------------------------------------
+    m = data.get("metrics") or {}
+    ref_lines = []
+    if m.get("worst_baseline_pct_vs_gt") is not None:
+        ref_lines.append(f"worst baseline error vs GroundTruth : "
+                         f"{m['worst_baseline_pct_vs_gt']:.3f}%")
+    if m.get("worst_baseline_pct_vs_mccalib") is not None:
+        ref_lines.append(f"worst baseline error vs MC-Calib    : "
+                         f"{m['worst_baseline_pct_vs_mccalib']:.3f}%")
+    if ref_lines:
+        L.append("-- reference comparison --")
+        L.extend(ref_lines)
+        L.append("")
+
+    # --- outputs -----------------------------------------------------------------------
+    files = data.get("output_files") or {}
+    if files:
+        L.append("-- output files --")
+        for k in sorted(files):
+            L.append(f"  {k}: {files[k]}")
+    return "\n".join(L)
+
+
+def write_report_files(save_dir: str, data: Dict) -> Dict[str, str]:
+    """Persist the deliverable next to the calibration output: the terminal report verbatim
+    (minus ANSI color) as ``calibration_report.txt`` and the full machine-readable data as
+    ``calibration_report.json``. Returns ``{"report_txt": path, "report_json": path}``."""
+    os.makedirs(save_dir, exist_ok=True)
+    txt_path = os.path.join(save_dir, "calibration_report.txt")
+    json_path = os.path.join(save_dir, "calibration_report.json")
+    with open(txt_path, "w") as f:
+        f.write(render_full_report(data, color=False) + "\n")
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=2, allow_nan=False)
+    return {"report_txt": txt_path, "report_json": json_path}
 
 
 def print_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overall: ErrorStats,
