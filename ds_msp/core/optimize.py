@@ -40,7 +40,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import numpy as np
-from scipy.linalg import solve_triangular
 
 from .robust import (
     auto_kernel_scale, gnc_scale, gnc_tls_mu_init, gnc_tls_weight,
@@ -104,14 +103,25 @@ def _safe_inv(M: np.ndarray) -> np.ndarray:
     regularized steps get *accepted* into a slightly different basin. The
     historical behavior is therefore load-bearing; changing it needs a
     maintainer decision with recalibrated end-to-end thresholds, not a
-    drive-by swap. See docs/matrix_calculus_study/dsmsp_implementation_notes
-    in the diffpnp repo for the full data.
+    drive-by swap.
     """
     try:
         return np.linalg.inv(M)
     except np.linalg.LinAlgError:
         scale = max(float(np.trace(M)) / M.shape[0], 1.0)
         return np.linalg.inv(M + 1e-8 * scale * np.eye(M.shape[0]))
+
+
+def _cho_solve(L: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Solve ``(L L^T) x = b`` from a lower Cholesky factor, NumPy-only.
+
+    The math-foundation layer must stay free of scipy (import-linter contract /
+    ``tests/contract/test_independence.py``), so the two triangular substitutions go
+    through ``np.linalg.solve`` on the factor instead of ``scipy.linalg.solve_triangular``.
+    Solving an already-triangular system via LAPACK's generic driver is numerically the
+    same backward-stable substitution; the extra factorization bookkeeping is negligible
+    at this solver's dense-path sizes."""
+    return np.linalg.solve(L.T, np.linalg.solve(L, b))
 
 
 def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
@@ -123,7 +133,7 @@ def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
     A = H + lam * np.diag(D)
     try:
         L = np.linalg.cholesky(A)
-        return solve_triangular(L.T, solve_triangular(L, -g, lower=True), lower=False)
+        return _cho_solve(L, -g)
     except np.linalg.LinAlgError:
         pass
     # A fixed +εI is negligible against a ~1e6-trace pixel² Hessian, so tie the
@@ -134,7 +144,7 @@ def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
         try:
             jit = (fb + 1e-8 * fb * scale)
             L = np.linalg.cholesky(A + jit * np.eye(K))
-            return solve_triangular(L.T, solve_triangular(L, -g, lower=True), lower=False)
+            return _cho_solve(L, -g)
         except np.linalg.LinAlgError:
             fb *= 100.0
     # Last resort: pure scaled-identity step (a tiny gradient-descent move).
@@ -628,8 +638,7 @@ def schur_lm(
         S = 0.5 * (S + S.T)
         try:
             L = np.linalg.cholesky(S)
-            d_shared = solve_triangular(L.T, solve_triangular(L, rhs, lower=True),
-                                        lower=False)
+            d_shared = _cho_solve(L, rhs)
         except np.linalg.LinAlgError:
             # Route through the same escalating scale-aware jitter ladder as the
             # dense path (λ=0, D=0 makes _solve_damped solve S·δ = rhs directly).

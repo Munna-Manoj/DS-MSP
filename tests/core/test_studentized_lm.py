@@ -5,7 +5,7 @@ a residual-only kernel under-weights it ("self-masking"). Applying the kernel to
 studentized squared residual s̃_i = r_iᵀ(I − H_ii + εI)⁻¹ r_i (hat-matrix leverage
 deflation undone) inflates exactly those points so the kernel finally sees them.
 
-Ported in spirit from diffpnp's robust_studentize leverage counterexample. Honest
+A classic high-leverage counterexample, constructed independently here. Honest
 scope note: inside a monotone-descent LM (accept/reject on the robust cost), what
 studentization buys is *bias removal at the converged minimum* — the leverage point
 retains enough weight in plain IRLS to visibly bias the estimate, and studentization

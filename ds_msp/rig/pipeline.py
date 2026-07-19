@@ -70,7 +70,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        noise_bound: Optional[float] = None,
                        verbose: bool = False, on_iter=None,
                        objects: Optional[list] = None,
-                       reproj_gate_px: Optional[float] = None) -> Dict:
+                       reproj_gate_px: Optional[float] = None,
+                       report_covariance: bool = False) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -83,7 +84,10 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     runs instead of staying silent until the final result. ``on_iter(it, max_iter, rms, cost,
     rig_snapshot)`` fires once per solver iteration across every stage, with a real
     ``RigState`` snapshot of the mid-solve geometry — the hook a live progress display (or a
-    3D terminal animator) drives from. Returns ``{rig, models, paths, metrics}``.
+    3D terminal animator) drives from. ``report_covariance=True`` attaches a ``"covariance"`` key
+    (:func:`ds_msp.rig.bundle.parameter_covariance`) to the returned dict with per-camera
+    extrinsic/intrinsic parameter uncertainty from the frame-clustered sandwich estimator.
+    Returns ``{rig, models, paths, metrics}`` (``+ "covariance"`` when requested).
     """
     if init_cameras is not None:
         # Start from the provided per-camera models (MC-Calib's cam_params_path init): the
@@ -128,8 +132,12 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
             paths["reprojection_images"] = f"Reprojection/ ({nr} images)"
             paths["detection_images"] = f"Detection/ ({nd} images)"
     metrics = _scenario_metrics(rig, scn)
-    return {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
-            "paths": paths, "metrics": metrics}
+    out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
+          "paths": paths, "metrics": metrics}
+    if report_covariance:
+        out["covariance"] = bundle.parameter_covariance(
+            rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
+    return out
 
 
 def intrinsics_error(rig: RigState, ref_K: Dict[int, np.ndarray]) -> Dict[int, Dict[str, float]]:

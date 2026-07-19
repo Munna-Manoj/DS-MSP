@@ -31,9 +31,15 @@ def _design(seed=42):
 
 
 def _solve(A, y, kernel, scale):
-    residual = lambda th: A @ th - y
-    jacobian = lambda th: A
-    retract = lambda th, d: th + d
+    def residual(th):
+        return A @ th - y
+
+    def jacobian(th):
+        return A
+
+    def retract(th, d):
+        return th + d
+
     out = lm_solve(np.zeros(P), residual, jacobian, retract, block=2,
                    robust_kernel=kernel, robust_scale=scale, max_iter=60)
     return out.state

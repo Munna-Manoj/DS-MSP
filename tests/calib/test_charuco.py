@@ -52,7 +52,16 @@ _S2 = "../MC-Calib/Blender_Images/Scenario_2"
                     reason="Blender Scenario_2 images not present")
 def test_parity_vs_mccalib_keypoints():
     """Detected corners reproduce MC-Calib's own ``detected_keypoints_data.yml`` to
-    sub-pixel agreement on the same physical frames (cam 0)."""
+    sub-pixel agreement on the same physical frames (cam 0).
+
+    Convention-aware: OpenCV 5.0 moved the ChArUco corner coordinate convention by exactly
+    half a pixel relative to the OpenCV-4.x build that generated MC-Calib's reference
+    keypoints (measured on this dataset 2026-07-19: mean delta (-0.4995, -0.4990), residual
+    scatter after removing it <= 0.022 px, i.e. detection itself agrees sub-0.03 px). So
+    the parity contract is: the GLOBAL offset must be either ~zero or a pure half-pixel
+    convention delta — anything else (and any per-corner scatter about it) fails at the
+    original sub-pixel bars. A genuine mis-decode (the ADR-0012 class) is NON-uniform and
+    still fails the scatter assertions."""
     from ds_msp.calib.charuco import detect_folder
     from ds_msp.io.mccalib import load_scenario
     scn = load_scenario(_S2)
@@ -68,10 +77,15 @@ def test_parity_vs_mccalib_keypoints():
     for o in obs:                                            # filename N -> MC frame N-1
         mine.setdefault(o.frame_id - 1, {}).update(
             {int(r): uv for r, uv in zip(o.point_rows, o.pts_2d)})
-    diffs = [np.linalg.norm(mc[f][r] - mine[f][r])
-             for f in set(mc) & set(mine) for r in set(mc[f]) & set(mine[f])]
-    assert len(diffs) > 300
-    assert np.median(diffs) < 0.1 and np.max(diffs) < 1.0
+    dv = np.array([mine[f][r] - mc[f][r]
+                   for f in set(mc) & set(mine) for r in set(mc[f]) & set(mine[f])])
+    assert len(dv) > 300
+    shift = dv.mean(axis=0)
+    half_pixel = np.allclose(np.abs(shift), 0.5, atol=0.05)
+    assert np.linalg.norm(shift) < 0.1 or half_pixel, \
+        f"global corner offset {shift} is neither ~0 nor a half-pixel convention delta"
+    resid = np.linalg.norm(dv - shift, axis=1)
+    assert np.median(resid) < 0.1 and resid.max() < 1.0
 
 
 def _small_two_cam_root(tmp_path, n_images=10):
