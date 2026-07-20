@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.12.0...v0.13.0) (2026-07-19)
+
+
+### Features
+
+* **core:** frame-clustered sandwich covariance for parameter uncertainty ([dc9e169](https://github.com/Munna-Manoj/DS-MSP/commit/dc9e169d9325861884da29b4fb1e1bebf69b8090))
+* **core:** M-estimator sandwich covariance for calibration reports ([3834cb3](https://github.com/Munna-Manoj/DS-MSP/commit/3834cb36dd27ad0270b3c5477e33223996fcb0d0))
+* **rig:** frame-clustered covariance reporting; remove disproven studentize stack; restore NumPy-only core ([c447571](https://github.com/Munna-Manoj/DS-MSP/commit/c4475719ee9d2b9f470a474b69a4a7a47c8157a6))
+* **rig:** opt-in clustered covariance reporting; make noise_bound configurable ([1ab7a52](https://github.com/Munna-Manoj/DS-MSP/commit/1ab7a5265c93826f1575bcd24b5316160b134af0))
+
+
+### Bug Fixes
+
+* **calib:** make ChArUco parity test convention-aware for OpenCV 5's half-pixel shift ([f71e16a](https://github.com/Munna-Manoj/DS-MSP/commit/f71e16a3f63e61145928e55c3eb402847e6995d2))
+* **core:** restore NumPy-only core — replace scipy solve_triangular with a Cholesky-solve helper ([7f549d2](https://github.com/Munna-Manoj/DS-MSP/commit/7f549d26ee64590079e9586a04c0c749f61ecc9b))
+* **tests:** satisfy ruff E731 in test_covariance.py helper lambdas ([f50cb83](https://github.com/Munna-Manoj/DS-MSP/commit/f50cb83a7ed03cdedc0173b406e47d928b3d207f))
+
+
+### Documentation
+
+* make experiment references self-contained (no local-only paths in tracked files) ([c4eefb0](https://github.com/Munna-Manoj/DS-MSP/commit/c4eefb00e07bfb9820c02c457d287dbdc9719cca))
+* neutral, self-contained ADR-0014/0015 phrasing for publication ([9e8f9fc](https://github.com/Munna-Manoj/DS-MSP/commit/9e8f9fc4f05c39cc41ea8b1c69a330f951fe951c))
+* **process:** ADR-0014 rejected (studentize), ADR-0015 clustered-only covariance ([8c41b71](https://github.com/Munna-Manoj/DS-MSP/commit/8c41b71f148a468816821fbe33f357ef20d49028))
+* remove external-repo references from tracked files ([f2ead38](https://github.com/Munna-Manoj/DS-MSP/commit/f2ead38fa447f889eb7df2d6d4b14acf850f999b))
+
 ## [0.12.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.11.1...v0.12.0) (2026-07-13)
 
 
