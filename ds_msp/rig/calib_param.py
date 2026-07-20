@@ -262,6 +262,23 @@ def _noise_bound_field(ov: Dict, fs) -> Optional[float]:
     return None if nb <= 0 else nb
 
 
+def _audit_gate_field(ov: Dict, fs) -> str:
+    """Parse ``audit_gate`` (observability audit mode, FR-RIG-021): ``off`` | ``warn`` |
+    ``refuse``. Default ``warn`` — the audit is default-on because its whole value is
+    surfacing a silently under-constrained capture, and its cost is one eigendecomposition;
+    ``refuse`` (hard failure on a structural weak direction, for CI pipelines) is opt-in,
+    matching ``reproj_gate_px``'s opt-in hard-gate precedent."""
+    if "audit_gate" in ov:
+        raw = str(ov["audit_gate"])
+    else:
+        n = fs.getNode("audit_gate")
+        raw = n.string() if n is not None and not n.empty() and n.isString() else "warn"
+    s = raw.split("#", 1)[0].strip().lower()
+    if s not in ("off", "warn", "refuse"):
+        raise ValueError(f"config field 'audit_gate': expected off/warn/refuse, got {raw!r}")
+    return s
+
+
 def _int_seq(fs, name) -> List[int]:
     n = fs.getNode(name)
     if n is None or n.empty() or not n.isSeq():
@@ -299,6 +316,8 @@ class RigConfig:
     webviewer: bool = True                      # launch the live browser view (independent of `verbose`)
     object_path: Optional[str] = None
     report_covariance: bool = False              # opt-in parameter-uncertainty report (FR-RIG-020)
+    audit_gate: str = "warn"                     # observability audit: off|warn|refuse (FR-RIG-021)
+    certify: bool = False                        # opt-in rotation-backbone optimality certificate (FR-RIG-022)
     raw: Dict = field(default_factory=dict)
 
     @property
@@ -382,6 +401,8 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         webviewer=_bool_field(ov, fs, "webviewer", 1),
         object_path=path_key("object_path", "None"),
         report_covariance=_bool_field(ov, fs, "report_covariance", 0),
+        audit_gate=_audit_gate_field(ov, fs),
+        certify=_bool_field(ov, fs, "certify", 0),
         raw={"path": config_path},
     )
     fs.release()
@@ -634,7 +655,8 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              refine_structure=(cfg.number_board > 1),
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
                              on_iter=animator, objects=objects,
-                             report_covariance=cfg.report_covariance)
+                             report_covariance=cfg.report_covariance,
+                             audit_gate=cfg.audit_gate, certify=cfg.certify)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
     # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical

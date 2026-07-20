@@ -71,7 +71,9 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        verbose: bool = False, on_iter=None,
                        objects: Optional[list] = None,
                        reproj_gate_px: Optional[float] = None,
-                       report_covariance: bool = False) -> Dict:
+                       report_covariance: bool = False,
+                       audit_gate: str = "warn",
+                       certify: bool = False) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -87,8 +89,23 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     3D terminal animator) drives from. ``report_covariance=True`` attaches a ``"covariance"`` key
     (:func:`ds_msp.rig.bundle.parameter_covariance`) to the returned dict with per-camera
     extrinsic/intrinsic parameter uncertainty from the frame-clustered sandwich estimator.
-    Returns ``{rig, models, paths, metrics}`` (``+ "covariance"`` when requested).
+
+    ``audit_gate`` controls the observability audit (:func:`ds_msp.rig.audit.audit_rig`):
+    ``"warn"`` (default) runs it and attaches an ``"audit"`` key — default-on because its
+    entire value is catching a silently under-constrained capture the user did not suspect,
+    and its cost is one eigendecomposition, well under a single BA iteration; ``"refuse"``
+    additionally raises :class:`RuntimeError` when a structural weak direction is found (for
+    CI/production pipelines, like ``reproj_gate_px``); ``"off"`` skips it.
+
+    ``certify=True`` attaches a ``"certificate"`` key
+    (:func:`ds_msp.rig.certify.certify_rotations`): the a-posteriori global-optimality
+    certificate of the extrinsic-rotation backbone against the per-view PnP measurement
+    graph — opt-in like ``report_covariance``.
+    Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
+    ``"certificate"`` when enabled).
     """
+    if audit_gate not in ("off", "warn", "refuse"):
+        raise ValueError(f"audit_gate must be 'off', 'warn' or 'refuse', got {audit_gate!r}")
     if init_cameras is not None:
         # Start from the provided per-camera models (MC-Calib's cam_params_path init): the
         # front-end uses them directly instead of a from-scratch re-fit — essential for a
@@ -137,6 +154,19 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     if report_covariance:
         out["covariance"] = bundle.parameter_covariance(
             rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
+    if certify:
+        from .certify import certify_rotations
+        out["certificate"] = certify_rotations(rig, scn.object_obs)
+    if audit_gate != "off":
+        from .audit import audit_rig
+        audit = audit_rig(rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
+        out["audit"] = audit
+        if audit_gate == "refuse" and (audit["n_weak"] > 0 or not audit["gauge_ok"]):
+            details = "; ".join(f["message"] for f in audit["findings"]) or \
+                f"{audit['n_weak']} unnamed weak direction(s)"
+            raise RuntimeError(
+                f"observability audit refused this calibration (audit_gate='refuse'): "
+                f"{details}")
     return out
 
 

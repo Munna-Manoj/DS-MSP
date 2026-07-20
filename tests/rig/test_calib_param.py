@@ -186,6 +186,40 @@ def test_noise_bound_honors_set_override(tmp_path):
     assert load_config(cfgp, overrides={"noise_bound": 0.5}).noise_bound == 0.5
 
 
+# --- trust-layer config fields (observability audit + certificate, FR-RIG-021/022) ---
+
+@pytest.mark.req("FR-RIG-021")
+def test_audit_gate_defaults_to_warn_parses_all_modes_and_honors_overrides(tmp_path):
+    """The observability audit is default-ON (warn): a config that never mentions it still
+    gets the audit attached -- its whole value is catching a capture the user did not
+    suspect. refuse/off are explicit choices; --set audit_gate=... works like other fields."""
+    assert load_config(_write_cfg(tmp_path, "number_camera: 1\n")).audit_gate == "warn"
+    for mode in ("off", "warn", "refuse"):
+        d = tmp_path / f"mode_{mode}"
+        d.mkdir()
+        cfg = load_config(_write_cfg(d, f"number_camera: 1\naudit_gate: {mode}\n"))
+        assert cfg.audit_gate == mode
+    d = tmp_path / "ovr"
+    d.mkdir()
+    cfgp = _write_cfg(d, "number_camera: 1\n")
+    assert load_config(cfgp, overrides={"audit_gate": "refuse"}).audit_gate == "refuse"
+
+
+@pytest.mark.req("FR-RIG-021")
+def test_audit_gate_rejects_unknown_mode(tmp_path):
+    with pytest.raises(ValueError, match="audit_gate"):
+        load_config(_write_cfg(tmp_path, "number_camera: 1\naudit_gate: maybe\n"))
+
+
+@pytest.mark.req("FR-RIG-022")
+def test_certify_defaults_off_and_is_settable(tmp_path):
+    """The rotation-backbone certificate is opt-in (like report_covariance)."""
+    assert load_config(_write_cfg(tmp_path, "number_camera: 1\n")).certify is False
+    d = tmp_path / "on"
+    d.mkdir()
+    assert load_config(_write_cfg(d, "number_camera: 1\ncertify: true\n")).certify is True
+
+
 @pytest.mark.req("FR-RIG-014")
 def test_webviewer_defaults_true_and_is_independent_of_verbose(tmp_path):
     """`webviewer` must default to the pre-existing always-on behavior (no silent UX change for
