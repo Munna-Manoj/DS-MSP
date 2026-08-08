@@ -2,43 +2,47 @@
 
 > Standards-informed after ISO/IEC/IEEE 29119-2 (test process) and 12207 (V&V activities). Defines
 > *how* DS-MSP is verified (does it meet the spec?) and validated (does it work on real data?), the
-> entry/exit criteria for each stage, and the machine-enforced release gate.
+> entry/exit criteria for each stage, and the release policy plus its current automated controls.
 
 ## 1. Verification vs validation
 
 - **Verification** — the software meets its specification. Done with the deterministic, dataset-free
-  test levels ([test-levels.md](test-levels.md)): unit, contract, gradient-check, integration,
-  statistical. Runs on every PR.
+  test levels ([test-levels.md](test-levels.md)): unit, contract, gradient-check, integration, and
+  statistical. The fast levels run on every PR; statistical tests run nightly and locally before
+  merge when relevant to a change.
 - **Validation** — the software produces correct results on **real** data (real lenses, real noise,
   real board detection and pose distributions). Done with `realdata` tests/scripts against real
   datasets. Required before a release for release-gated requirements (ADR-0006).
 
 ## 2. Quality gates (per PR, all must pass)
 
-The `lint + types + layering` and `tests` CI jobs ([CICD_PIPELINE.md](../management/CICD_PIPELINE.md))
-enforce, on every pull request:
+The CI jobs ([CICD_PIPELINE.md](../management/CICD_PIPELINE.md)) apply the following gates. Code
+changes run items 1–4, governance runs on every pull request, and the strict docs build runs when
+code or documentation changes:
 
 1. **Lint** — `ruff check .` clean.
 2. **Layering** — `lint-imports` (import-linter contracts) clean; mirrored by
    `tests/contract/test_independence.py`.
 3. **Types** — `mypy` clean on the typed core surface.
-4. **Tests** — `pytest` green on the Python 3.10 / 3.11 / 3.12 matrix, with coverage reported.
-5. **Governance** — `tools/check_traceability.py --check` and `tools/check_tree_hygiene.py` clean
-   (no orphan requirements, no dangling REQ↔test links, ADR index in sync, no tracked local-only
-   content).
+4. **Tests** — `pytest -m "not slow"` green on the Python 3.10 / 3.11 / 3.12 matrix, with coverage
+   reported. Relevant slow synthetic evidence comes from a local or nightly run before merge.
+5. **Governance** — traceability, tree hygiene, docs-zone, docs-source-coverage, and packaging checks
+   clean (no orphan requirements, dangling links, unregistered docs, copied/unverified examples,
+   tracked local-only content, or advertised-but-unshipped package surface).
+6. **Documentation** — the MkDocs site builds in strict mode through `tests/docs/`.
 
 ## 3. Entry / exit criteria
 
 **Verification (synthetic) — entry:** a change with the relevant tests added/updated and its
 requirement marker(s) in place. **Exit:** all §2 gates green.
 
-**Validation (real data) — entry:** verification passed; the change touches a release-gated
-requirement (FR-CALIB-001, FR-RIG-001, NFR-NUM-004) or its area. **Exit:** the linked `realdata`
-test(s) green on the real dataset, within the tolerance stated in the requirement.
+**Validation (real data) — entry:** verification passed; the change touches a requirement whose
+canonical row has `release_gated=yes`. **Exit:** every linked `realdata` test actually executed and
+passed on the real dataset, within the tolerance stated in the requirement.
 
-**Release — entry:** every release-gated requirement has *both* a synthetic and a `realdata` test
-linked and green (`check_traceability.py --release`). **Exit:** release-please cuts the tag and the
-PyPI OIDC publish succeeds (ADR-0006, CON-07).
+**Release — entry:** `check_traceability.py --release` confirms structural synthetic and real-data
+coverage, and execution records confirm the linked real-data tests did not skip and passed.
+**Exit:** release-please cuts the tag and the PyPI OIDC publish succeeds (ADR-0006, CON-07).
 
 ## 4. Coverage expectations
 
@@ -50,14 +54,17 @@ PyPI OIDC publish succeeds (ADR-0006, CON-07).
 
 ## 5. The release gate
 
-The policy: no release-gated requirement may ship without a green synthetic **and** a green real-data
-test. This is enforced two ways, one active and one planned:
+The policy: no release-gated requirement may ship without green synthetic **and** real-data evidence.
+Current controls are:
 
-- **Active:** `tools/check_traceability.py --release` fails if a release-gated requirement lacks
-  `realdata` coverage (run it before cutting a release).
-- **Planned (RSK-07):** a pre-release / nightly validation job that runs the `realdata` suite against
-  real datasets and must be green before release-please publishes. This job is **not yet wired** — until
-  it is, the real-data validation is run manually as part of the release checklist.
+- **Active structural control:** `tools/check_traceability.py --release` fails if a release-gated
+  requirement lacks linked synthetic or `realdata` coverage.
+- **Active execution path:** `nightly.yml` runs the real-data suite on schedule or on demand when
+  datasets are provisioned.
+- **Remaining RSK-07 gap:** `release.yml` does not depend on a non-skipping result, and the
+  dataset-gated job can be green after all tests skip. Until an automated release dependency proves
+  execution, the maintainer must verify and record that the linked tests ran and passed before
+  merging the release PR.
 
 See ADR-0006 and [CHANGE_RELEASE_MGMT.md](../management/CHANGE_RELEASE_MGMT.md).
 

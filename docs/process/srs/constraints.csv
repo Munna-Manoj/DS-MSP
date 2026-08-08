@@ -1,6 +1,6 @@
 id,title,rationale,verify_method
 CON-01,Math foundation depends only on NumPy + stdlib,Keep core/data/geometry/models portable and dependency-light,tests/contract/test_independence.py
-CON-02,OpenCV confined to detection and IO adapters,Keep the solver/geometry path NumPy-native and portable,tests/contract/test_independence.py::test_math_foundation_is_cv2_and_scipy_free
+CON-02,OpenCV and SciPy are excluded from the math foundation,Keep core/data/geometry/models NumPy-native and portable while allowing optional dependencies in adapters and service layers,tests/contract/test_independence.py::test_math_foundation_is_cv2_and_scipy_free
 CON-03,Support Python 3.10 through 3.12,Match the supported runtime matrix,.github/workflows/ci.yml
 CON-04,Analytic Jacobians only (no autodiff dependency),Speed and stability; avoid heavy ML frameworks in core,tests/contract/test_gradcheck.py
 CON-05,Examples and demos run on small (<10 GB) public data on a laptop,Keep the project reproducible without special hardware,docs/ROADMAP.md

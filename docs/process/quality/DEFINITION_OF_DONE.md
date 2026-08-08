@@ -10,10 +10,13 @@
       `code_module`, `verify_method`, `status`).
 - [ ] **Tests** — added/updated at the right level ([test-levels.md](test-levels.md)); each new test
       verifying a requirement carries `@pytest.mark.req(...)`.
-- [ ] **Synthetic verification green** — full suite passes locally and in CI on 3.10/3.11/3.12.
+- [ ] **Synthetic verification green** — the fast suite passes locally and in CI on
+      3.10/3.11/3.12; relevant slow synthetic coverage passes locally or in the nightly workflow
+      before merge (solver/optimizer changes require the complete synthetic suite).
 - [ ] **Lint / types / layering green** — `ruff check .`, `mypy` (typed surface), `lint-imports` /
       `test_independence.py` all clean. A new cross-layer edge has an ADR + updated contracts.
-- [ ] **Governance green** — `check_traceability.py --check` and `check_tree_hygiene.py` clean.
+- [ ] **Governance green** — `check_traceability.py --check`, `check_tree_hygiene.py`,
+      `check_docs_zone.py`, `check_docs_src_coverage.py`, and `check_packaging.py` clean.
 - [ ] **Docs updated** — public API/behaviour changes update the relevant docs; a new interface updates
       [`interfaces.md`](../srs/interfaces.md).
 - [ ] **No leakage** — no internal R&D / process content, secrets, or absolute local paths in tracked
@@ -27,11 +30,12 @@
 - [ ] Registered in the model registry; round-trip (de)serialization tested.
 - [ ] Followed [playbooks/add-a-camera-model.md](../playbooks/add-a-camera-model.md).
 
-## Additionally, for a release-gated change (FR-CALIB-001, FR-RIG-001, NFR-NUM-004)
+## Additionally, for a release-gated change (`release_gated=yes` in `requirements.csv`)
 
 - [ ] A `realdata` test validates the behaviour on a real dataset within the stated tolerance.
 - [ ] `check_traceability.py --release` passes (synthetic **and** real-data coverage present).
-- [ ] The pre-release validation job is green (ADR-0006).
+- [ ] The linked real-data tests actually executed (none of the required evidence was skipped) and
+      passed before release; an all-skipped dataset-gated job is not validation evidence (ADR-0006).
 
 ## Additionally, for a defect fix
 

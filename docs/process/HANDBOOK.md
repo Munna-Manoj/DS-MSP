@@ -32,7 +32,7 @@ docs/process/
 ├─ architecture/
 │  ├─ ARCHITECTURE.md               layered stack + enforcement
 │  ├─ components.csv                ARC-* components + depends_on
-│  └─ decisions/INDEX.md + ADR-0001..0006
+│  └─ decisions/INDEX.md + ADR-NNNN records
 ├─ quality/
 │  ├─ QA_VV_PLAN.md  DEFINITION_OF_DONE.md  test-levels.md
 ├─ management/
@@ -43,14 +43,14 @@ docs/process/
 └─ traceability/TRACEABILITY.md     generated bidirectional matrix (CI-checked in sync)
 ```
 Root: [`CONTRIBUTING.md`](../../CONTRIBUTING.md), [`SECURITY.md`](../../SECURITY.md),
-`.github/` (CODEOWNERS, PR & issue templates), [`tools/`](../../tools) (the two checkers).
+`.github/` (CODEOWNERS, PR & issue templates), [`tools/`](../../tools) (the governance checkers).
 
 ## 3. ID schemes (the traceability backbone)
 
 `STK-NN` · `FR-<AREA>-NNN` · `NFR-<AREA>-NNN` · `CON-NN` · `ARC-<LAYER>` · `ADR-NNNN` · `RSK-NN` ·
 `IFC-NN` · `REL-vX.Y.Z` · `ISS`/`CR` = GitHub issue/PR numbers.
-Areas mirror packages: MODEL, CALIB, RIG, MVG, STEREO, OPS, ADAPT, IO, VO, INTEROP; NFR areas:
-NUM, ARCH, PORT, REPRO, PRIV.
+Areas mirror packages and shared capabilities: CORE, MODEL, CALIB, RIG, MVG, STEREO, OPS, ADAPT,
+IO, VO, INTEROP; NFR areas: NUM, ARCH, PORT, REPRO, PRIV, PERF, DOCS.
 
 The chain is **`STK → FR/NFR ↔ ARC ↔ code ↔ test ↔ ISS ↔ REL`**. The REQ↔test link is a
 `@pytest.mark.req("FR-…")` marker co-located with each test (it can't drift); the matrix joins it all
@@ -79,17 +79,21 @@ and CI fails on any break.
 
 ## 6. The two non-negotiables
 
-1. **Nothing reaches `main` unverified.** Every change passes lint + types + layering + the test
-   matrix + the `governance` gate, via a reviewed PR. (ISO 12207 §6.3; enforced in CI.)
-2. **Nothing ships without the required validation.** A release-gated requirement (currently
-   FR-CALIB-001, FR-RIG-001, NFR-NUM-004) needs *both* a synthetic and a real-data test, linked and
-   green, before release. ([ADR-0006](architecture/decisions/ADR-0006-synthetic-real-release-gate.md);
-   `check_traceability.py --release`.)
+1. **Nothing reaches `main` unverified.** Code changes pass lint + types + layering + the fast test
+   matrix; relevant slow evidence is reviewed before merge; every change passes the always-on
+   `governance` gate via a reviewed PR. (ISO 12207 §6.3; enforced in CI and the DoD.)
+2. **Nothing ships without the required validation.** Every requirement whose canonical
+   `requirements.csv` row has `release_gated=yes` needs *both* synthetic and real-data tests linked,
+   and the linked real-data tests must execute (not skip) and pass before release.
+   ([ADR-0006](architecture/decisions/ADR-0006-synthetic-real-release-gate.md);
+   `check_traceability.py --release` checks the structural links.)
 
 ## 7. Keeping the system honest
 
-The governance is self-enforcing: `tools/check_traceability.py` fails on orphan requirements, dangling
-REQ↔test links, or an out-of-date ADR index/matrix; `tools/check_tree_hygiene.py` fails on any tracked
-local-only content. Both run in the `governance` CI job on every PR. When you change a workflow, a
+The governance is self-enforcing: `check_traceability.py` validates requirements, test links, ADRs,
+and the generated matrix; `check_tree_hygiene.py` rejects tracked local-only content;
+`check_docs_zone.py` enforces the top-level docs allowlist; `check_docs_src_coverage.py` keeps shown
+examples source-backed and tested; and `check_packaging.py` checks documented shipping surfaces
+against the package. All run in the `governance` CI job on every PR. When you change a workflow, a
 requirement, or an interface, update the matching doc **in the same PR** — that is itself part of the
 Definition of Done.
