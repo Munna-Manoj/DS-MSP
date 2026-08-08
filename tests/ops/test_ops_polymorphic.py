@@ -1,6 +1,7 @@
 """
 ops services must work on ANY model and agree with the legacy DS implementation.
-Tested across DS/UCM/EUCM/KB and the camera-free FakeModel.
+Tested across DS/UCM/EUCM/KB, the polynomial OCam and DS+ models, and the
+camera-free FakeModel.
 """
 
 import cv2
@@ -14,9 +15,12 @@ from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
+from ds_msp.models.ocam import OCamModel
+from ds_msp.models.dsplus import DSPlusModel
 
 MODELS = [DoubleSphereModel.sample, UCMModel.sample, EUCMModel.sample,
-          KannalaBrandtModel.sample, FakeModel.sample]
+          KannalaBrandtModel.sample, OCamModel.sample, DSPlusModel.sample,
+          FakeModel.sample]
 
 
 @pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
