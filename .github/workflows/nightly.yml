@@ -27,11 +27,23 @@ concurrency:
 
 jobs:
   # The full heavy synthetic rig suite (no external data needed — the real-Blender parity
-  # tests self-skip when Blender_Images is absent, which it is on hosted runners).
+  # tests self-skip when Blender_Images is absent, which it is on hosted runners).  Separate
+  # hosted jobs give the two statistical modules honest wall-clock headroom; each job remains
+  # serial at the pytest level so calibrations alone own the runner's CPUs.
   slow-tests:
-    name: slow synthetic suite
+    name: slow synthetic suite (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: model-agnostic
+            args: tests/rig/test_model_agnostic.py
+          - shard: parameter-pose
+            args: tests/rig/test_param_pose.py
+          - shard: remaining
+            args: "--ignore=tests/rig/test_model_agnostic.py --ignore=tests/rig/test_param_pose.py"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -43,10 +55,13 @@ jobs:
       - name: pytest (slow tier; internally parallel)
         # Rig calibration already uses a per-calibration ProcessPoolExecutor.  An outer xdist
         # pool makes concurrent tests launch competing worker pools, starving them until
-        # pytest-timeout kills one.  Run tests serially while retaining internal parallelism.
-        # Signal-based timeouts avoid adding a watchdog thread before those process pools fork;
-        # the job limit remains the hard backstop for native hangs.
-        run: pytest -q -m "slow" --timeout=1200 --timeout-method=signal --durations=20
+        # pytest-timeout kills one.  Run each hosted shard serially while retaining internal
+        # parallelism.  The remaining shard collects every slow test outside the two known
+        # statistical modules, including future additions.  Signal-based timeouts avoid adding
+        # a watchdog thread before process pools fork; the job limit backs up native hangs.
+        run: >-
+          pytest -q -m "slow" ${{ matrix.args }}
+          --timeout=1200 --timeout-method=signal --durations=20
 
   # Full-matrix fast tier with coverage — the daily portability + coverage snapshot across
   # every supported Python (the PR gate runs the same fast tier; this repeats it on schedule
