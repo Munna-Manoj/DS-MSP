@@ -362,7 +362,8 @@ def solvePnP(objectPoints: np.ndarray, imagePoints: np.ndarray,
     Mimics ``cv2.solvePnP``'s call signature: builds a
     :class:`~ds_msp.model.DoubleSphereCamera` from ``K``/``D`` and delegates to
     :meth:`~ds_msp.model.DoubleSphereCamera.solve_pnp`, which unprojects to
-    bearing rays and solves PnP in the normalized plane (see
+    bearing rays and uses either the normalized plane (forward-only data) or a
+    full-sphere bearing solve (peripheral rays, coplanar or non-coplanar; see
     [Solve PnP on a fisheye](../how-to/solve_pnp_on_fisheye.md)). ``rvec``,
     ``tvec``, and ``useExtrinsicGuess`` are accepted for signature
     compatibility but **ignored** — this implementation always solves from
@@ -383,14 +384,16 @@ def solvePnP(objectPoints: np.ndarray, imagePoints: np.ndarray,
     useExtrinsicGuess : bool, default=False
         Ignored (accepted for signature compatibility with ``cv2.solvePnP``).
     flags : int, default=cv2.SOLVEPNP_ITERATIVE
-        OpenCV PnP method passed through to the underlying solve.
+        OpenCV PnP method used by the forward normalized-plane fallback. The full-sphere
+        bearing DLT/homography paths ignore this flag.
 
     Returns
     -------
     success : bool
-        Whether the solve succeeded. ``False`` if fewer than 4 correspondences
-        survive the front-facing (``z > 1e-6``) unprojection filter, or the
-        underlying ``cv2.solvePnP`` call fails.
+        Whether the selected solve succeeded. A coplanar full-sphere target needs at least
+        4 model-valid correspondences; a non-coplanar full-sphere target needs at least 6.
+        The forward normalized-plane fallback also fails when fewer than 4 usable points
+        remain or its underlying ``cv2.solvePnP`` call fails.
     rvec : ndarray of shape (3, 1)
         Rodrigues rotation vector. Zeros if ``success`` is ``False``.
     tvec : ndarray of shape (3, 1)

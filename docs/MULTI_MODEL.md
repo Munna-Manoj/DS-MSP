@@ -183,14 +183,16 @@ every model.
 ```console
 $ python -m docs_src.guides.multi_model.solve_pnp_cookbook
 ok=True
-rvec=[-0.4809, -0.1674, -0.127]
+rvec=[-0.4809, -0.1675, -0.127]
 tvec=[-0.2892, -0.0329, 0.4515]
 ```
 
 </div>
 
-`solve_pnp` works for any fisheye/omni model: it unprojects to bearing rays, keeps
-the front-facing ones, and solves PnP in the normalized plane. See
+`solve_pnp` works for any fisheye/omni model: it unprojects to bearing rays and solves PnP on
+the normalized plane when every ray is forward, or directly on the full sphere when peripheral
+rays are present. The full-sphere path handles both non-coplanar targets (bearing DLT,
+ADR-0018) and coplanar boards (bearing homography, ADR-0019). See
 [Solve PnP on a fisheye](how-to/solve_pnp_on_fisheye.md) for why a plain
 `cv2.solvePnP` gets this wrong on raw fisheye pixels.
 

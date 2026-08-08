@@ -18,7 +18,7 @@ def test_main_prints_expected_values(capsys):
     solve_pnp_cookbook.main()
     out = capsys.readouterr().out
     assert "ok=True" in out
-    assert "rvec=[-0.4809, -0.1674, -0.127]" in out
+    assert "rvec=[-0.4809, -0.1675, -0.127]" in out
     assert "tvec=[-0.2892, -0.0329, 0.4515]" in out
 
 

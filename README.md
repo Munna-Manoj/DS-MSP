@@ -6,7 +6,6 @@
 [![CI](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml/badge.svg)](https://github.com/Munna-Manoj/DS-MSP/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/ds-msp/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSE)
-![Tests](https://img.shields.io/badge/tests-608%20passing-brightgreen)
 [![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-interactive%20studio-6e8bff)](https://munna-manoj.github.io/DS-MSP/studio/)
 
 A clean, tested, OpenCV-compatible Python platform for wide-FOV (fisheye / omnidirectional) cameras.
@@ -96,9 +95,11 @@ Inverse-projection error across all undistort modes is < 0.00003 px. → [Multi-
 
 ### 2D/3D pose
 
-`cam.solve_pnp` is a **model-agnostic convenience, not a new algorithm**: it unprojects your pixels through whichever of the 7 models you use, then calls the standard `cv2.solvePnP` on the undistorted points — literally `unproject → cv2.solvePnP(K=I, dist=None)`.
-
-`cv2.solvePnP` itself is correct here. OpenCV already ships `cv2.fisheye.solvePnP` for **Kannala-Brandt** lenses — the value of `cam.solve_pnp` is that the *same one call* also covers DS / UCM / EUCM / OCam / DS+.
+`cam.solve_pnp` unprojects pixels through whichever of the 7 models you use, then selects a
+solver that matches the target geometry and visible sphere. Forward-only data uses the
+standard normalized-plane `cv2.solvePnP(K=I, dist=None)` path. If valid rays extend past 90°,
+non-coplanar targets use a bearing-vector DLT and coplanar boards use a bearing homography,
+so DS / UCM / EUCM / KB / OCam / DS+ share one full-sphere API.
 
 > **Warning**
 > `cv2.solvePnP` only goes wrong if you hand it **raw** fisheye pixels with a pinhole `K` — the wrong distortion model for a wide-FOV lens. `cam.solve_pnp` avoids that by unprojecting first.
@@ -106,7 +107,9 @@ Inverse-projection error across all undistort modes is < 0.00003 px. → [Multi-
 For noisy matches, `cam.solve_pnp_ransac` adds RANSAC outlier rejection and returns an inlier mask.
 
 > **Note**
-> `solve_pnp` and `solve_pnp_ransac` keep only front-facing (<90°) correspondences — fine for calibration boards. The two-view snippet below has no such limit: it works directly on bearing rays.
+> `solve_pnp` and `solve_pnp_ransac` keep every model-valid bearing, including peripheral
+> correspondences past 90°. A coplanar target needs at least 4 valid points; a non-coplanar
+> full-sphere solve needs at least 6.
 
 ```python
 from ds_msp import relative_pose, triangulate_rays
@@ -279,7 +282,8 @@ All 7 models live behind one `CameraModel` contract with analytic Jacobians, `co
 
 ## Verify it
 
-Every claim is backed by a number you can reproduce — **608 tests passing**, CI green.
+Every claim is backed by a reproducible measurement; the live CI badge above is the
+authoritative suite status.
 
 - Inverse projection (all undistort modes): mean error **< 0.00003 px**.
 - 3D reconstruction of checkerboard corners: **0.835 mm** mean; recovered **20.00 cm** square (target 20.00).

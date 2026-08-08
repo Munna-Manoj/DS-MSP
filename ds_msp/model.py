@@ -309,8 +309,8 @@ class DoubleSphereCamera:
         """
         Solve PnP for fisheye camera.
         
-        This method handles fisheye distortion by unprojecting to rays
-        and solving PnP in normalized space.
+        This method handles fisheye distortion by unprojecting to rays and selecting a
+        target-geometry-aware PnP solver.
         
         Parameters
         ----------
@@ -319,7 +319,8 @@ class DoubleSphereCamera:
         points_2d : (N, 2) array
             2D keypoints in distorted image
         method : int
-            OpenCV PnP method (e.g., cv2.SOLVEPNP_ITERATIVE)
+            OpenCV PnP method used by the forward normalized-plane fallback (for example,
+            ``cv2.SOLVEPNP_ITERATIVE``). Bearing DLT/homography paths do not use this flag.
             
         Returns
         -------
@@ -328,36 +329,16 @@ class DoubleSphereCamera:
             Rotation vector
         tvec : (3,) array or None
             Translation vector
+
+        Notes
+        -----
+        Rays past 90 degrees off-axis (``z <= 0``) are solved directly on bearing vectors:
+        a DLT for non-coplanar targets (ADR-0018) or a bearing homography for coplanar
+        targets such as a single board (ADR-0019). Forward-only data keeps the established
+        normalized-plane path. See :func:`ds_msp.ops.pose.solve_pnp`.
         """
-        rays, valid = self.unproject(points_2d)
-
-        # PnP runs in the pinhole-normalized plane (x/z, y/z), which is only
-        # defined for rays in front of the camera (z > 0). Rays at or beyond
-        # 90 deg would project to sign-flipped / unbounded coordinates and
-        # corrupt the solve, so keep only the front-facing, valid rays.
-        usable = valid & (rays[:, 2] > 1e-6)
-        if not usable.all():
-            points_3d = points_3d[usable]
-            rays = rays[usable]
-            if len(points_3d) < 4:
-                return False, None, None
-
-        rays_norm = rays / rays[:, 2:3]
-        points_2d_norm = rays_norm[:, :2]
-        
-        success, rvec, tvec = cv2.solvePnP(
-            points_3d.astype(np.float64),
-            points_2d_norm.astype(np.float64),
-            np.eye(3, dtype=np.float64),
-            np.zeros(5, dtype=np.float64),
-            flags=method
-        )
-        
-        if success:
-            rvec = rvec.squeeze()
-            tvec = tvec.squeeze()
-
-        return success, rvec, tvec
+        from .ops import solve_pnp as _solve_pnp
+        return _solve_pnp(self, points_3d, points_2d, method=method)
 
     def solve_pnp_ransac(self, points_3d: np.ndarray, points_2d: np.ndarray,
                          *, thresh_px: float = 3.0, max_iters: int = 300,

@@ -4,7 +4,7 @@ pose averaging (``CameraGroupObs::computeObjectsPose``, CameraGroupObs.cpp:42).
 
 The DS-MSP twist: instead of MC-Calib's per-distortion-type ``undistortPoints`` branch,
 unproject pixels with the camera's *own* model (every model exposes ``unproject``) and
-PnP on the normalized plane — the same trick ``calib.bundle._seed_poses`` already uses.
+solve/refine directly on bearing vectors across the model-valid sphere.
 """
 
 from __future__ import annotations
@@ -17,12 +17,60 @@ import numpy as np
 from ..core.contracts import CameraModel
 from ..core.lie import hat, se3_exp
 from ..core.robust import auto_kernel_scale, gnc_scale, robust_weight, studentized_sq
+from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .averaging import average_rotation
 
 
 def _focal(model: CameraModel) -> float:
     K = model.K
     return 0.5 * (abs(K[0, 0]) + abs(K[1, 1]))
+
+
+def bearing_chordal_residual_jacobian(
+    T: np.ndarray, X: np.ndarray, f: np.ndarray, foc: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Chordal angular residual and its analytic Jacobian for a single-view pose.
+
+    Exposed (not just inlined in :func:`robust_pose_irls`) so it can be finite-difference
+    checked directly, mirroring :func:`ds_msp.rig.bundle.build_problem`'s callbacks.
+
+    ``e_i = focal * (d_i - f_i)``, where
+    ``d_i = normalize(T[:3,:3] @ X_i + T[:3,3])`` and ``f_i`` is the observed unit bearing.
+    Its squared norm is ``2 focal² (1 - cos(theta_i))``: zero only for the same ray and
+    monotone through the full 180-degree angular domain.  No division by ``z`` is involved.
+
+    Jacobian is w.r.t. the **left**-perturbation pose tangent ``delta`` used by this module's
+    update rule ``T <- se3_exp(delta) @ T``: ``d(Pc)/d(delta) = [I | -hat(Pc)]``, chained through
+    ``d(normalize(Pc))/d(Pc) = (I - d d^T)/|Pc|``.
+
+    Parameters
+    ----------
+    T : (4, 4) ndarray
+        Current pose, ``T_cam_obj``.
+    X : (N, 3) ndarray
+        World points.
+    f : (N, 3) ndarray
+        Observed **unit** bearings (any ``z`` sign), same order as ``X``.
+    foc : float
+        Focal length scale, so the residual reads in pixel-equivalent units near the axis.
+
+    Returns
+    -------
+    e : (N, 3) ndarray
+        Chordal residual per point. Zero rows where ``|Pc_i| < 1e-9`` (degenerate).
+    J : (N, 3, 6) ndarray
+        ``d(e)/d(delta)`` per point, zero rows at the same degenerate points.
+    """
+    n = len(X)
+    Pc = (T[:3, :3] @ X.T).T + T[:3, 3]
+    e, de_dpc, good = chordal_bearing_residual_jacobian(Pc, f, eps=1e-9)
+    J = np.zeros((n, 3, 6))
+    for i in range(n):
+        if not good[i]:
+            continue
+        Gi = np.hstack([np.eye(3), -hat(Pc[i])])
+        J[i] = foc * de_dpc[i] @ Gi
+    return foc * e, J
 
 
 def robust_pose_irls(
@@ -38,7 +86,16 @@ def robust_pose_irls(
     studentize: bool = True,
     seed: int = 0,
 ) -> Optional[np.ndarray]:
-    """Refine a single-view pose by IRLS on the normalized plane — **keeps every point**.
+    """Refine a single-view pose by IRLS on a **chordal bearing residual** — full sphere, any
+    ``z`` sign, keeps every usable point (ADR-0020).
+
+    The residual is the difference between predicted and observed unit bearings,
+    ``e_i = focal · (d_i - f_i)``.  Its squared norm is
+    ``2 focal² (1 - cos(theta_i))``: it is zero exactly when the rays agree and grows
+    monotonically to the antipode.  It is finite for every direction, involves no division by
+    ``z``, and agrees with the classic pixel residual to first order near the optical axis.
+    The shared formulation also drives :func:`ds_msp.mvg.bundle.refine_two_view` and
+    :func:`ds_msp.rig.bundle.build_problem`'s ``residual_mode="angular"``.
 
     Outliers are down-weighted by a redescending kernel (``cauchy`` by default) with a
     MAD-auto scale and a short graduated-non-convexity anneal, not rejected: the answer
@@ -48,59 +105,45 @@ def robust_pose_irls(
 
     Returns the refined ``T_cam_obj`` (4x4), or ``None`` only when the view has too few
     unprojectable points to define a pose at all (insufficient data, not outlier rejection).
-    The pose is warm-started from RANSAC P3P when ``T0`` is not given.
+    The pose is warm-started from RANSAC P3P when ``T0`` is not given (a bearing-vector RANSAC,
+    coplanar or not, so it seeds correctly even when every point is past 90 deg — ADR-0018,
+    ADR-0019). As a cheap safety net against a pathological Gauss-Newton step, the return value
+    is whichever of {warm-start, refined} scores lower on the same full bearing-angle cost —
+    never worse than not refining at all.
     """
     X = np.asarray(object_pts, float)
     uv = np.asarray(image_pts, float)
     rays, ok = model.unproject(uv)
-    ok = ok & (rays[:, 2] > 1e-6)
+    ok = np.asarray(ok).ravel().astype(bool)            # valid rays (any z sign)
     if ok.sum() < 4:
         return None
-    idx = np.where(ok)[0]
-    Xv = X[idx]
-    pn = rays[idx, :2] / rays[idx, 2:3]                  # normalized observations
     foc = _focal(model)
 
-    if T0 is None:                                       # RANSAC P3P warm-start (init only)
+    if T0 is None:                                       # RANSAC warm-start (bearing if NC)
         T0, _ = estimate_pose_ransac(model, X, uv, seed=seed)
     T = np.eye(4) if T0 is None else T0.copy()
 
+    Xv = X[ok]
+    f = rays[ok]
+    f = f / np.linalg.norm(f, axis=1, keepdims=True)     # unit observed bearings, any z sign
     n = len(Xv)
-    for it in range(max_iter):
-        Pc = (T[:3, :3] @ Xv.T).T + T[:3, 3]             # (n,3) camera-frame points
-        Z = Pc[:, 2]
-        good = Z > 1e-6
-        if good.sum() < 4:
-            break
-        proj = np.zeros((n, 2))
-        proj[good] = Pc[good, :2] / Z[good, None]
-        e = (proj - pn) * foc                            # residual in pixels (n,2)
-        # 2x6 Jacobian per point on the normalized plane, scaled to pixels.
-        J = np.zeros((n, 2, 6))
-        invZ = np.zeros(n)
-        invZ[good] = 1.0 / Z[good]
-        Jp = np.zeros((n, 2, 3))
-        Jp[:, 0, 0] = invZ
-        Jp[:, 0, 2] = -Pc[:, 0] * invZ * invZ
-        Jp[:, 1, 1] = invZ
-        Jp[:, 1, 2] = -Pc[:, 1] * invZ * invZ
-        for i in range(n):                               # [I | -hat(P)] left perturbation
-            Gi = np.hstack([np.eye(3), -hat(Pc[i])])
-            J[i] = foc * Jp[i] @ Gi
-        e[~good] = 0.0
-        J[~good] = 0.0
 
-        s = np.einsum("nk,nk->n", e, e)                  # squared residual per point (px^2)
-        Jflat = J.reshape(2 * n, 6)
+    for it in range(max_iter):
+        e, J = bearing_chordal_residual_jacobian(T, Xv, f, foc)
+        Pc = (T[:3, :3] @ Xv.T).T + T[:3, 3]
+        good = np.linalg.norm(Pc, axis=1) > 1e-9         # degenerate only at the camera center
+
+        s = np.einsum("nk,nk->n", e, e)                  # squared residual per point
+        Jflat = J.reshape(3 * n, 6)
         if studentize and good.sum() > 8:
-            s = studentized_sq(Jflat, e.reshape(-1), block=2)
+            s = studentized_sq(Jflat, e.reshape(-1), block=3)
         scale = auto_kernel_scale(np.sqrt(np.maximum(s, 0.0)), kernel)
         if gnc_iters > 0:
             scale = gnc_scale(it, gnc_iters, gnc_start * scale, scale)
         w = robust_weight(s, kernel, scale)              # per-point IRLS weight (n,)
         w[~good] = 0.0
 
-        W = np.repeat(w, 2)
+        W = np.repeat(w, 3)
         H = Jflat.T @ (W[:, None] * Jflat) + 1e-9 * np.eye(6)
         g = Jflat.T @ (W * e.reshape(-1))
         try:
@@ -110,6 +153,17 @@ def robust_pose_irls(
         T = se3_exp(delta) @ T
         if np.linalg.norm(delta) < 1e-9:
             break
+
+    def _full_bearing_cost(Tc: np.ndarray) -> float:
+        Xc = (Tc[:3, :3] @ Xv.T).T + Tc[:3, 3]
+        norm = np.linalg.norm(Xc, axis=1)
+        norm[norm < 1e-12] = 1e-12
+        cos_ang = np.einsum("ij,ij->i", Xc / norm[:, None], f)
+        return float(np.mean(1.0 - np.clip(cos_ang, -1.0, 1.0)))
+
+    T0_full = np.eye(4) if T0 is None else T0
+    if _full_bearing_cost(T) > _full_bearing_cost(T0_full):
+        return T0_full
     return T
 
 
@@ -126,14 +180,42 @@ def estimate_pose_ransac(
 ) -> Tuple[Optional[np.ndarray], np.ndarray]:
     """RANSAC P3P of ``object_pts`` (N,3) against ``image_pts`` (N,2) pixels.
 
+    RANSACs a bearing-vector engine (:func:`ds_msp.geometry.resection.ransac_pnp_normalized`
+    with ``rays=...``), valid across the full sphere — peripheral rays past 90 deg (``z <= 0``)
+    seed and are scored (angular inlier metric) rather than dropped: a DLT for a
+    **non-coplanar** target (ADR-0018), a homography for a **coplanar** board (ADR-0019). Falls
+    back to the legacy ``cv2`` P3P path on the ``z > 0`` normalized plane only when there are
+    too few valid points for the bearing-native minimal sample.
+
     Returns ``(T_cam_obj (4,4) | None, inliers (N,) bool)``. ``None`` when fewer than
     ``min_inliers`` points survive — MC-Calib invalidates a BoardObs below 4
     (BoardObs.cpp:149).
     """
+    from ..geometry.resection import _is_coplanar, ransac_pnp_normalized
+
     object_pts = np.asarray(object_pts, float)
     image_pts = np.asarray(image_pts, float)
     n_all = len(object_pts)
     rays, ok = model.unproject(image_pts)
+    ok = np.asarray(ok).ravel().astype(bool)
+    valid_idx = np.where(ok)[0]
+    coplanar_target = valid_idx.size >= 4 and _is_coplanar(object_pts[ok])
+
+    # Bearing-vector RANSAC over the full valid ray set (any z sign) -- DLT or homography.
+    if valid_idx.size >= (4 if coplanar_target else 6):
+        Xv_all = object_pts[ok]
+        rays_v = rays[ok]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pn_all = rays_v[:, :2] / rays_v[:, 2:3]
+        T, inl = ransac_pnp_normalized(Xv_all, pn_all, focal=_focal(model), thresh_px=thresh_px,
+                                       max_iters=max_iters, confidence=confidence, seed=seed,
+                                       rays=rays_v)
+        if T is None or inl.sum() < min_inliers:
+            return None, np.zeros(n_all, bool)
+        inliers = np.zeros(n_all, bool)
+        inliers[valid_idx[inl]] = True
+        return T, inliers
+
     ok = ok & (rays[:, 2] > 1e-6)
     idx = np.where(ok)[0]
     if len(idx) < min_inliers:

@@ -1,12 +1,13 @@
 """Recover pose from 3D<->2D correspondences, for any fisheye/omni model.
 
 `solve_pnp` depends only on the `CameraModel` contract: it unprojects to bearing
-rays, keeps the front-facing ones, and solves PnP in the normalized plane -- so it
-works unchanged for any registered model, not just Double Sphere.
+rays and solves on bearings across the full model-valid field of view -- so it works
+unchanged for any registered model, not just Double Sphere.
 """
 import numpy as np
 
 from ds_msp import DoubleSphereModel, solve_pnp
+from docs_src import stable_display_round
 
 
 def main() -> None:
@@ -19,8 +20,11 @@ def main() -> None:
 
     ok, rvec, tvec = solve_pnp(cam, object_points, image_points)
     print(f"ok={ok}")
-    print(f"rvec={rvec.round(4).tolist()}")
-    print(f"tvec={tvec.round(4).tolist()}")
+    # Display-only quantization: supported numerical backends place rvec[1] on opposite
+    # sides of a four-decimal tie.  One guard digit plus an explicit tie rule keeps the
+    # documented output stable without changing the full-precision pose.
+    print(f"rvec={stable_display_round(rvec, 4).tolist()}")
+    print(f"tvec={stable_display_round(tvec, 4).tolist()}")
 
 
 if __name__ == "__main__":

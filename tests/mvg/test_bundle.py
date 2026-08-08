@@ -4,7 +4,11 @@ import pytest
 import numpy as np
 
 from ds_msp.mvg import estimate_relative_pose, recover_pose
-from ds_msp.mvg.bundle import angular_reprojection_error, refine_two_view
+from ds_msp.mvg.bundle import (
+    _build_two_view_problem,
+    angular_reprojection_error,
+    refine_two_view,
+)
 
 
 def _rot(axis, angle):
@@ -47,6 +51,30 @@ def test_refinement_reduces_angular_reprojection_error():
     Rr, tr, Xr = refine_two_view(f1, f2, R0, t0, X0)
     after = angular_reprojection_error(f1, f2, Rr, tr, Xr).mean()
     assert after < before                                  # nonlinear refinement tightens the fit
+
+
+@pytest.mark.jac
+def test_chordal_problem_jacobian_matches_finite_differences():
+    """Check rotation, normalized translation, and every structure column together."""
+    f1, f2, _R, _t = _scene(n=8, seed=17, noise=1e-3)
+    R0, t0, X0 = recover_pose(f1, f2)
+    state0, residual, jacobian, retract = _build_two_view_problem(f1, f2, R0, t0, X0)
+    analytic = jacobian(state0)
+    assert analytic.shape == (6 * len(f1), 6 + 3 * len(f1))
+
+    step = 1e-6
+    for column in range(analytic.shape[1]):
+        delta = np.zeros(analytic.shape[1])
+        delta[column] = step
+        numeric = (
+            residual(retract(state0, delta)) - residual(retract(state0, -delta))
+        ) / (2.0 * step)
+        error = np.linalg.norm(analytic[:, column] - numeric)
+        reference = max(np.linalg.norm(analytic[:, column]), 1.0)
+        assert error <= 1e-6 * reference, (
+            f"two-view chordal Jacobian column {column} relative error "
+            f"{error / reference:.3e}"
+        )
 
 
 def test_refinement_is_stable_at_large_rotation():

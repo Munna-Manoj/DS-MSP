@@ -18,8 +18,8 @@ For *why* the fisheye model's real validity boundary is a tilted half-space rath
 > - `ds_msp` installed, plus `opencv-python` and `numpy` (both come with it).
 > - A calibrated camera — here a Double Sphere model with known intrinsics. If you still need
 >   to calibrate, start from the [README usage](https://github.com/Munna-Manoj/DS-MSP#readme).
-> - At least **4 correspondences** whose 3D points land *in front of* the camera. Fewer than 4
->   front-facing points and the solve cannot run (see [Common failures](#common-failures)).
+> - At least **4 model-valid correspondences** for a coplanar target. A non-coplanar
+>   full-sphere solve needs at least 6 (see [Common failures](#common-failures)).
 
 ## Why `cv2.solvePnP` fails here
 
@@ -33,10 +33,11 @@ Past ~90° the pinhole math has no valid pixel at all. Feed raw fisheye pixels t
 
 1. **Unproject** each pixel to a 3D unit bearing ray (a direction the lens sees) with the
    fisheye model, in closed form.
-2. **Keep** only the usable rays — those the model marks `valid` (unprojection succeeded)
-   *and* whose ray component `z > 0` (in front of the camera, required by the next step).
-3. **Solve PnP in the normalized plane** (`x/z`, `y/z`) with an identity intrinsic. The rays
-   are already metric, so no distortion model is needed downstream.
+2. **Keep** every ray the model marks `valid`; a negative ray `z` is not discarded merely for
+   lying past 90° off-axis.
+3. **Select by geometry.** Forward-only observations use the established normalized-plane
+   solve. If peripheral rays are present, non-coplanar targets use a bearing DLT (ADR-0018)
+   and coplanar boards use a bearing homography (ADR-0019).
 
 You get the same `(success, rvec, tvec)` triple as OpenCV, correct on fisheye data.
 
@@ -58,20 +59,19 @@ points projected through a Double Sphere model into fisheye pixels, then recover
 $ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_basic
 True 40
 rotation error: 0.00e+00 deg
-translation error: 7.77e-16 m
+translation error: 0.00e+00 m
 ```
 
 </div>
 
-All 40 points survive the front-facing filter, and the recovered pose matches ground truth to
+All 40 points are model-valid, and the recovered pose matches ground truth to
 the float64 round-off floor.
 
-/// note | Why is the error exactly zero, not just small?
+/// note | Why is the error vanishingly small, not exactly zero?
 `cv2.SOLVEPNP_ITERATIVE` is an iterative Levenberg-Marquardt refine, not a closed-form solve.
-Here the data is noiseless and the model exactly invertible, so it converges all the way to
-machine round-off (`0.00e+00°` rotation, translation error on the order of `1e-15` m) rather
-than stopping early. The exact trailing digits (`7.77e-16` vs `5.09e-16`, say) depend on your
-platform's BLAS/LAPACK backend — both are zero at any precision that matters.
+Here the data is noiseless and the model exactly invertible, so it converges essentially to
+machine round-off rather than stopping early. The example normalizes display-only noise below
+`1e-05°` and `1e-12 m` to zero; any larger error remains visible and fails its mirrored test.
 
 On real detections with pixel noise, expect a sub-pixel reprojection RMS instead — this
 measurement is a correctness check, not a noise-robustness one.
@@ -90,7 +90,7 @@ measurement is a correctness check, not a noise-robustness one.
 $ python -m docs_src.how_to.solve_pnp_on_fisheye.solve_pnp_cv_wrapper
 True (3, 1) (3, 1)
 rotation error: 0.00e+00 deg
-translation error: 7.77e-16 m
+translation error: 0.00e+00 m
 ```
 
 </div>
@@ -104,7 +104,7 @@ The two entry points differ only in the shape of what comes back:
 
 - `cam.solve_pnp` returns squeezed `(3,)` `rvec`/`tvec`.
 - `ds_cv.solvePnP` returns `(3, 1)` column vectors, matching `cv2.solvePnP`'s native shape.
-- Both return `(False, ...)` if fewer than 4 points survive the front-facing filter.
+- Both return `(False, ...)` if fewer than 4 usable points remain after unprojection.
 
 ## Contrast: pinhole PnP on the same points
 
@@ -133,13 +133,20 @@ Three symptoms account for nearly every PnP failure on fisheye data:
 | Symptom | Cause | Fix |
 | :-- | :-- | :-- |
 | Pose is degrees off, no error raised | Used `cv2.solvePnP` with pinhole `K` on raw fisheye pixels | Switch to `cam.solve_pnp` / `ds_cv.solvePnP` |
-| `solve_pnp` returns `(False, None, None)` | Fewer than 4 points are in front of the camera after unprojection | Add correspondences, or check that your 3D points are actually in view |
-| Recovered pose flips sign | Points behind the camera (`z <= 1e-6`) leaked in | The `z > 1e-6` ray check filters these. Confirm your ground-truth pose puts every point in front: `((R_gt @ P.T).T + t)[:, 2] > 0` should be all `True` |
+| `solve_pnp` returns `(False, None, None)` | Too few model-valid points: fewer than 4 for a coplanar target, or fewer than 6 for a non-coplanar full-sphere solve | Add valid correspondences and inspect `model.unproject(...)[1]` |
+| Recovered pose flips or is unstable | Degenerate/near-degenerate point layout, incorrect 3D↔2D ordering, or too many outliers | Verify correspondence ordering; use `solve_pnp_ransac`; add spatially diverse points |
 
-The solver drops any pixel that unprojects to an invalid or behind-camera ray (`z <= 1e-6`)
-before it solves.
+The solver drops any pixel that unprojects to an invalid ray before it solves.
 
-If that leaves fewer than 4 points, it returns `(False, None, None)` rather than guess.
+/// note | This page's scene is forward-only — the wide-FOV case is handled too
+This how-to's synthetic scene keeps every point in the forward hemisphere (`z > 0`), so it
+uses the classic normalized-plane solve. When valid correspondences extend past 90°,
+`solve_pnp` keeps them: a **non-coplanar** target uses the bearing DLT from ADR-0018, while a
+**coplanar** board uses the bearing homography from ADR-0019.
+///
+
+If the selected solver lacks its minimum usable set (4 coplanar, 6 non-coplanar
+full-sphere), it returns failure rather than guess.
 
 ## Next steps
 
@@ -149,9 +156,11 @@ If that leaves fewer than 4 points, it returns `(False, None, None)` rather than
 - **The geometry behind the filter** — the real (tilted half-space, not `z > 0`) validity
   boundary and how far it reaches: [Projection validity and FOV](../explain/projection_validity_and_fov.md).
 
-**Recap:** on fisheye data, unproject pixels to rays, keep the front-facing valid ones, then
-solve PnP in the normalized plane — `cam.solve_pnp` does all three and recovers pose to the
-float64 round-off floor (`0.00e+00°` rotation error, on this synthetic scene).
+**Recap:** on fisheye data, unproject pixels to rays, then solve PnP — on the normalized plane
+for the forward-hemisphere case (this page's scene), or directly on bearing vectors for
+peripheral data (ADR-0018 for non-coplanar targets, ADR-0019 for coplanar boards).
+`cam.solve_pnp` does all of this and
+recovers pose to the float64 round-off floor (displayed as zero on this synthetic scene).
 
 ---
 
