@@ -22,6 +22,8 @@ from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
 from ._synth import make_rig
 
+pytestmark = pytest.mark.req("NFR-NUM-006")
+
 W, H = 1280, 960
 N_TRIALS = 12
 NOISE_PX = 0.3

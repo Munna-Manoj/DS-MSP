@@ -5,10 +5,13 @@ gross outliers, and the studentized-leverage gain on a self-masking high-leverag
 """
 import cv2
 import numpy as np
+import pytest
 
 from ds_msp.core.lie import se3_exp
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.rig.pose_init import robust_pose_irls
+
+pytestmark = pytest.mark.req("NFR-NUM-006")
 
 F, W, H = 800.0, 1280, 960
 
