@@ -131,7 +131,8 @@ def solve_pnp_ransac(model: CameraModel, object_points: np.ndarray, image_points
     -------
     tuple
         ``(success, rvec, tvec, inliers)`` where ``inliers`` is an ``(N,)`` boolean mask over
-        ``image_points`` (``False`` for points dropped as outliers or as invalid/behind rays).
+        ``image_points`` (``False`` for rejected outliers or invalid observations). Model-valid
+        rays past 90 degrees are retained by the bearing path.
     """
     from ..geometry.resection import _is_coplanar, ransac_pnp_normalized
 
@@ -156,7 +157,8 @@ def solve_pnp_ransac(model: CameraModel, object_points: np.ndarray, image_points
         T, inl = ransac_pnp_normalized(X, pn, focal=focal, thresh_px=thresh_px,
                                        max_iters=max_iters, confidence=confidence, seed=seed,
                                        rays=rays_v)
-        if T is None:
+        support_floor = 4 if coplanar_target else 6
+        if T is None or inl.sum() < support_floor:
             return False, None, None, np.zeros(n, bool)
         rvec = cv2.Rodrigues(np.ascontiguousarray(T[:3, :3]))[0]
         tvec = T[:3, 3].reshape(3, 1)
@@ -171,7 +173,8 @@ def solve_pnp_ransac(model: CameraModel, object_points: np.ndarray, image_points
         pn = (rays[usable, :2] / rays[usable, 2:3]).astype(np.float64)
         T, inl = ransac_pnp_normalized(X, pn, focal=focal, thresh_px=thresh_px,
                                        max_iters=max_iters, confidence=confidence, seed=seed)
-        if T is None:
+        support_floor = 4 if _is_coplanar(X) else 6
+        if T is None or inl.sum() < support_floor:
             return False, None, None, np.zeros(n, bool)
         rvec = cv2.Rodrigues(T[:3, :3])[0]
         tvec = T[:3, 3].reshape(3, 1)

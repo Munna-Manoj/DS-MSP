@@ -169,10 +169,12 @@ def ransac_resection(X: np.ndarray, uv: np.ndarray, *, thresh_px: float = 3.0,
     X = np.asarray(X, float)
     uv = np.asarray(uv, float)
     n = len(X)
+    min_sample = max(6, min_sample)
     if n < min_sample:
         return None, np.zeros(n, bool)
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
+    best_P = None
     iters = max_iters
     it = 0
     while it < iters and it < max_iters:
@@ -185,21 +187,25 @@ def ransac_resection(X: np.ndarray, uv: np.ndarray, *, thresh_px: float = 3.0,
         inl = _reproj_err(P, X, uv) < thresh_px
         if inl.sum() > best_inl.sum():
             best_inl = inl
+            best_P = P.copy()
             frac = float(np.clip(inl.mean(), 1e-6, 1.0))
             if frac >= 1.0:
                 break
             den = np.log1p(-frac ** min_sample)
             if den < -1e-12:
                 iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
-    if best_inl.sum() < min_sample:
+    if best_inl.sum() < min_sample or best_P is None:
         return None, best_inl
     try:
-        P = dlt_projection(X[best_inl], uv[best_inl])
+        P_refit = dlt_projection(X[best_inl], uv[best_inl])
     except np.linalg.LinAlgError:
-        return None, best_inl
-    # final inlier set under the refit
-    best_inl = _reproj_err(P, X, uv) < thresh_px
-    return P, best_inl
+        return best_P, best_inl
+    refit_inl = _reproj_err(P_refit, X, uv) < thresh_px
+    # Consensus refitting is optional polishing. Never replace a supported RANSAC hypothesis
+    # with a refit that fails or reduces the measured consensus.
+    if refit_inl.sum() >= best_inl.sum():
+        return P_refit, refit_inl
+    return best_P, best_inl
 
 
 def intrinsics_seed(objpts_list: List[np.ndarray], imgpts_list: List[np.ndarray],
@@ -563,6 +569,7 @@ def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float 
     thr = thresh_px / max(focal, 1e-9)
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
+    best_sol = None
     iters, it = max_iters, 0
 
     def _ang_err(R, t):
@@ -578,26 +585,37 @@ def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float 
     while it < iters and it < max_iters:
         it += 1
         sample = rng.choice(n, min_sample, replace=False)
-        sol = _pose_planar_bearing(X[sample], f[sample])
+        try:
+            sol = _pose_planar_bearing(X[sample], f[sample])
+        except np.linalg.LinAlgError:
+            continue
         if sol is None:
             continue
         R, t = sol
         inl = _ang_err(R, t) < thr
         if inl.sum() > best_inl.sum():
             best_inl = inl
+            best_sol = (R.copy(), t.copy())
             frac = float(np.clip(inl.mean(), 1e-6, 1.0))
             if frac >= 1.0:
                 break
             den = np.log1p(-frac ** min_sample)
             if den < -1e-12:
                 iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
-    if best_inl.sum() < min_sample:
+    if best_inl.sum() < min_sample or best_sol is None:
         return None, best_inl
-    sol = _pose_planar_bearing(X[best_inl], f[best_inl])
-    if sol is None:
-        return None, best_inl
-    R, t = sol
-    best_inl = _ang_err(R, t) < thr
+    R, t = best_sol
+    try:
+        sol = _pose_planar_bearing(X[best_inl], f[best_inl])
+    except np.linalg.LinAlgError:
+        sol = None
+    if sol is not None:
+        R_refit, t_refit = sol
+        refit_inl = _ang_err(R_refit, t_refit) < thr
+        # Consensus refitting is optional polishing. Never replace the supported hypothesis
+        # with a failed refit or one that reduces its measured consensus.
+        if refit_inl.sum() >= best_inl.sum():
+            R, t, best_inl = R_refit, t_refit, refit_inl
     T = np.eye(4)
     T[:3, :3] = R
     T[:3, 3] = t
@@ -643,6 +661,7 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
     thr = thresh_px / max(focal, 1e-9)       # angular tolerance (rad); == the px gate near axis
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
+    best_sol = None
     iters, it = max_iters, 0
 
     def _ang_err(R, t):
@@ -658,26 +677,37 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
     while it < iters and it < max_iters:
         it += 1
         sample = rng.choice(n, min_sample, replace=False)
-        sol = _pose_dlt_bearing(X[sample], f[sample])
+        try:
+            sol = _pose_dlt_bearing(X[sample], f[sample])
+        except np.linalg.LinAlgError:
+            continue
         if sol is None:
             continue
         R, t = sol
         inl = _ang_err(R, t) < thr
         if inl.sum() > best_inl.sum():
             best_inl = inl
+            best_sol = (R.copy(), t.copy())
             frac = float(np.clip(inl.mean(), 1e-6, 1.0))
             if frac >= 1.0:
                 break
             den = np.log1p(-frac ** min_sample)
             if den < -1e-12:
                 iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
-    if best_inl.sum() < min_sample:
+    if best_inl.sum() < min_sample or best_sol is None:
         return None, best_inl
-    sol = _pose_dlt_bearing(X[best_inl], f[best_inl])
-    if sol is None:
-        return None, best_inl
-    R, t = sol
-    best_inl = _ang_err(R, t) < thr
+    R, t = best_sol
+    try:
+        sol = _pose_dlt_bearing(X[best_inl], f[best_inl])
+    except np.linalg.LinAlgError:
+        sol = None
+    if sol is not None:
+        R_refit, t_refit = sol
+        refit_inl = _ang_err(R_refit, t_refit) < thr
+        # Keep the best supported minimal-sample hypothesis when optional consensus refitting
+        # fails or reduces support, including on noisy all-peripheral data.
+        if refit_inl.sum() >= best_inl.sum():
+            R, t, best_inl = R_refit, t_refit, refit_inl
     T = np.eye(4)
     T[:3, :3] = R
     T[:3, 3] = t
@@ -733,6 +763,7 @@ def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
     thr = thresh_px / max(focal, 1e-9)       # normalized-plane tolerance
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
+    best_sol = None
     iters, it = max_iters, 0
 
     def _err(R, t):
@@ -747,26 +778,37 @@ def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
     while it < iters and it < max_iters:
         it += 1
         sample = rng.choice(n, min_sample, replace=False)
-        sol = solve(X[sample], pn[sample])
+        try:
+            sol = solve(X[sample], pn[sample])
+        except np.linalg.LinAlgError:
+            continue
         if sol is None:
             continue
         R, t = sol
         inl = _err(R, t) < thr
         if inl.sum() > best_inl.sum():
             best_inl = inl
+            best_sol = (R.copy(), t.copy())
             frac = float(np.clip(inl.mean(), 1e-6, 1.0))
             if frac >= 1.0:
                 break
             den = np.log1p(-frac ** min_sample)
             if den < -1e-12:
                 iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
-    if best_inl.sum() < min_sample:
+    if best_inl.sum() < min_sample or best_sol is None:
         return None, best_inl
-    sol = solve(X[best_inl], pn[best_inl])
-    if sol is None:
-        return None, best_inl
-    R, t = sol
-    best_inl = _err(R, t) < thr
+    R, t = best_sol
+    try:
+        sol = solve(X[best_inl], pn[best_inl])
+    except np.linalg.LinAlgError:
+        sol = None
+    if sol is not None:
+        R_refit, t_refit = sol
+        refit_inl = _err(R_refit, t_refit) < thr
+        # Apply the same safe-polish rule as the bearing paths: a failed or degraded refit
+        # cannot erase the already-supported RANSAC hypothesis.
+        if refit_inl.sum() >= best_inl.sum():
+            R, t, best_inl = R_refit, t_refit, refit_inl
     T = np.eye(4)
     T[:3, :3] = R
     T[:3, 3] = t
