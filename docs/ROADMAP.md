@@ -127,8 +127,14 @@ against ground truth on the public datasets already wired up (TUM-VI, EuRoC).
 - Verified on synthetic trajectories to ATE `< 1e-6`; a runnable example evaluates against TUM-VI
   room1 ground truth (`examples/09_monocular_vo_tumvi.py`).
 
-**Next:** keyframing + local sliding-window BA + loop closure for full-sequence robustness, and a
-`docs/learn/` chapter.
+**Next:** keyframing + local sliding-window BA + a pluggable loop-closure service for
+full-sequence robustness. The loop-closure learning companion is now shipped:
+[`learn/loop_closure_on_fisheye.md`](learn/loop_closure_on_fisheye.md) and
+`examples/12_loop_closure_tumvi.py` demonstrate deterministic binary BoW retrieval,
+temporal exclusion, held-out vocabulary images, mocap labels, and calibrated bearing-ray
+verification. The production service should reuse that verification contract while delegating
+retrieval to DBoW3 or another backend; DS-MSP should not duplicate a C++ vocabulary engine in
+its camera-model core.
 
 ## Tier 3 — Visual-inertial odometry (VIO)
 Fuse the IMU the datasets already carry to recover a **metric, drift-resistant** trajectory. Three

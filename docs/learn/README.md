@@ -76,6 +76,7 @@ graph LR
         B9 --> B10["10 · Scalable<br/>bundle adjustment"]
         B8 --> B11["11 · Sphere-sweep<br/>stereo depth"]
         B11 --> B12["12 · Spherical<br/>rectification"]
+        B8 --> LC["Companion:<br/>loop closure<br/>on fisheye"]
     end
     CAP ==> B8
 ```
@@ -139,6 +140,11 @@ A fisheye measures **rays**, so this whole arc is built on `project` / `unprojec
 | 10 | Scalable bundle adjustment *(chapter pending)* | minimize angular reprojection error with a Schur-complement sparse solve | `ds_msp/mvg/bundle.py`, `ds_msp/calib/bundle.py` |
 | 11 | Sphere-sweep stereo depth *(chapter pending)* | get dense depth straight on raw fisheye — no rectification, no pinhole detour | `ds_msp/stereo/sphere_sweep.py` |
 | 12 | Spherical epipolar rectification *(chapter pending)* | the pedagogically-clean depth path; matches sphere-sweep to <1% | `ds_msp/stereo/rectify.py` |
+
+Part II companion: [**Loop closure on fisheye images**](loop_closure_on_fisheye.md) builds a
+deterministic hierarchical binary vocabulary and inverted index on TUM-VI, then verifies
+retrieval candidates with DS-MSP's calibrated bearing-ray RANSAC. Code:
+`examples/12_loop_closure_tumvi.py`.
 
 Chapter 8's formal companion — the epipolar-constraint proof, the four-fold decomposition, and
 the numerical-stability notes — lives in Explanation:
