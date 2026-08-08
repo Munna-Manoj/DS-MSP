@@ -5,7 +5,8 @@
 - **Relates to:** ARC-OPS, ARC-GEOMETRY, ARC-RIG, FR-OPS-003, FR-CALIB-002
 - **Supersedes:** —
 - **Subsequent decisions:** ADR-0019 closes the coplanar gap; ADR-0020 closes the
-  refinement gap.
+  refinement gap; ADR-0021 replaces RANSAC in the recommended and rig robust-PnP paths while
+  retaining the explicitly named compatibility API.
 
 ## Context
 

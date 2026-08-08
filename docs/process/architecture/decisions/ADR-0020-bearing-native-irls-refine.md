@@ -4,6 +4,8 @@
 - **Deciders:** maintainer
 - **Relates to:** ARC-RIG, ARC-GEOMETRY, FR-CALIB-002, FR-OPS-003
 - **Supersedes:** ADR-0018 §3 and ADR-0019 §3 (normalized-plane-only IRLS refinement)
+- **Subsequent decision:** ADR-0021 replaces RANSAC in the recommended and rig robust-PnP paths;
+  the explicitly named compatibility API remains available.
 
 ## Context
 
@@ -50,8 +52,9 @@ two-view bundle adjustment.
    shared chordal primitive and use 3-component robust blocks. The duplicated
    `_tangent_basis` helpers are removed.
 
-4. **Keep the warm-start safety net.** The returned pose is still whichever of the RANSAC seed
-   and refined candidate has lower full-data bearing cost. This cheaply prevents a bad
+4. **Keep the warm-start safety net.** At the time of this decision, the returned pose was
+   whichever of the RANSAC seed and refined candidate had lower full-data bearing cost. This
+   cheaply prevents a bad
    Gauss–Newton step from making the data fit worse.
 
 ## Verification
@@ -89,8 +92,9 @@ two-view bundle adjustment.
   extra work buys a basis-free residual and globally unambiguous cost.
 - The exact antipode is still a stationary *maximum* of any smooth rotationally symmetric
   sphere cost. Its residual and cost are now maximal, not falsely zero, but a pose initialized
-  exactly there still needs a non-antipodal seed. The bearing RANSAC warm start supplies that
-  seed in this pipeline.
+  exactly there still needs a non-antipodal seed. The bearing RANSAC warm start supplied that
+  seed when this ADR was recorded; ADR-0021 now supplies deterministic GNC-TLS in the recommended
+  and rig paths.
 - Two pose perturbation conventions remain: left composition in `pose_init.py`, right
   composition in the bundle modules. Each Jacobian is derived and finite-difference-tested
   against its own retraction.

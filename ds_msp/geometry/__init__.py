@@ -13,15 +13,20 @@ from .averaging import (
     mean_transform,
     robust_average_transform,
 )
-from .bearing import chordal_bearing_residual_jacobian
+from .bearing import chordal_bearing_residual_jacobian, projection_bearing_whiteners
 from .calibrate_core import bundle_adjust
 from .graph import connected_components, covis_weights, shortest_path
 from .resection import (
+    bearing_pose_angular_error,
+    bearing_pose_residual_jacobian,
     decompose_P,
     dlt_projection,
+    gnc_pnp_bearings,
+    guarded_refine_pose_bearings,
     intrinsics_seed,
     ransac_pnp_normalized,
     ransac_resection,
+    refine_pose_bearings,
 )
 
 __all__ = [
@@ -29,7 +34,13 @@ __all__ = [
     "bundle_adjust",
     # bearing residuals
     "chordal_bearing_residual_jacobian",
+    "projection_bearing_whiteners",
     # resection / PnP
+    "bearing_pose_residual_jacobian",
+    "bearing_pose_angular_error",
+    "refine_pose_bearings",
+    "guarded_refine_pose_bearings",
+    "gnc_pnp_bearings",
     "dlt_projection",
     "decompose_P",
     "ransac_resection",

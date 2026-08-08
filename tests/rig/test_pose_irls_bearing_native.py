@@ -13,7 +13,7 @@ import pytest
 from ds_msp.core.lie import so3_exp
 from ds_msp.geometry.resection import _is_coplanar
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.rig.pose_init import estimate_pose_ransac, robust_pose_irls
+from ds_msp.rig.pose_init import estimate_pose_gnc, estimate_pose_ransac, robust_pose_irls
 
 R_GT, T_GT = so3_exp([0.2, -0.3, 0.15]), np.array([0.1, -0.05, -0.2])
 
@@ -124,6 +124,110 @@ def test_no_forward_points_still_refines_not_just_seeds():
     a1, _ = _pose_err(T_warm)
     a2, _ = _pose_err(T_ref)
     assert a2 <= a1 + 1e-9
+
+
+def test_five_point_noncoplanar_view_uses_deterministic_small_sample_seed():
+    """Four or five non-coplanar points cannot determine the six-point bearing DLT.
+
+    The implicit pose path must use its declared deterministic SQPnP chart seed instead of
+    silently optimizing from identity (the former failure was about 144 degrees / 0.75 m).
+    """
+    model = DoubleSphereModel.sample()
+    rng = np.random.default_rng(58)
+    R_gt = so3_exp(rng.uniform(-0.8, 0.8, 3))
+    t_gt = np.r_[rng.uniform(-0.5, 0.5, 2), rng.uniform(0.8, 3.0)]
+    X = rng.uniform([-0.8, -0.8, -0.5], [0.8, 0.8, 0.5], (5, 3))
+    assert not _is_coplanar(X)
+    uv, valid = model.project(X @ R_gt.T + t_gt)
+    assert valid.all()
+    uv = np.asarray(uv) + rng.normal(0.0, 0.5, np.asarray(uv).shape)
+    assert estimate_pose_gnc(model, X, uv)[0] is None  # exercises the 4--5 point fallback
+
+    T = robust_pose_irls(model, X, uv)
+
+    assert T is not None
+    rotation, translation = _pose_err(T, R_gt, t_gt)
+    assert rotation < 0.5
+    assert translation < 0.005
+
+
+def test_five_point_noncoplanar_peripheral_view_uses_ray_aligned_chart():
+    """The small-sample fallback must not make the physical camera's z axis a requirement."""
+    model = DoubleSphereModel.sample()
+    R_gt = so3_exp([0.2, -0.3, 0.15])
+    t_gt = np.array([0.1, -0.05, -0.2])
+    theta = np.radians([96.0, 99.0, 102.0, 105.0, 108.0])
+    phi = np.radians([-10.0, -5.0, 0.0, 6.0, 12.0])
+    directions = np.column_stack([
+        np.sin(theta) * np.cos(phi),
+        np.sin(theta) * np.sin(phi),
+        np.cos(theta),
+    ])
+    camera_points = directions * np.array([0.7, 1.1, 1.5, 2.0, 2.7])[:, None]
+    X = (camera_points - t_gt) @ R_gt
+    assert not _is_coplanar(X)
+    uv, valid = model.project(camera_points)
+    rays, ray_valid = model.unproject(uv)
+    assert valid.all() and ray_valid.all() and (rays[:, 2] < 0.0).all()
+    assert estimate_pose_gnc(model, X, uv)[0] is None
+
+    T = robust_pose_irls(model, X, uv)
+
+    assert T is not None
+    rotation, translation = _pose_err(T)
+    assert rotation < 1e-6
+    assert translation < 1e-9
+
+
+@pytest.mark.parametrize("n", [4, 5])
+def test_small_sample_chart_finds_true_hemisphere_not_ray_mean(n):
+    """An asymmetric open-hemisphere set can point opposite its normalized ray mean."""
+    model = DoubleSphereModel.sample()
+    angle = np.radians([89.0, -89.0, -88.0, -87.0, -86.0])
+    rays = np.column_stack([np.sin(angle), np.zeros(5), np.cos(angle)])
+    rays[:, 1] = [0.0, 0.01, -0.01, 0.02, -0.02]
+    rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+    camera_points = rays * np.array([0.8, 1.1, 1.4, 1.8, 2.3])[:, None]
+    X = camera_points[:n]
+    assert not _is_coplanar(X)
+    uv, valid = model.project(camera_points[:n])
+    observed, ray_valid = model.unproject(uv)
+    assert valid.all() and ray_valid.all() and (observed[:, 2] > 0.0).all()
+    ray_mean = observed.sum(axis=0)
+    ray_mean /= np.linalg.norm(ray_mean)
+    assert np.any(observed @ ray_mean <= 0.0)  # the rejected normalized-mean shortcut
+
+    T = robust_pose_irls(model, X, uv)
+
+    assert T is not None
+    rotation, translation = _pose_err(T, np.eye(3), np.zeros(3))
+    assert rotation < 1e-6
+    assert translation < 1e-9
+
+
+def test_four_point_seed_selects_ap3p_when_sqpnp_branch_is_catastrophic():
+    """Four-point SQPnP can return a physical but wrong branch; score all deterministic roots."""
+    model = DoubleSphereModel.sample()
+    rng = np.random.default_rng(40127)
+    axis = rng.normal(size=3)
+    axis /= np.linalg.norm(axis)
+    rays = axis + rng.normal(scale=0.28, size=(4, 3))
+    rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+    camera_points = rays * rng.uniform(0.7, 3.0, 4)[:, None]
+    R_gt = so3_exp(rng.uniform(-0.7, 0.7, 3))
+    t_gt = rng.uniform(-0.4, 0.4, 3)
+    X = (camera_points - t_gt) @ R_gt
+    assert not _is_coplanar(X)
+    uv, valid = model.project(camera_points)
+    assert valid.all()
+    uv = np.asarray(uv) + rng.normal(scale=0.5, size=(4, 2))
+
+    T = robust_pose_irls(model, X, uv)
+
+    assert T is not None
+    rotation, translation = _pose_err(T, R_gt, t_gt)
+    assert rotation < 1.0
+    assert translation < 0.02
 
 
 # Traceability: links this suite to the requirement(s) it verifies.

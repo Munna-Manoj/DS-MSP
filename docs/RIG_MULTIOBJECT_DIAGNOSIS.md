@@ -1,6 +1,6 @@
 # DS-MSP[rig] vs MC-Calib — Non-Co-Observed Board Diagnosis
 
-**Status:** Diagnosis (root-cause + architecture comparison)
+**Status:** Resolved historical diagnosis (fixed by ADR-0011 / FR-RIG-017)
 **Scope:** `ds_msp/rig/*`, compared against MC-Calib (`rameau-fr/MC-Calib`)
 **Trigger:** `ds-msp-calibrate-rig --config calib_param_gaze.yml` calibrates **1 of 2 cameras**; MC-Calib calibrates both via hand-eye.
 **Dataset:** `data/` — 2 cameras (`Cam_001`, `Cam_002`), 2 ChArUco boards, 35 frames each.
@@ -10,6 +10,14 @@
 > `calib_param_gaze.yml` / `in_cabin` names are just where this particular dataset came from —
 > nothing here is specific to gaze or in-cabin use. Throughout this document "the rig" means this
 > **non-overlapping two-object rig**, not an application.
+
+/// note | Resolution
+This document records the pre-ADR-0011 failure and the reasoning that led to the fix. The current
+pipeline keeps every object component, iteratively links camera groups and merges rigidly linked
+objects through `ds_msp.rig.merge`, then re-seeds observations before joint BA. The original real
+two-camera/two-board dataset now calibrates both cameras (0.80/0.57 px RMS; 1.19 m / 178.6°
+extrinsic). Sections describing objects being dropped are historical, not current limitations.
+///
 
 ---
 
@@ -154,35 +162,34 @@ co-observe a common object (→ one group)?
 | 1 | 1 board, overlapping cameras | 1 object, 1 group | single-board object, 1 group | ✅ |
 | 2 | Multi-board **all co-observed** (rigid target), overlapping cameras | fuse → 1 object, 1 group | `reconstruct_object` fuses; `refine_object_structure` polishes | ✅ |
 | 3 | Multi-board all co-observed, **non-overlapping cameras** | 1 object, N groups → hand-eye | `link_groups` bridges groups over object 0 | ✅ |
-| 4 | Cameras overlap, boards **not all co-observed** → one group sees ≥2 objects | `merge3DObjects` | drops all but largest object | ❌ |
-| 5 | **2 cameras, each sees a different, never-co-observed board** (this dataset) | 2 objects, 2 groups → object/group hand-eye | drop board → drop camera → 1 group → no link | ❌ |
-| 6 | Chained/mixed multi-object multi-group needing several merge rounds | iterative merge + hand-eye | single linear pass | ❌ |
+| 4 | Cameras overlap, boards **not all co-observed** → one group sees ≥2 objects | `merge3DObjects` | `merge_objects` fuses rigidly linked components | ✅ |
+| 5 | **2 cameras, each sees a different, never-co-observed board** (this dataset) | 2 objects, 2 groups → object/group hand-eye | `_merge_and_relink` links, merges, and re-seeds both cameras | ✅ |
+| 6 | Chained/mixed multi-object multi-group needing several merge rounds | iterative merge + hand-eye | iterates link/merge/reseed until connectivity stops changing | ✅ |
 
-**The line is sharp.** DS-MSP handles everything that reduces to a **single rigid calibration
-object**, however the cameras are grouped (1–3). It fails the instant the scene contains **more
-than one non-co-observed object/board** (4–6) — the exact class MC-Calib's merge machinery exists
-to solve.
+All six rigid-target topologies are now supported. As in MC-Calib, object merging assumes the
+separately observed targets are rigidly linked; detecting a mislabeled or moving inter-object
+relationship remains a separate validation problem.
 
 ---
 
 ## 7. Verdict — is DS-MSP[rig] limited for complex rigs?
 
-**One structural limitation, broad in reach.** DS-MSP collapses MC-Calib's two-graph iterative
-merge into a single-rigid-object linear pass, so it cannot calibrate rigs whose targets are not
-all mutually co-observable (topologies 4–6). Within the single-object world it is a correct,
-convention-faithful port (topologies 1–3, MC-Calib `.cpp` line numbers cited throughout).
+**Resolved.** ADR-0011 replaced the object-dropping linear pass with iterative multi-object
+fusion and camera-group relinking. DS-MSP now handles the non-co-observed rigid-target topologies
+4–6 as well as the original topologies 1–3; the diagnosis above is retained because its frame and
+composition analysis is the regression rationale for `rig.merge`.
 
 **But it is not a subset.** DS-MSP[rig] exceeds MC-Calib on two axes MC-Calib lacks:
 
 - **Heterogeneous per-camera models** — RadTan / UCM / EUCM / Double-Sphere / Kannala-Brandt /
   OCam, mixed in one rig (MC-Calib: Brown + Kannala only).
-- **High-breakdown robustness** — GNC-TLS BA past 50 % outliers, RANSAC-DLT robust seeding,
+- **High-breakdown robustness** — GNC-TLS BA past 50 % outliers, deterministic bearing-space
+  GNC-TLS pose seeding,
   model-aware fisheye resection, analytic-Jacobian Schur BA.
 
-The honest characterization is a **topology ↔ model tradeoff**: MC-Calib is more general on rig
-*topology*; DS-MSP is more general on intrinsic *model diversity and robustness*. Closing the
-topology gap does not require abandoning either strength — see the companion implementation plan,
-`RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md`.
+The topology gap was closed without giving up model diversity or robustness. See
+[ADR-0011](process/architecture/decisions/ADR-0011-rig-multiobject-merge.md) and the FR-RIG-017
+tests for the implemented design and real-data evidence.
 
 ---
 

@@ -41,10 +41,10 @@ Past ~90° the pinhole math has no valid pixel at all. Feed raw fisheye pixels t
 
 You get the same `(success, rvec, tvec)` triple as OpenCV, correct on fisheye data.
 
-## The two entry points
+## The clean-data entry points
 
-Two equivalent calls do the same solve. Pick the object API when you already hold a camera,
-or the functional wrapper when you're dropping this into existing `cv2.solvePnP` call sites.
+Two equivalent calls do the same non-robust solve. Pick the object API when you already hold a
+camera, or the functional wrapper when you're replacing an existing `cv2.solvePnP` call site.
 
 Both examples below build the same synthetic scene: a known ground-truth pose, 40 world
 points projected through a Double Sphere model into fisheye pixels, then recovered.
@@ -106,6 +106,43 @@ The two entry points differ only in the shape of what comes back:
 - `ds_cv.solvePnP` returns `(3, 1)` column vectors, matching `cv2.solvePnP`'s native shape.
 - Both return `(False, ...)` if fewer than 4 usable points remain after unprojection.
 
+## Choose the robust estimator for mismatched points
+
+Use `solve_pnp_robust(cam, ...)` when detections can contain gross mismatches. It runs
+<abbr title="Graduated Non-Convexity with a Truncated-Least-Squares loss — a deterministic robust solve driven by an explicit inlier-noise bound.">GNC-TLS</abbr>
+on every model-valid unit bearing, then returns a hard inlier mask. Import it from `ds_msp` or
+`ds_msp.ops`; this functional form works with every modern camera-model object. The legacy
+`DoubleSphereCamera` additionally provides `cam.solve_pnp_robust(...)` as a convenience wrapper.
+
+The robust choices have deliberately different contracts:
+
+| API | Use it when | Robust mechanism |
+| :-- | :-- | :-- |
+| `solve_pnp_robust(cam, ...)` | default for noisy or mismatched correspondences | deterministic all-data GNC-TLS with locally calibrated `noise_bound_px` |
+| `solve_pnp_ransac(cam, ...)` | an integration explicitly requires classic RANSAC behavior | seeded random minimal samples with locally calibrated `thresh_px` |
+
+With the geometry-specific four-/six-bearing support available, both work directly on the complete
+bearing sphere. The recommended GNC-TLS path does not sample minimal sets, so identical inputs
+produce bit-identical outputs. Only the compatibility RANSAC API retains a forward-only,
+normalized-plane fallback for an undersized non-coplanar bearing set.
+
+With `refine=True`, each bearing path polishes only its hard consensus. The candidate is rescored
+over all valid bearings and accepted only if support does not fall and the truncated local-pixel
+bearing score does not increase. The design rationale is recorded in
+[ADR-0021](../process/architecture/decisions/ADR-0021-bearing-gnc-tls-pnp.md).
+
+/// note | Relation to a von Mises–Fisher bearing model
+The unweighted base residual is squared chordal distance between observed and predicted unit rays.
+With one fixed concentration, that is exactly an affine rescaling of the negative log likelihood
+under an isotropic von Mises–Fisher distribution on the sphere.
+
+The public pixel-bound path deliberately whitens each chord with a ray-varying anisotropic metric
+derived from `CameraModel.project_jacobian`. That makes the threshold truthful in local pixel units,
+but it is no longer one fixed-concentration isotropic vMF likelihood. GNC-TLS supplies the
+gross-outlier model by truncating and graduating this whitened inlier cost. None of these
+interpretations makes the nonlinear pose solve globally certifiable.
+///
+
 ## Contrast: pinhole PnP on the same points
 
 Hand the *same* fisheye pixels to `cv2.solvePnP` with the camera's pinhole `K`. It fits the
@@ -134,7 +171,7 @@ Three symptoms account for nearly every PnP failure on fisheye data:
 | :-- | :-- | :-- |
 | Pose is degrees off, no error raised | Used `cv2.solvePnP` with pinhole `K` on raw fisheye pixels | Switch to `cam.solve_pnp` / `ds_cv.solvePnP` |
 | `solve_pnp` returns `(False, None, None)` | Too few model-valid points: fewer than 4 for a coplanar target, or fewer than 6 for a non-coplanar full-sphere solve | Add valid correspondences and inspect `model.unproject(...)[1]` |
-| Recovered pose flips or is unstable | Degenerate/near-degenerate point layout, incorrect 3D↔2D ordering, or too many outliers | Verify correspondence ordering; use `solve_pnp_ransac`; add spatially diverse points |
+| Recovered pose flips or is unstable | Degenerate/near-degenerate point layout, incorrect 3D↔2D ordering, or too many outliers | Verify correspondence ordering; use `solve_pnp_robust`; add spatially diverse points |
 
 The solver drops any pixel that unprojects to an invalid ray before it solves.
 
@@ -145,8 +182,9 @@ uses the classic normalized-plane solve. When valid correspondences extend past 
 **coplanar** board uses the bearing homography from ADR-0019.
 ///
 
-If the selected solver lacks its minimum usable set (4 coplanar, 6 non-coplanar
-full-sphere), it returns failure rather than guess.
+`solve_pnp_robust` returns failure below its minimum usable set (4 coplanar, 6 non-coplanar).
+The clean and compatibility APIs may instead use their legacy normalized-plane solve when at least
+four forward correspondences remain; otherwise they also return failure.
 
 ## Next steps
 
@@ -167,4 +205,5 @@ recovers pose to the float64 round-off floor (displayed as zero on this syntheti
 *Source:*
 [`ds_msp/ops/pose.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/ops/pose.py) ·
 [`DoubleSphereCamera.solve_pnp`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/model.py) ·
+[`DoubleSphereCamera.solve_pnp_robust`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/model.py) ·
 [`ds_msp.cv.solvePnP`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/cv.py)

@@ -4,7 +4,8 @@
 - **Deciders:** maintainer
 - **Relates to:** ARC-OPS, ARC-GEOMETRY, ARC-RIG, FR-OPS-003, FR-CALIB-002
 - **Supersedes:** — (closes the coplanar gap ADR-0018 explicitly deferred)
-- **Subsequent decision:** ADR-0020 closes the refinement gap.
+- **Subsequent decisions:** ADR-0020 closes the refinement gap; ADR-0021 replaces RANSAC in the
+  recommended and rig robust-PnP paths while retaining the explicitly named compatibility API.
 
 ## Context
 
@@ -59,9 +60,10 @@ correctness on wide-FOV lenses.
    `solve_pnp_ransac` (`ds_msp/ops/pose.py`), and `estimate_pose_ransac`
    (`ds_msp/rig/pose_init.py`) — the same dispatcher and call sites ADR-0018 already wired for
    the non-coplanar case, now handling both branches uniformly. `robust_pose_irls`'s warm-start
-   inherited the fix transitively (unchanged code, delegates to `estimate_pose_ransac`). At
+   inherited the fix transitively (unchanged code, then delegated to `estimate_pose_ransac`). At
    acceptance its IRLS refine remained normalized-plane-only; ADR-0020 subsequently replaces
-   that residual with a full-sphere chordal one.
+   that residual with a full-sphere chordal one, and ADR-0021 subsequently replaces the
+   recommended/rig RANSAC seed with deterministic GNC-TLS.
 4. **`rig.reconstruct.reconstruct_object`'s `init_models` path benefits directly** — per-board
    resection there is `robust_pose_irls`, so a genuinely wide-FOV camera (not
    `DoubleSphereModel.sample()`'s narrower default; a `xi=0.3, alpha=0.6` ~180°-class instance)

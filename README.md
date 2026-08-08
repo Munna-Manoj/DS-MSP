@@ -104,23 +104,36 @@ so DS / UCM / EUCM / KB / OCam / DS+ share one full-sphere API.
 > **Warning**
 > `cv2.solvePnP` only goes wrong if you hand it **raw** fisheye pixels with a pinhole `K` — the wrong distortion model for a wide-FOV lens. `cam.solve_pnp` avoids that by unprojecting first.
 
-For noisy matches, `cam.solve_pnp_ransac` adds RANSAC outlier rejection and returns an inlier mask.
+For noisy or mismatched correspondences, `solve_pnp_robust(cam, ...)` is the recommended
+multi-model estimator. It runs deterministic GNC-TLS directly on unit bearings, uses each model's
+analytic projection Jacobian to keep the noise bound locally calibrated in pixels at wide FOV, and
+returns a hard inlier mask. The legacy `DoubleSphereCamera` also exposes the same operation as a
+convenience method.
+
+`solve_pnp_ransac(cam, ...)` remains available for callers that explicitly need classic random
+minimal-set consensus. On its bearing-capable path, the optional polish is full-sphere: a candidate
+is kept only when it preserves support and does not worsen the truncated all-data local-pixel score.
 
 > **Note**
-> `solve_pnp` and `solve_pnp_ransac` keep every model-valid bearing, including peripheral
-> correspondences past 90°. A coplanar target needs at least 4 valid points; a non-coplanar
-> full-sphere solve needs at least 6.
+> With the geometry-specific bearing support available, `solve_pnp`, `solve_pnp_robust`, and
+> `solve_pnp_ransac` keep every model-valid bearing, including peripheral correspondences past 90°.
+> A coplanar target needs at least 4 valid points; a non-coplanar full-sphere solve needs at least 6.
+> The clean and compatibility APIs retain a normalized-plane forward-only fallback for an undersized
+> non-coplanar bearing set; the recommended robust API reports failure instead.
 
 ```python
-from ds_msp import relative_pose, triangulate_rays
+from ds_msp import relative_pose, solve_pnp_ransac, solve_pnp_robust, triangulate_rays
 
 # 3D pose from 2D–3D correspondences (PnP), straight on raw fisheye
 points_3d = ...   # (N,3) world points (from your board / detector)
 points_2d = ...   # (N,2) matching fisheye pixels
 ok, rvec, tvec = cam.solve_pnp(points_3d, points_2d)
 
-# noisy matches? RANSAC variant rejects gross outliers + returns an inlier mask
-ok, rvec, tvec, inliers = cam.solve_pnp_ransac(points_3d, points_2d)
+# noisy matches? deterministic GNC-TLS rejects gross outliers + returns an inlier mask
+ok, rvec, tvec, inliers = solve_pnp_robust(cam, points_3d, points_2d)
+
+# compatibility path when classic RANSAC behavior is explicitly required
+ok, rvec, tvec, inliers = solve_pnp_ransac(cam, points_3d, points_2d, seed=0)
 
 # 2D–2D → relative pose + triangulated 3D points, on bearing rays
 px1 = ...         # (N,2) pixels in image 1

@@ -17,8 +17,9 @@ parametrization *should* recover. We then report three model-independent errors:
 
 All three under 1% ⇒ the chosen model reproduced the original camera and its pose to 1%.
 Run across gross-outlier rates to show the from-scratch robust front-end (RANSAC DLT
-resection + RANSAC PnP, no ``cv2.calibrateCamera``/``solvePnP``) holds where the old L2
-OpenCV seeding diverged. Usage:  python scripts/validate_param_pose.py [n_seeds] [outlier]
+intrinsic resection + deterministic bearing GNC-TLS PnP, no ``cv2.calibrateCamera``) holds
+where the old L2 OpenCV seeding diverged. Usage:
+``python scripts/validate_param_pose.py [n_seeds] [outlier]``
 """
 from __future__ import annotations
 

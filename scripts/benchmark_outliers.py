@@ -6,8 +6,8 @@ story, unconfounded by the downstream robust BA) on a synthetic camera with a co
 fraction of gross (mis-decoded) corners. Three estimators:
 
   * ``L2``       — solvePnP over all corners, no robustness (the naive baseline);
-  * ``reject``   — RANSAC P3P + refine on the inlier set (hard rejection, MC-Calib-style);
-  * ``reweight`` — ``robust_pose_irls``: RANSAC warm-start + redescending Cauchy IRLS with
+  * ``reject``   — bearing DLT/homography RANSAC + inlier refine (hard-rejection comparator);
+  * ``reweight`` — ``robust_pose_irls``: GNC-TLS warm-start + redescending Cauchy IRLS with
                    MAD auto-scale, GNC and studentized leverage over **every** corner.
 
 Headline metric: median pose error (rotation° + translation) over many views at each outlier
@@ -149,34 +149,74 @@ def main():
 def _write_md(rows, mean_red, lev_ns, lev_s, lev_red):
     out = os.path.join("docs", "RIG_OUTLIER_BENCHMARK.md")
     os.makedirs("docs", exist_ok=True)
-    L = ["# Outlier-handling benchmark — better weighting, no rejection",
-         "",
-         f"Per-view PnP on a synthetic camera, median over {N_VIEW} views, a controlled "
-         "fraction of corners corrupted with a 50 px gross shift. The per-view front-end is "
-         "the whole story here (no downstream BA to mask it).",
-         "",
-         "* **L2** — `solvePnP` over all corners, no robustness (naive baseline).",
-         "* **reject** — RANSAC P3P + inlier refine (hard rejection, MC-Calib-style).",
-         "* **reweight** — `robust_pose_irls`: RANSAC warm-start + redescending Cauchy IRLS "
-         "(MAD auto-scale, GNC, studentized leverage) over every corner — no rejection.",
-         "",
-         "| outlier % | L2 dR° | L2 dt | reject dR° | reject dt | reweight dR° | reweight dt | dR° reduction vs L2 |",
-         "|---|---|---|---|---|---|---|---|"]
+    L = [
+        "# Outlier-handling benchmark — better weighting, no rejection",
+        "",
+        (f"Per-view PnP on a synthetic camera, median over {N_VIEW} views, with a controlled "
+         "fraction of corners corrupted by a 50 px gross shift."),
+        "",
+        "/// note",
+        "Measured at the **per-view pose** level, before any downstream bundle adjustment —",
+        "so the front-end's own robustness is the whole story, not masked by an outer optimizer.",
+        "///",
+        "",
+        "* **L2** — `solvePnP` over all corners, no robustness (naive baseline).",
+        "* **reject** — bearing DLT/homography RANSAC + inlier refine (hard-rejection comparator;",
+        "  P3P is only the undersized forward fallback).",
+        ("* **reweight** — `robust_pose_irls`: deterministic bearing GNC-TLS warm-start + "
+         "redescending Cauchy IRLS (MAD auto-scale, GNC, studentized leverage) over every "
+         "corner — no rejection."),
+        "",
+        ("| outlier % | L2 dR° | L2 dt | reject dR° | reject dt | reweight dR° | "
+         "reweight dt | dR° reduction vs L2 |"),
+        "|---|---|---|---|---|---|---|---|",
+    ]
     for rate, l2, rj, rw, red in rows:
         L.append(f"| {rate * 100:.0f}% | {l2[0]:.3f} | {l2[1]:.4f} | {rj[0]:.3f} | {rj[1]:.4f} "
                  f"| {rw[0]:.3f} | {rw[1]:.4f} | {'—' if np.isnan(red) else f'{red:.1f}%'} |")
-    L += ["",
-          f"**Mean rotation-error reduction vs naive L2 at ≥10 % outliers: {mean_red:.1f}%** "
-          f"({'PASS &gt;50%' if mean_red > 50 else 'below target'}) — by *weighting*, every "
-          "corner is kept.",
-          "",
-          "## Studentized leverage — the self-masking outlier a residual kernel cannot see",
-          "",
-          "One far-off-axis corner with a modest mis-decode: high leverage lets it pull the "
-          "pose while keeping its own residual small, so a residual-only kernel never down-"
-          f"weights it. Studentizing the residual recovers it: median rotation error "
-          f"**{lev_ns:.3f}° → {lev_s:.3f}° ({lev_red:.1f}% lower)**.",
-          ""]
+    verdict = "PASS &gt;50%" if mean_red > 50 else "below target"
+    L += [
+        "",
+        (f"**Mean rotation-error reduction vs naive L2 at ≥10 % outliers: {mean_red:.1f}%** "
+         f"({verdict}) — by *weighting*, every corner is kept."),
+        "",
+        '<div class="termy">',
+        "",
+        "```console",
+        "$ python scripts/benchmark_outliers.py",
+        ("mean rotation-error reduction vs naive L2 at >=10% outliers: "
+         f"{mean_red:.1f}%  ({'PASS >50%' if mean_red > 50 else 'see table'})"),
+        ("self-masking leverage outlier — studentize cuts rotation error by "
+         f"{lev_red:.1f}% ({lev_ns:.3f}° -> {lev_s:.3f}°)"),
+        "wrote docs/RIG_OUTLIER_BENCHMARK.md",
+        "```",
+        "",
+        "</div>",
+        "",
+        "/// tip",
+        ("The `reject`/`reweight` columns reproduce bit-for-bit run to run. The naive `L2` "
+         "blow-up values are the ill-conditioned regime itself: unweighted L2 recovery can "
+         "land in very different wrong basins once outliers dominate."),
+        "///",
+        "",
+        "## Studentized leverage — the self-masking outlier a residual kernel cannot see",
+        "",
+        ("One far-off-axis corner with a modest mis-decode has enough leverage to pull the "
+         "pose while keeping its own residual small, so a residual-only kernel never "
+         "down-weights it."),
+        "",
+        (f"Studentizing the residual recovers it: median rotation error **{lev_ns:.3f}° → "
+         f"{lev_s:.3f}° ({lev_red:.1f}% lower)**."),
+        "",
+        "---",
+        "",
+        ("*Source:* this page is generated by "
+         "[`scripts/benchmark_outliers.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/"
+         "scripts/benchmark_outliers.py). Robust estimator: "
+         "[`robust_pose_irls`](https://github.com/Munna-Manoj/DS-MSP/blob/main/"
+         "ds_msp/rig/pose_init.py)."),
+        "",
+    ]
     with open(out, "w") as f:
         f.write("\n".join(L))
     print(f"wrote {out}")
