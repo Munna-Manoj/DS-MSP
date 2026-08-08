@@ -63,6 +63,12 @@ Runs daily (`cron: 0 6 * * *`) and via `workflow_dispatch`:
 | `fast tier + coverage (matrix)` | `pytest -m "not slow" --cov` on 3.10/3.11/3.12 | daily portability + coverage snapshot |
 | `real-data validation (dataset-gated)` | `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | real-data evidence for release-gated requirements when data is provisioned; self-skips otherwise, and an all-skipped run is not evidence |
 
+The slow synthetic job is serial at the pytest level but internally parallel: rig calibration tests
+exercise the production `ProcessPoolExecutor` path. Running those cases through an additional xdist
+pool would multiply the per-calibration worker pools and starve them. A POSIX signal timeout
+preserves the 1,200-second per-test cap without starting a watchdog thread before the calibration
+workers fork.
+
 ### `release.yml` — on push to `main`
 
 `release-please` maintains a release PR (version bump + `CHANGELOG.md` from Conventional Commits).

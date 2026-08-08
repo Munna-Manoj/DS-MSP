@@ -12,9 +12,9 @@ on:
 permissions:
   contents: read
 
-# One BLAS thread per process for every job — avoids the OpenBLAS thread-oversubscription
-# crash under `pytest -n auto` (4 workers × core-count BLAS threads thrash and can take a
-# worker down). Applied workflow-wide so the heavy, coverage, and realdata jobs all get it.
+# One BLAS thread per process for every job avoids another layer of oversubscription in both
+# the fast tier's xdist workers and the slow calibrations' internal process pools. Applied
+# workflow-wide so the heavy, coverage, and realdata jobs all get it.
 env:
   OMP_NUM_THREADS: "1"
   OPENBLAS_NUM_THREADS: "1"
@@ -40,10 +40,13 @@ jobs:
           cache: pip
       - name: Install
         run: pip install -e ".[calib]" -r requirements-dev.txt
-      - name: pytest (slow tier, parallel)
-        # Per-test cap well above the heaviest statistical test, so a genuinely hung test
-        # fails instead of burning the whole 60-min job budget.
-        run: pytest -q -n auto -m "slow" --timeout=1200 --timeout-method=thread
+      - name: pytest (slow tier; internally parallel)
+        # Rig calibration already uses a per-calibration ProcessPoolExecutor.  An outer xdist
+        # pool makes concurrent tests launch competing worker pools, starving them until
+        # pytest-timeout kills one.  Run tests serially while retaining internal parallelism.
+        # Signal-based timeouts avoid adding a watchdog thread before those process pools fork;
+        # the job limit remains the hard backstop for native hangs.
+        run: pytest -q -m "slow" --timeout=1200 --timeout-method=signal --durations=20
 
   # Full-matrix fast tier with coverage — the daily portability + coverage snapshot across
   # every supported Python (the PR gate runs the same fast tier; this repeats it on schedule
