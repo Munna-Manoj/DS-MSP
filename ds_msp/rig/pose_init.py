@@ -373,10 +373,18 @@ def robust_pose_irls(
             s = studentized_sq(J.reshape(3 * n, 6), e.reshape(-1), block=3)
         return float(np.minimum(s, comparison_scale ** 2).sum())
 
+    # Left-multiplying many floating-point SO(3) factors can leave the rotation a few ulps
+    # off the group even when the geometric optimum is exact.  One Newton--Schulz polar
+    # correction removes that accumulated roundoff without changing the estimated basin or
+    # introducing an angle-chart singularity (important for poses near 180 degrees).
+    candidate = T.copy()
+    R = candidate[:3, :3]
+    candidate[:3, :3] = 0.5 * R @ (3.0 * np.eye(3) - R.T @ R)
+
     T0_full = T0
-    if _robust_bearing_cost(T) > _robust_bearing_cost(T0_full):
+    if _robust_bearing_cost(candidate) > _robust_bearing_cost(T0_full):
         return T0_full
-    return T
+    return candidate
 
 
 def estimate_pose_ransac(
