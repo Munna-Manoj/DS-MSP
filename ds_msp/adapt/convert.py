@@ -121,6 +121,10 @@ def convert(source: CameraModel, target_cls: Type[CameraModel], *,
     -------
     (target, report) : the fitted model and a quality report (see
     ``reprojection_report``). ``report["n_restarts"]`` records the restart count.
+    ``report["converged"]`` is the optimizer's termination flag **and** a sanity check that
+    ``rms_px`` is a physically plausible fraction of the image diagonal -- an optimizer
+    "success" at a diverged, unrepresentable-FOV rms is reported as ``converged=False``
+    with ``report["convergence_warning"]`` explaining why (see the ``max_fov_deg`` param).
     """
     # 1. sample pixels -> source bearing rays (forward hemisphere only)
     pixels = sample_image_grid(width, height, n_samples)
@@ -179,7 +183,25 @@ def convert(source: CameraModel, target_cls: Type[CameraModel], *,
     # 4. evaluate over the (possibly FOV-restricted) image region
     report = reprojection_report(source, target, width, height,
                                  max_fov_deg=max_fov_deg, gt_params=None)
-    report["converged"] = bool(best_success)
+
+    # `res.success` is scipy's optimizer-termination flag (did the solve satisfy its
+    # convergence tolerance), not a fit-quality judgment -- it is True even when the target
+    # model cannot represent the source's FOV at all (e.g. a >180 deg fisheye into RadTan
+    # with no max_fov_deg), which can converge to a "successful" termination at an rms of
+    # anywhere from thousands to quintillions of pixels. Gate `converged` on a physically
+    # sane result too: an rms above a large fraction of the image diagonal cannot be a real
+    # fit by construction, regardless of what the optimizer reports.
+    diag = float(np.hypot(width, height))
+    rms = report["rms_px"]
+    sane_fit = np.isfinite(rms) and rms < 0.25 * diag
+    report["converged"] = bool(best_success) and sane_fit
+    if best_success and not sane_fit:
+        report["convergence_warning"] = (
+            f"optimizer reported success but rms_px={rms:.3g} is not a physically "
+            f"plausible fit (>{0.25 * diag:.0f}px, 25% of the {diag:.0f}px image diagonal) "
+            f"-- {target_cls.name} likely cannot represent {source.name}'s FOV over this "
+            f"image region. Set max_fov_deg to restrict the fit to a representable range."
+        )
     report["n_restarts"] = int(n_restarts)
     report["source_model"] = source.name
     report["target_model"] = target_cls.name
