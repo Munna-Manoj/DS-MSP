@@ -94,7 +94,7 @@ def test_jacobian_object_poses_only():
 
 def test_jacobian_angular_bearing_residual():
     """The bearing (angular) residual's analytic Jacobian must match finite differences —
-    same chain, with ∂r/∂Xc = E·(I-d dᵀ)/‖Xc‖ replacing the projection Jacobian."""
+    same chain, with ∂r/∂Xc = (I-d dᵀ)/‖Xc‖ replacing the projection Jacobian."""
     rig, obs = _build_small_rig()
     state0, residual, jacobian, retract, K = bundle.build_problem(
         rig, obs, fix_intrinsics=True, residual_mode="angular")

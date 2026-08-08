@@ -13,6 +13,7 @@ from .averaging import (
     mean_transform,
     robust_average_transform,
 )
+from .bearing import chordal_bearing_residual_jacobian
 from .calibrate_core import bundle_adjust
 from .graph import connected_components, covis_weights, shortest_path
 from .resection import (
@@ -26,6 +27,8 @@ from .resection import (
 __all__ = [
     # bundle adjustment
     "bundle_adjust",
+    # bearing residuals
+    "chordal_bearing_residual_jacobian",
     # resection / PnP
     "dlt_projection",
     "decompose_P",

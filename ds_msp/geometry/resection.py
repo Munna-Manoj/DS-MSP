@@ -278,6 +278,102 @@ def _pose_dlt_normalized(X: np.ndarray, pn: np.ndarray) -> Optional[Tuple[np.nda
     return R, t
 
 
+def _pose_dlt_bearing(X: np.ndarray, rays: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Closed-form pose from >=6 (3D point, **bearing vector**) pairs, any ray direction.
+
+    Bearing-vector-native ("cross-product") DLT for absolute pose. Unlike
+    :func:`_pose_dlt_normalized` — which divides each ray by its ``z`` to land it on the
+    ``z = 1`` plane and therefore **cannot represent any bearing past 90 deg off-axis**
+    (``z <= 0``) — this solves directly on the sphere and handles wide-FOV rays of any sign.
+
+    Model
+    -----
+    For a world point ``X_i`` seen as bearing ``f_i`` under pose ``(R, t)``, the camera-frame
+    point ``R X_i + t`` is parallel to ``f_i`` (same direction, up to the unknown positive
+    depth ``lambda_i``): ``R X_i + t = lambda_i f_i``, ``lambda_i > 0``. Eliminating the depth
+    gives the exact linear constraint
+
+        f_i x (R X_i + t) = [f_i]_x (P [X_i; 1]) = 0,   P = [R | t]  (3x4).
+
+    The cross product yields 3 rows linear in ``vec(P)``, of which 2 are independent (a cross
+    product is rank-2: ``f_i . (f_i x w) = 0``), so each correspondence contributes 2 equations
+    — the same count as the classic point-DLT. Stacking ``A vec(P) = 0`` and taking the SVD
+    null space recovers ``P`` up to scale; ``R`` follows by projecting ``P[:, :3]`` onto SO(3),
+    the scale from its singular values, and the sign is fixed by requiring ``det(R) = +1`` (this
+    already forces the correct, scene-in-front branch — see the cheirality note below).
+
+    Reduces to :func:`_pose_dlt_normalized` when every ``f_i = (u_i, v_i, 1)``: rows 1-2 become
+    exactly ``p1.X = u p3.X`` and ``p2.X = v p3.X`` (the two normalized-plane DLT equations) and
+    row 3 is their dependent combination — so this is a strict generalization, identical on
+    ``z > 0`` data and additionally valid for ``z <= 0``.
+
+    Cheirality is enforced on the **depth along the bearing** ``lambda_i = f_i . (R X_i + t)``
+    (``lambda > 0``), per the wide-FOV convention in ``ds_msp.mvg.two_view`` — **not** ``z > 0``.
+
+    Scope: this handles the **non-coplanar** case only (the general 3x4 DLT is degenerate for
+    coplanar points, exactly like :func:`_pose_dlt_normalized`); coplanar targets use the
+    bearing-vector homography path instead, :func:`_pose_planar_bearing` (ADR-0019).
+
+    References
+    ----------
+    Hartley & Zisserman, *Multiple View Geometry*, 2nd ed., general camera resectioning DLT
+    (§7.1), here written with the cross-product ``f x PX = 0`` form on bearing vectors instead
+    of pixel homogeneous coordinates; Kneip & Furgale, *OpenGV*, ICRA 2014, §III (generalized
+    absolute-pose DLT on bearing vectors).
+
+    Parameters
+    ----------
+    X : (N, 3) ndarray
+        World-frame 3D points, genuinely non-coplanar, ``N >= 6``.
+    rays : (N, 3) ndarray
+        Bearing vectors (unit or non-unit; renormalized internally), any ``z`` sign.
+
+    Returns
+    -------
+    (R, t) or None
+        ``R`` (3x3, ``det = +1``) and ``t`` (3,) with ``R X_i + t = lambda_i f_i``,
+        ``lambda_i > 0``. ``None`` if under-determined, degenerate, or non-physical
+        (majority of depths behind the camera).
+    """
+    X = np.asarray(X, float)
+    f = np.asarray(rays, float)
+    if len(X) < 6:
+        return None
+    nrm = np.linalg.norm(f, axis=1, keepdims=True)
+    if np.any(nrm < 1e-12):
+        return None
+    f = f / nrm                              # unit bearings (sphere, any z sign)
+    U, Xn = _normalize_3d(X)                 # Hartley-condition the 3D side; Xn is (n,4) homog
+    n = len(X)
+    fx, fy, fz = f[:, 0:1], f[:, 1:2], f[:, 2:3]
+    # f x (P.[X;1]) = 0 -> 3 rows/point in vec(P) = [p1(4), p2(4), p3(4)]
+    A = np.zeros((3 * n, 12))
+    A[0::3, 4:8] = -fz * Xn                   # row1:  fy*(p3.X) - fz*(p2.X) = 0
+    A[0::3, 8:12] = fy * Xn
+    A[1::3, 0:4] = fz * Xn                    # row2:  fz*(p1.X) - fx*(p3.X) = 0
+    A[1::3, 8:12] = -fx * Xn
+    A[2::3, 0:4] = -fy * Xn                   # row3:  fx*(p2.X) - fy*(p1.X) = 0  (dependent)
+    A[2::3, 4:8] = fx * Xn
+    _, _, Vt = np.linalg.svd(A)
+    Pn = Vt[-1].reshape(3, 4)
+    P = Pn @ U                               # de-normalize the 3D side (bearing side is K=I)
+    M = P[:, :3]
+    Uu, s, Vh = np.linalg.svd(M)             # nearest rotation to M (= scale * R)
+    R = Uu @ Vh
+    if np.linalg.det(R) < 0:                 # det(R)=+1 fixes the homogeneous sign
+        R = -R
+        P = -P
+    scale = float(s.mean())
+    if scale < 1e-12:
+        return None
+    t = P[:, 3] / scale
+    # Cheirality on depth-along-bearing (lambda>0), NOT z>0: valid for rays past 90 deg.
+    lam = np.einsum("ij,ij->i", f, X @ R.T + t)
+    if np.median(lam) < 0:
+        return None
+    return R, t
+
+
 def _is_coplanar(X: np.ndarray, tol: float = 1e-3) -> bool:
     """True if the 3-D points lie on a plane (smallest PCA extent ≪ the in-plane extent).
 
@@ -307,7 +403,11 @@ def _pose_planar_normalized(X: np.ndarray, pn: np.ndarray) -> Optional[Tuple[np.
     c0 = X.mean(0)
     Xc = X - c0
     _, _, Vt = np.linalg.svd(Xc)
-    e1, e2, nrm = Vt[0], Vt[1], Vt[2]
+    e1, e2 = Vt[0], Vt[1]
+    nrm = np.cross(e1, e2)                        # right-handed normal, NOT Vt[2] (SVD's sign
+    # on the smallest singular vector is arbitrary -- Vt[2] can be antiparallel to cross(e1,e2),
+    # which silently turns [e1,e2,Vt[2]] into a reflection and R below into a mirrored, wrong
+    # pose. Manifests for large board tilts; verified via manufactured recovery test.
     a, b = Xc @ e1, Xc @ e2                       # 2-D plane coordinates
     # homography DLT: [a,b,1] -> pn (2 rows/point), null-space of the 2n x 9 design matrix.
     n = len(X)
@@ -338,24 +438,297 @@ def _pose_planar_normalized(X: np.ndarray, pn: np.ndarray) -> Optional[Tuple[np.
     return R, t
 
 
-def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
-                          thresh_px: float = 3.0, max_iters: int = 300,
-                          confidence: float = 0.999, min_sample: int = 6,
-                          seed: int = 0) -> Tuple[Optional[np.ndarray], np.ndarray]:
-    """RANSAC pose on the normalized plane. ``thresh_px`` is interpreted in pixels via
-    ``focal`` (the model focal) so the gate matches the pixel-domain blunders. Returns
-    ``(T_cam_obj (4,4) | None, inlier_mask)``.
+def _pose_planar_bearing(X: np.ndarray, rays: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Closed-form pose of a **coplanar** target from (3D, **bearing vector**) pairs, any ray
+    direction.
 
-    Branches on target geometry: a **coplanar** board uses the IPPE planar solver (the general
-    3×4 DLT is degenerate for coplanar points — it returns garbage poses, ~1700 px reprojection
-    on a wide-FOV board); a non-coplanar (fused multi-board) object uses the DLT."""
+    Bearing-vector-native generalization of :func:`_pose_planar_normalized`, exactly as
+    :func:`_pose_dlt_bearing` generalizes :func:`_pose_dlt_normalized` — replaces the
+    homogeneous normalized-plane target ``[u, v, 1]`` with the true bearing ``f`` (any ``z``
+    sign), so a single planar calibration board imaged past 90 deg off-axis is handled instead
+    of silently restricted to its forward-hemisphere corners.
+
+    Model
+    -----
+    A point on the plane is ``P = c0 + a·e1 + b·e2`` (plane basis from PCA, as in the legacy
+    method). Under pose ``(R, t)`` its **camera-frame** point is exactly
+    ``Xc = a·(R e1) + b·(R e2) + (R c0 + t) = H·[a, b, 1]``, ``H = [R e1 | R e2 | R c0 + t]``
+    (3x3) — this holds regardless of ``z``'s sign; the legacy method's ``pn = Xc / Xc_z``
+    additionally assumes ``Xc_z > 0`` so it can drop the (redundant, scale-invariant) ``Xc_z``
+    factor, which is exactly what breaks past 90 deg. Since the bearing ``f`` is parallel to
+    ``Xc`` (``f ∥ Xc``, any sign, any scale), the cross-product constraint
+    ``f × (H·[a,b,1]) = 0`` holds directly — 3 rows linear in ``vec(H)``, rank-2 (2 independent
+    equations), the same count as the legacy homography DLT's 2 rows/point.
+
+    Reduces to :func:`_pose_planar_normalized` when every ``f_i ∥ (u_i, v_i, 1)`` with
+    ``z > 0``: the null space of a homogeneous linear system is invariant to per-row positive
+    scaling, so using ``f_i`` (any positive multiple of ``(u_i, v_i, 1)``) in place of
+    ``(u_i, v_i, 1)`` recovers the identical ``H`` (up to the same overall scale ambiguity both
+    methods already resolve the same way).
+
+    ``H``'s column decomposition into ``(R, t)`` is **identical** to the legacy method (it
+    depends only on ``H``'s structure, not on what was used to fit it) — except the sign
+    disambiguation and cheirality check, which used ``h3[2] < 0`` / ``t[2] <= 0`` (assuming the
+    plane origin and every point project with ``z > 0``). Generalized here to the same
+    depth-along-bearing convention as :func:`_pose_dlt_bearing`: ``lambda = f · (R X + t) > 0``,
+    valid for any ray direction.
+
+    References
+    ----------
+    Zhang, *A Flexible New Technique for Camera Calibration*, TPAMI 2000 (planar homography
+    pose decomposition — the column-recovery step, unchanged here); the bearing-vector
+    cross-product generalization follows the same principle as Hartley & Zisserman §7.1 /
+    Kneip & Furgale OpenGV ICRA 2014 §III already applied to the non-coplanar case in
+    :func:`_pose_dlt_bearing`.
+
+    Parameters
+    ----------
+    X : (N, 3) ndarray
+        World-frame 3D points, genuinely coplanar (see :func:`_is_coplanar`), ``N >= 4``.
+    rays : (N, 3) ndarray
+        Bearing vectors (unit or non-unit; renormalized internally), any ``z`` sign.
+
+    Returns
+    -------
+    (R, t) or None
+        ``R`` (3x3, ``det = +1``) and ``t`` (3,) with ``R X_i + t = lambda_i f_i``,
+        ``lambda_i > 0``. ``None`` if under-determined or non-physical.
+    """
     X = np.asarray(X, float)
-    pn = np.asarray(pn, float)
+    f = np.asarray(rays, float)
+    if len(X) < 4:
+        return None
+    nrm = np.linalg.norm(f, axis=1, keepdims=True)
+    if np.any(nrm < 1e-12):
+        return None
+    f = f / nrm                              # unit bearings (any z sign)
+    c0 = X.mean(0)
+    Xc = X - c0
+    _, _, Vt = np.linalg.svd(Xc)
+    e1, e2 = Vt[0], Vt[1]
+    nrm3 = np.cross(e1, e2)                  # right-handed normal, NOT Vt[2] (arbitrary sign;
+    # see the identical fix + comment in _pose_planar_normalized above)
+    a, b = Xc @ e1, Xc @ e2
+    n = len(X)
+    P = np.column_stack([a, b, np.ones(n)])   # (n,3) plane homogeneous coords
+    fx, fy, fz = f[:, 0:1], f[:, 1:2], f[:, 2:3]
+    # f x (H.P) = 0 -> 3 rows/point in vec(H) = [h_row0(3), h_row1(3), h_row2(3)]
+    M = np.zeros((3 * n, 9))
+    M[0::3, 3:6] = -fz * P                    # row1:  fy*(row2.P) - fz*(row1.P) = 0
+    M[0::3, 6:9] = fy * P
+    M[1::3, 0:3] = fz * P                     # row2:  fz*(row0.P) - fx*(row2.P) = 0
+    M[1::3, 6:9] = -fx * P
+    M[2::3, 0:3] = -fy * P                    # row3:  fx*(row1.P) - fy*(row0.P) = 0 (dependent)
+    M[2::3, 3:6] = fx * P
+    _, _, Vh = np.linalg.svd(M)
+    H = Vh[-1].reshape(3, 3)
+    h1, h2, h3 = H[:, 0], H[:, 1], H[:, 2]
+    s = 0.5 * (np.linalg.norm(h1) + np.linalg.norm(h2))
+    if s < 1e-12:
+        return None
+    # Sign disambiguation via depth-along-bearing (lambda>0), not h3[2]<0 -- valid past 90 deg.
+    lam0 = np.einsum("ij,ij->i", f, (H @ P.T).T)
+    if np.median(lam0) < 0:
+        H, h1, h2, h3 = -H, -h1, -h2, -h3
+    g1, g2, g0 = h1 / s, h2 / s, h3 / s        # R e1, R e2, R c0 + t
+    g3 = np.cross(g1, g2)
+    G = np.column_stack([g1, g2, g3])
+    Uu, _, Vv = np.linalg.svd(G)
+    Rg = Uu @ np.diag([1.0, 1.0, np.linalg.det(Uu @ Vv)]) @ Vv
+    R = Rg @ np.column_stack([e1, e2, nrm3]).T
+    t = g0 - R @ c0
+    # Final cheirality on the full point set (lambda>0), matching _pose_dlt_bearing.
+    lam = np.einsum("ij,ij->i", f, X @ R.T + t)
+    if np.median(lam) < 0:
+        return None
+    return R, t
+
+
+def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
+                               thresh_px: float = 3.0, max_iters: int = 300,
+                               confidence: float = 0.999, min_sample: int = 4,
+                               seed: int = 0) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    """RANSAC pose on **bearing vectors** for a **coplanar** target (a single calibration
+    board), valid for the full sphere. The non-coplanar analogue of :func:`_ransac_pnp_bearing`
+    — same angular inlier metric, same reduction-to-legacy guarantee, minimal sample 4 (a
+    homography) instead of 6 (a general 3x4 DLT)."""
+    X = np.asarray(X, float)
+    f = np.asarray(rays, float)
     n = len(X)
     if n < min_sample:
         return None, np.zeros(n, bool)
+    nrm = np.linalg.norm(f, axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f = f / nrm
+    thr = thresh_px / max(focal, 1e-9)
+    rng = np.random.default_rng(seed)
+    best_inl = np.zeros(n, bool)
+    iters, it = max_iters, 0
+
+    def _ang_err(R, t):
+        Pc = X @ R.T + t
+        d = np.linalg.norm(Pc, axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fp = Pc / d[:, None]
+        cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
+        e = np.arccos(cos)
+        e[~np.isfinite(d) | (d < 1e-12)] = np.inf
+        return e
+
+    while it < iters and it < max_iters:
+        it += 1
+        sample = rng.choice(n, min_sample, replace=False)
+        sol = _pose_planar_bearing(X[sample], f[sample])
+        if sol is None:
+            continue
+        R, t = sol
+        inl = _ang_err(R, t) < thr
+        if inl.sum() > best_inl.sum():
+            best_inl = inl
+            frac = float(np.clip(inl.mean(), 1e-6, 1.0))
+            if frac >= 1.0:
+                break
+            den = np.log1p(-frac ** min_sample)
+            if den < -1e-12:
+                iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
+    if best_inl.sum() < min_sample:
+        return None, best_inl
+    sol = _pose_planar_bearing(X[best_inl], f[best_inl])
+    if sol is None:
+        return None, best_inl
+    R, t = sol
+    best_inl = _ang_err(R, t) < thr
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = t
+    return T, best_inl
+
+
+def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
+                        thresh_px: float = 3.0, max_iters: int = 300,
+                        confidence: float = 0.999, min_sample: int = 6,
+                        seed: int = 0) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    """RANSAC pose on **bearing vectors** (non-coplanar target), valid for the full sphere.
+
+    The minimal-sample model is :func:`_pose_dlt_bearing` (cross-product DLT), so peripheral
+    rays past 90 deg off-axis (``z <= 0``) can both **seed** the hypothesis and be **scored**
+    as inliers/outliers — the normalized-plane engine (:func:`ransac_pnp_normalized`'s DLT
+    branch) cannot, because ``pn = xy/z`` is undefined/unstable there.
+
+    Inlier metric
+    -------------
+    An **angular** bearing residual (radians): for a candidate ``(R, t)`` the predicted bearing
+    is ``f_pred = normalize(R X + t)`` and the residual is the angle to the observed unit bearing
+    ``f_obs``, ``acos(clip(f_pred . f_obs, -1, 1))``. This is well-defined for *every* ray
+    direction (unlike the normalized-plane distance ``||xy/z - pn||``, which diverges as
+    ``z -> 0``). Cheirality is implicit: a point behind the camera along its bearing gives
+    ``f_pred ≈ -f_obs`` (angle ~pi), a huge residual, so it is rejected automatically.
+
+    The gate is converted from the same ``thresh_px`` used elsewhere via ``thresh_px / focal``
+    (radians). Near the optical axis a pixel error ``e_px`` corresponds to an angle
+    ``e_px / focal`` (small-angle ``tan θ ≈ θ``), so this is the exact analogue of the
+    normalized-plane pixel gate ``thresh_px / focal`` and reduces to it on ``z > 0`` data; at
+    wide angles it is a true angular tolerance rather than a tangent-space one.
+
+    Returns ``(T_cam_obj (4,4) | None, inlier_mask)`` over all ``len(X)`` input rows.
+    """
+    X = np.asarray(X, float)
+    f = np.asarray(rays, float)
+    n = len(X)
+    if n < min_sample:
+        return None, np.zeros(n, bool)
+    nrm = np.linalg.norm(f, axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f = f / nrm
+    thr = thresh_px / max(focal, 1e-9)       # angular tolerance (rad); == the px gate near axis
+    rng = np.random.default_rng(seed)
+    best_inl = np.zeros(n, bool)
+    iters, it = max_iters, 0
+
+    def _ang_err(R, t):
+        Pc = X @ R.T + t
+        d = np.linalg.norm(Pc, axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fp = Pc / d[:, None]
+        cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
+        e = np.arccos(cos)
+        e[~np.isfinite(d) | (d < 1e-12)] = np.inf
+        return e
+
+    while it < iters and it < max_iters:
+        it += 1
+        sample = rng.choice(n, min_sample, replace=False)
+        sol = _pose_dlt_bearing(X[sample], f[sample])
+        if sol is None:
+            continue
+        R, t = sol
+        inl = _ang_err(R, t) < thr
+        if inl.sum() > best_inl.sum():
+            best_inl = inl
+            frac = float(np.clip(inl.mean(), 1e-6, 1.0))
+            if frac >= 1.0:
+                break
+            den = np.log1p(-frac ** min_sample)
+            if den < -1e-12:
+                iters = min(max_iters, int(np.log1p(-confidence) / den) + 1)
+    if best_inl.sum() < min_sample:
+        return None, best_inl
+    sol = _pose_dlt_bearing(X[best_inl], f[best_inl])
+    if sol is None:
+        return None, best_inl
+    R, t = sol
+    best_inl = _ang_err(R, t) < thr
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = t
+    return T, best_inl
+
+
+def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
+                          thresh_px: float = 3.0, max_iters: int = 300,
+                          confidence: float = 0.999, min_sample: int = 6,
+                          seed: int = 0, rays: Optional[np.ndarray] = None
+                          ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    """RANSAC pose from a camera's unprojected observations. ``thresh_px`` is interpreted in
+    pixels via ``focal`` (the model focal) so the gate matches the pixel-domain blunders.
+    Returns ``(T_cam_obj (4,4) | None, inlier_mask)``.
+
+    Branches on target geometry **and** the available observation form:
+
+    * **Coplanar** board with ``rays`` supplied → the bearing-vector homography engine
+      (:func:`_ransac_pnp_planar_bearing`, ADR-0019), valid for the **full sphere** including a
+      board imaged edge-on enough to put corners past 90 deg off-axis (``z <= 0``).
+    * **Non-coplanar** target with ``rays`` supplied → the bearing-vector DLT engine
+      (:func:`_ransac_pnp_bearing`, ADR-0018), valid for the **full sphere** including peripheral
+      rays past 90 deg (``z <= 0``); the inlier metric is an angular residual (see that
+      function).
+    * ``rays=None`` (legacy callers) → the normalized-plane engine on ``pn`` — IPPE homography
+      for coplanar, general 3×4 DLT otherwise — ``z > 0`` only, unchanged behaviour.
+
+    Parameters
+    ----------
+    pn : (N, 2) normalized-plane points (``xy/z``). Used by the legacy (``rays=None``) paths;
+        ignored when a bearing path is taken.
+    rays : (N, 3) optional bearing vectors (any ``z`` sign). When given, switches on the
+        full-sphere bearing engine (coplanar or not) so ``z <= 0`` points are handled.
+    """
+    X = np.asarray(X, float)
+    pn = np.asarray(pn, float)
+    n = len(X)
     coplanar = _is_coplanar(X)
-    min_sample = 4 if coplanar else min_sample
+    # Select the solver before enforcing its sample floor: a planar homography is
+    # determined by four correspondences, while either general DLT needs at least six.
+    min_sample = 4 if coplanar else max(6, min_sample)
+    if n < min_sample:
+        return None, np.zeros(n, bool)
+    if rays is not None:
+        if coplanar:
+            return _ransac_pnp_planar_bearing(X, np.asarray(rays, float), focal=focal,
+                                              thresh_px=thresh_px, max_iters=max_iters,
+                                              confidence=confidence, min_sample=4, seed=seed)
+        return _ransac_pnp_bearing(X, np.asarray(rays, float), focal=focal, thresh_px=thresh_px,
+                                   max_iters=max_iters, confidence=confidence,
+                                   min_sample=min_sample, seed=seed)
     solve = _pose_planar_normalized if coplanar else _pose_dlt_normalized
     thr = thresh_px / max(focal, 1e-9)       # normalized-plane tolerance
     rng = np.random.default_rng(seed)

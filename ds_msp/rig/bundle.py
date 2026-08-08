@@ -25,6 +25,7 @@ from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
 from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from ..core.robust import auto_kernel_scale
+from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .types import ObjectObs, RigState
 
 Key = Tuple[int, int]
@@ -56,17 +57,6 @@ def _rig_from_state(rig: RigState, state: dict) -> RigState:
         out.object_poses[k] = T
     out.cameras = {c: type(rig.cameras[c]).from_params(state["intr"][c]) for c in rig.cameras}
     return out
-
-
-def _tangent_basis(f: np.ndarray):
-    """Two orthonormal vectors spanning the tangent plane at each unit bearing ``f`` (N,3)."""
-    helper = np.tile(np.array([0.0, 1.0, 0.0]), (f.shape[0], 1))
-    near = np.abs(f @ np.array([0.0, 1.0, 0.0])) > 0.9
-    helper[near] = np.array([1.0, 0.0, 0.0])
-    e_u = np.cross(helper, f)
-    e_u /= np.linalg.norm(e_u, axis=1, keepdims=True)
-    e_v = np.cross(f, e_u)
-    return e_u, e_v
 
 
 def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
@@ -109,7 +99,7 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
 
     # precompute per-observation object points (board poses baked into pts_3d). For the angular
     # (bearing) residual, also precompute each corner's observed unit bearing f = unproject(uv)
-    # and its tangent basis — the model-agnostic ray the predicted ray is compared against.
+    # — the model-agnostic ray the predicted ray is compared against.
     obs_data = []
     total_rows = 0
     for o in object_obs:
@@ -122,12 +112,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         if angular:
             f, fv = rig.cameras[o.cam_id].unproject(o.pts_2d)
             f = np.asarray(f, float)
-            f = f / np.linalg.norm(f, axis=1, keepdims=True)
-            eu, ev = _tangent_basis(f)
-            tb = (f, eu, ev, np.asarray(fv).ravel().astype(bool) if fv is not None
+            tb = (f, np.asarray(fv).ravel().astype(bool) if fv is not None
                   else np.ones(len(f), bool))
         obs_data.append((o, Xo, tb))
-        total_rows += 2 * len(Xo)
+        total_rows += (3 if angular else 2) * len(Xo)
 
     def _project_all(state):
         out = []
@@ -139,13 +127,13 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return out
 
     def _ang_resid(Xc, tb):
-        """Tangent-plane angular residual r=[eu·d, ev·d], d=normalize(Xc) (N,2)."""
-        f, eu, ev, fv = tb
-        nrm = np.linalg.norm(Xc, axis=1, keepdims=True)
-        d = Xc / np.maximum(nrm, 1e-12)
-        r = np.stack([np.einsum('ij,ij->i', d, eu), np.einsum('ij,ij->i', d, ev)], 1)
-        r[~fv] = 0.0
-        return r, d, nrm[:, 0]
+        """Full-sphere chordal residual and ``d(residual)/d(Xc)`` (N,3)/(N,3,3)."""
+        f, fv = tb
+        r, Jp, valid = chordal_bearing_residual_jacobian(Xc, f)
+        valid &= fv
+        r[~valid] = 0.0
+        Jp[~valid] = 0.0
+        return r, Jp
 
     def residual(state):
         """Stacked reprojection (or angular) residual vector ``(total_rows,)`` for ``state``.
@@ -158,13 +146,14 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         row = 0
         for o, Xo, key, Xg, Xc, tb in _project_all(state):
             if angular:
-                diff, _d, _n = _ang_resid(Xc, tb)
+                diff, _Jp = _ang_resid(Xc, tb)
             else:
                 uv, valid = m_cache[o.cam_id].project(Xc)
                 diff = np.zeros_like(o.pts_2d, float)
                 diff[valid] = uv[valid] - o.pts_2d[valid]
-            r[row:row + 2 * len(Xo)] = diff.ravel()
-            row += 2 * len(Xo)
+            rows = diff.size
+            r[row:row + rows] = diff.ravel()
+            row += rows
         return r
 
     def jacobian(state):
@@ -183,13 +172,8 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             R_cam = state["cam_R"][cam]
             R_obj = state["obj_R"][key]
             if angular:
-                # ∂r/∂Xc = E @ P, P = (I - d dᵀ)/‖Xc‖ ; no intrinsic columns (intrinsics fixed)
-                _r, d, nrm = _ang_resid(Xc, tb)
-                f, eu, ev, fv = tb
-                E = np.stack([eu, ev], axis=1)                   # (N,2,3)
-                P = (np.eye(3)[None] - np.einsum('ni,nj->nij', d, d)) / np.maximum(
-                    nrm[:, None, None], 1e-12)
-                Jp = np.einsum('nij,njk->nik', E, P) * fv[:, None, None]   # (N,2,3) wrt Xc
+                # ∂(normalize(Xc)-f)/∂Xc; no intrinsic columns (intrinsics fixed).
+                _r, Jp = _ang_resid(Xc, tb)                    # (N,3,3)
                 J_param = None
             else:
                 uv, J_point, J_param, valid = m_cache[cam].project_jacobian(Xc)
@@ -197,24 +181,25 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 Jp = J_point * mask                              # (N,2,3)
             # object pose: dXc/dω = R_cam @ (-R_obj[Xo]_x); dXc/dt = R_cam
             dXc_dw_o = -np.einsum('ij,njk->nik', R_cam @ R_obj, _skew_batch(Xo))
-            Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o)       # (N,2,3)
+            Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o)
             Jt_o = np.einsum('nij,jc->nic', Jp, R_cam)
+            point_dim = 3 if angular else 2
             c0 = obj_col[key]
-            J[row:row + 2 * N, c0:c0 + 3] = Jw_o.reshape(2 * N, 3)
-            J[row:row + 2 * N, c0 + 3:c0 + 6] = Jt_o.reshape(2 * N, 3)
+            J[row:row + point_dim * N, c0:c0 + 3] = Jw_o.reshape(point_dim * N, 3)
+            J[row:row + point_dim * N, c0 + 3:c0 + 6] = Jt_o.reshape(point_dim * N, 3)
             # camera extrinsic (skip ref): dXc/dω = -R_cam[Xg]_x; dXc/dt = I
             if cam in cam_col:
                 dXc_dw_c = -np.einsum('ij,njk->nik', R_cam, _skew_batch(Xg))
                 Jw_c = np.einsum('nij,njc->nic', Jp, dXc_dw_c)
                 Jt_c = Jp                                        # J_point @ I
                 cc = cam_col[cam]
-                J[row:row + 2 * N, cc:cc + 3] = Jw_c.reshape(2 * N, 3)
-                J[row:row + 2 * N, cc + 3:cc + 6] = Jt_c.reshape(2 * N, 3)
+                J[row:row + point_dim * N, cc:cc + 3] = Jw_c.reshape(point_dim * N, 3)
+                J[row:row + point_dim * N, cc + 3:cc + 6] = Jt_c.reshape(point_dim * N, 3)
             # intrinsics
             if not fix_intrinsics:
                 ic = intr_col[cam]
                 J[row:row + 2 * N, ic:ic + Pn[cam]] = (J_param * mask).reshape(2 * N, Pn[cam])
-            row += 2 * N
+            row += point_dim * N
         return J
 
     def retract(state, d):
@@ -545,7 +530,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     barc = None if noise_bound is None else 3.03 * float(noise_bound)   # 2-DoF 99% χ² band
     if residual_mode == "angular":
         # The bearing (angular) residual is the model-agnostic, pinhole/fisheye-uniform error:
-        # compare the predicted ray to the observed bearing in the tangent plane.
+        # compare predicted and observed unit rays with a full-sphere chordal residual.
         # Implemented on the dense analytic path with intrinsics held fixed (the observed bearing
         # is intrinsics-dependent), used as a geometry/structure polish.
         state0, residual, jacobian, retract, Kdim = build_problem(
@@ -555,9 +540,9 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return rig
         if barc is not None:
             res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
-                                block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
+                                block=3, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
-            res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
+            res = lm_solve(state0, residual, jacobian, retract, block=3, max_iter=max_iter,
                            on_iter=wrapped_on_iter, **rk)
         return _rig_from_state(rig, res.state)
     if sparse:

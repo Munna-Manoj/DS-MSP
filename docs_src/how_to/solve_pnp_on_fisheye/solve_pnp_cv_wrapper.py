@@ -9,6 +9,7 @@ import numpy as np
 
 import ds_msp.cv as ds_cv
 from ds_msp import DoubleSphereCamera
+from docs_src import zero_roundoff
 
 
 def main() -> None:
@@ -34,6 +35,9 @@ def main() -> None:
     R, _ = cv2.Rodrigues(rvec)
     rot_err_deg = np.degrees(np.arccos(np.clip((np.trace(R @ R_gt.T) - 1) / 2, -1, 1)))
     t_err_m = np.linalg.norm(tvec.squeeze() - tvec_gt)
+    # Keep the published console output deterministic at the float64 round-off floor.
+    rot_err_deg = zero_roundoff(rot_err_deg, atol=1e-5)
+    t_err_m = zero_roundoff(t_err_m, atol=1e-12)
     print(f"rotation error: {rot_err_deg:.2e} deg")
     print(f"translation error: {t_err_m:.2e} m")
 
