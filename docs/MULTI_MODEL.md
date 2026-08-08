@@ -196,6 +196,14 @@ ADR-0018) and coplanar boards (bearing homography, ADR-0019). See
 [Solve PnP on a fisheye](how-to/solve_pnp_on_fisheye.md) for why a plain
 `cv2.solvePnP` gets this wrong on raw fisheye pixels.
 
+For noisy or mismatched data, use `solve_pnp_robust`: it applies deterministic GNC-TLS to
+the same unit bearings, with a fixed per-ray metric from each model's analytic projection
+Jacobian so the explicit noise bound remains locally calibrated in pixels. `solve_pnp_ransac`
+remains the compatibility path for classic random minimal-set consensus; its optional final
+polish on bearing-capable inputs is guarded against losing support or worsening the full-data
+truncated local-pixel score. Its legacy undersized fallback remains forward-only and
+normalized-plane.
+
 ### 3.5 Direct OpenCV interop
 
 `cam.K` and `cam.distortion` plug straight into OpenCV once you convert to KB or

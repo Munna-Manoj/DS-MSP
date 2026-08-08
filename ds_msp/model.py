@@ -162,6 +162,27 @@ class DoubleSphereCamera:
             u = (self.width - 1) - u
         
         return np.stack([u, v], axis=-1), valid
+
+    def project_jacobian(
+        self, points_3d: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Project points with the analytic point/intrinsic Jacobians.
+
+        This keeps the legacy facade compatible with model-agnostic services that consume the
+        modern :class:`~ds_msp.core.contracts.CameraModel` derivative contract.
+        """
+        u, v, J_point, J_intr, valid = ds_project_jacobian(
+            np.asarray(points_3d, dtype=np.float64),
+            self.fx, self.fy, self.cx, self.cy, self.xi, self.alpha,
+        )
+        if self.is_flip:
+            self._require_dims("flipped projection")
+            u = (self.width - 1) - u
+            J_point = J_point.copy()
+            J_intr = J_intr.copy()
+            J_point[..., 0, :] *= -1.0
+            J_intr[..., 0, :] *= -1.0
+        return np.stack([u, v], axis=-1), J_point, J_intr, valid
     
     def unproject(self, points_2d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -339,6 +360,24 @@ class DoubleSphereCamera:
         """
         from .ops import solve_pnp as _solve_pnp
         return _solve_pnp(self, points_3d, points_2d, method=method)
+
+    def solve_pnp_robust(self, points_3d: np.ndarray, points_2d: np.ndarray,
+                         *, noise_bound_px: float = 3.0, max_iters: int = 100,
+                         refine: bool = True
+                         ) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+        """Deterministic high-breakdown PnP using GNC-TLS directly on unit bearings.
+
+        Returns ``(success, rvec, tvec, inliers)`` with an ``(N,)`` boolean mask. This is the
+        recommended robust estimator; the analytic projection Jacobian supplies a fixed local
+        pixel metric at every observed ray. :meth:`solve_pnp_ransac` remains available when
+        classic random minimal-set consensus is explicitly required. See
+        :func:`ds_msp.ops.solve_pnp_robust`.
+        """
+        from .ops import solve_pnp_robust as _robust
+        return _robust(
+            self, points_3d, points_2d, noise_bound_px=noise_bound_px,
+            max_iters=max_iters, refine=refine,
+        )
 
     def solve_pnp_ransac(self, points_3d: np.ndarray, points_2d: np.ndarray,
                          *, thresh_px: float = 3.0, max_iters: int = 300,

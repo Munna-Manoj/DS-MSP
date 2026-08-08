@@ -54,7 +54,8 @@ this pipeline's regime. Resolved by experiment (2026-07-18), load-bearing number
    **0.004 mm / 0.0002°** vs studentized Cauchy **0.010 mm / 0.0013°** — plain wins **19/20**.
    Mechanism: classical masking assumes the fit is computed *with* the outlier at full weight so
    `Var(r_i)=σ²(1−h_i)` shrinks its residual. Redescending IRLS from a **robust init**
-   (front-end RANSAC-PnP, warm starts) sees the outlier's raw ~40 px residual against a ~1 px MAD
+   (the robust RANSAC-PnP front end used when this ADR was evaluated, plus warm starts) sees the
+   outlier's raw ~40 px residual against a ~1 px MAD
    scale at iteration 1 → Cauchy weight ≈ 1e-3 immediately → it never acquires influence. Masking
    is an *init-basin* phenomenon, and this pipeline structurally never provides a contaminated
    init. Meanwhile studentization inflates the residuals of *clean* high-leverage corners
@@ -77,7 +78,7 @@ a regime its assumptions exclude.
   8 cameras stays at ~14.5 s instead of 51 s when the flag would have been enabled.
 - The `noise_bound` configurability fix ships independently (FR-RIG-019, three tests).
 - If a future pipeline *does* feed the sparse solver a non-robust init (e.g. a linear-only
-  front-end with no RANSAC gate), this analysis does not apply and the decision should be
+  front-end with no robust gate), this analysis does not apply and the decision should be
   revisited — the sparse derivation and its verification record are preserved in this ADR for
   that eventuality.
 

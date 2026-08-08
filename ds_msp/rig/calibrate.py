@@ -19,7 +19,8 @@ import cv2
 import numpy as np
 
 from ..calib.bundle import calibrate as _calibrate_single
-from ..geometry.resection import intrinsics_seed, ransac_pnp_normalized
+from ..geometry.bearing import projection_bearing_whiteners
+from ..geometry.resection import gnc_pnp_bearings, intrinsics_seed
 from ..core.contracts import CameraModel
 from ..models.radtan import RadTanModel
 from ..models.registry import seed_from_K as _seed_from_K
@@ -47,8 +48,10 @@ def _robust_pinhole(objpts, imgpts, w, h):
     # Refine the pinhole seed with a robust RadTan bundle on the same correspondences. The
     # linear DLT fits *no* distortion, so its focal is biased for anything but a pinhole;
     # a Brown/RadTan refine (which `calibrate` does from-scratch under a Cauchy kernel)
-    # removes that bias — matching what cv2.calibrateCamera gave but without its L2 fragility,
-    # since the pose seeds are RANSAC and the kernel down-weights the surviving blunders.
+    # removes that bias — matching what cv2.calibrateCamera gave but without its L2 fragility.
+    # This preliminary RadTan fit intentionally sees every correspondence: the projective
+    # RANSAC seed supplies a robust focal basin and its Cauchy kernel limits surviving blunders.
+    # Model-aware bearing GNC-TLS filtering happens only after this provisional K exists.
     seed = RadTanModel(K[0, 0], K[1, 1], K[0, 2], K[1, 2], 0.0, 0.0, 0.0, 0.0, 0.0)
     vis = [np.ones(len(o), bool) for o in op]
     try:
@@ -172,28 +175,44 @@ def _model_aware_seed(model_cls, Kp, ge6, objs) -> CameraModel:
     model then solves its native distortion from true ray↔pixel correspondences via
     ``initialize_from_correspondences`` (KB: LS on the θ-polynomial; DS/UCM/EUCM: linear
     α-solve from the projection equation), rather than a generic ``alpha=0.5`` guess that
-    would seed a sub-optimal basin. The per-view pose + **inlier mask** come from the
-    from-scratch :func:`calib.robust_init.ransac_pnp_normalized` (pixels unprojected through
-    the pinhole ``Kp``), so gross outliers neither corrupt the linear α/k solve nor poison
-    the downstream ``calibrate`` pose seeding. The seed only needs to be good enough; the
-    downstream robust ``calibrate`` refines from it. ``objs`` is the object map (see
-    :func:`_obs_points`)."""
+    would seed a sub-optimal basin. The per-view pose + **inlier mask** come from deterministic
+    full-sphere :func:`geometry.resection.gnc_pnp_bearings` (pixels converted to provisional
+    pinhole bearings through ``Kp``), so gross outliers neither corrupt the linear α/k solve
+    nor poison the downstream ``calibrate`` pose seeding. This provisional solve uses a 5 px
+    TLS bound rather than the public 3 px feature-noise default: it must cover both measurement
+    noise and the deliberate pinhole-versus-unknown-fisheye model mismatch. A 3 px bound was
+    measured to discard enough clean peripheral KB correspondences to move the recovered rig
+    baseline by 1.86%; 5 px restores the clean-data result while remaining well below the 40 px
+    planted-blunder regime. The seed only needs to be good
+    enough; the downstream robust ``calibrate`` refines from it. ``objs`` is the object map
+    (see :func:`_obs_points`)."""
     fx, fy, cx, cy = Kp[0, 0], Kp[1, 1], Kp[0, 2], Kp[1, 2]
-    foc = 0.5 * (fx + fy)
+    provisional_model = RadTanModel(fx, fy, cx, cy, 0.0, 0.0, 0.0, 0.0, 0.0)
     rays, pix, Xcal, uvcal = [], [], [], []
     for o in ge6:
         X = _obs_points(objs, o).astype(np.float64)
         uv = o.pts_2d.astype(np.float64)
         pn = np.column_stack([(uv[:, 0] - cx) / fx, (uv[:, 1] - cy) / fy])
-        T, inl = ransac_pnp_normalized(X, pn, focal=foc, thresh_px=3.0)
+        provisional_rays = np.column_stack([pn, np.ones(len(pn))])
+        provisional_rays /= np.linalg.norm(provisional_rays, axis=1, keepdims=True)
+        _, J_point, _, projection_valid = provisional_model.project_jacobian(provisional_rays)
+        whiteners, metric_valid = projection_bearing_whiteners(
+            provisional_rays, J_point, projection_valid
+        )
+        T, inl = gnc_pnp_bearings(
+            X[metric_valid], provisional_rays[metric_valid], noise_bound_px=5.0,
+            whiteners=whiteners[metric_valid],
+        )
         if T is None or inl.sum() < 6:
             continue
+        metric_rows = np.flatnonzero(metric_valid)
+        inlier_rows = metric_rows[inl]
         R, t = T[:3, :3], T[:3, 3]
-        Xc = X[inl] @ R.T + t
+        Xc = X[inlier_rows] @ R.T + t
         rays.append(Xc / np.linalg.norm(Xc, axis=1, keepdims=True))
-        pix.append(uv[inl])
-        Xcal.append(X[inl])
-        uvcal.append(uv[inl])         # inlier set for calibrate
+        pix.append(uv[inlier_rows])
+        Xcal.append(X[inlier_rows])
+        uvcal.append(uv[inlier_rows])         # inlier set for calibrate
     seed = _seed_from_K(model_cls, Kp)
     if rays and sum(len(r) for r in rays) >= 6:
         seed.initialize_from_correspondences(Kp, np.vstack(rays), np.vstack(pix))
@@ -217,7 +236,7 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
         Kp = np.asarray(init_K_cam, float)
     else:
         Kp, _distp = _robust_pinhole(objpts, imgpts, w, h)
-    # Model-aware seed + RANSAC-inlier correspondences (so gross outliers neither
+    # Model-aware seed + GNC-TLS-inlier correspondences (so gross outliers neither
     # corrupt the per-model distortion solve nor wreck calibrate()'s pose seeding).
     seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, objs)
     if len(Xcal) >= 3:
@@ -322,7 +341,8 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
     (``calib.bundle.calibrate``) refines the *chosen model's* full parameter vector from
     that seed. Avoiding a blind focal sweep matters for models whose distortion can absorb a
     focal-seed error (e.g. KB). The default pseudo-Huber (``soft_l1``) refine follows the
-    RANSAC-inlier seed: it bounds an individual corner's influence without redescending to
+    GNC-TLS-filtered correspondence set: it bounds an individual corner's influence without
+    redescending to
     zero, so every view retains a corrective gradient. A Cauchy refine here can silently
     abandon an initially flipped view while reporting a good median over all other views.
     The later global rig BA still uses Cauchy + GNC, after the rig is in the correct basin.
@@ -428,29 +448,26 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
 
 
 def _gated_pnp(model, X, uv, max_rms_px: float = 2.0):
-    """Per-view pose by **high-breakdown RANSAC PnP**, falling back to redescending IRLS.
+    """Per-view pose by deterministic **high-breakdown GNC-TLS PnP**.
 
-    A RANSAC PnP (:func:`ds_msp.ops.solve_pnp_ransac`) rejects gross-outlier corners by
-    consensus and refines the pose on the inlier set, so a view stays correct *past* the 50%
-    breakdown of a median-scaled reweighting — the front-end seed that lets the rig survive
-    heavy per-frame contamination (the MAD-based IRLS warm-started here used to soften the seed
-    back toward outliers above 50%). Falls back to the keep-every-corner IRLS refinement
-    (:func:`pose_init.robust_pose_irls`) when RANSAC finds no consensus (too few points /
-    extreme contamination). On clean views RANSAC keeps every corner, so the pose is unchanged.
-    Returns ``T_cam_obj`` (4x4), or ``None`` only when the view has too few unprojectable
-    points. ``max_rms_px`` is the RANSAC inlier gate in pixels.
+    :func:`ds_msp.ops.solve_pnp_robust` applies GNC-TLS to the model's unit bearings with an
+    explicit model-derived local pixel noise bound, then refines the hard consensus. This replaces
+    random minimal-set sampling in the per-view pose front end and stays deterministic past
+    the 50% breakdown of median-scaled reweighting. A non-coplanar 4--5 point view uses the
+    deterministic ray-aligned SQPnP seed documented by :func:`robust_pose_irls` when the rays fit a
+    numerically usable hemisphere; an unsupported small full-sphere geometry or a failed robust
+    consensus returns ``None`` rather than silently refining from identity. ``max_rms_px`` is the
+    GNC-TLS inlier bound in pixels.
 
-    RANSAC is used only to **identify** gross-outlier corners; the pose is then refined by the
-    accurate IRLS on the clean inlier subset (seeded from the RANSAC pose). When RANSAC finds
-    no outliers — every clean view — this is bit-identical to the plain IRLS over all corners,
-    so there is no clean-data regression; only contaminated views drop their blunders before
-    the refine."""
-    from ..ops.pose import solve_pnp_ransac
-    ok, rvec, tvec, inliers = solve_pnp_ransac(model, X, uv, thresh_px=max_rms_px,
-                                               max_iters=1000)
+    GNC-TLS is used only to identify gross-outlier corners; the final pose is refined by the
+    accurate IRLS on that clean subset. Clean data keeps all corners."""
+    from ..ops.pose import solve_pnp_robust
+    ok, rvec, tvec, inliers = solve_pnp_robust(
+        model, X, uv, noise_bound_px=max_rms_px, max_iters=100, refine=False,
+    )
     X = np.asarray(X, float)
     uv = np.asarray(uv, float)
-    if ok and inliers is not None and 4 <= int(inliers.sum()) < len(uv):
+    if ok and inliers is not None and int(inliers.sum()) >= 4:
         T0 = np.eye(4)
         T0[:3, :3] = cv2.Rodrigues(np.asarray(rvec, float))[0]
         T0[:3, 3] = np.asarray(tvec, float).ravel()
@@ -571,7 +588,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     median-free **GNC-TLS** solver (``barc = 3.03·σ`` inlier band), which rejects gross-outlier
     corners past the 50% breakdown of the MAD auto-scale; the cheaper stages (group refine,
     structure polish) stay on the legacy reweighting so the cost stays bounded. The per-frame
-    pose seed (:func:`_gated_pnp`) always uses a high-breakdown RANSAC PnP. This low-level
+    pose seed (:func:`_gated_pnp`) always uses deterministic high-breakdown GNC-TLS PnP. This
+    low-level
     primitive defaults to ``None`` (legacy path); the config-driven product entry
     :func:`~ds_msp.rig.calib_param.calibrate_from_config` supplies a ``noise_bound`` (config
     default ``1.0`` px) so a real calibration is robust by default.
@@ -594,7 +612,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     objects_by_id = {o.object_id: o for o in objects}
 
     # 1. per-camera intrinsics + object poses (T_c_o). Default to the robust from-scratch
-    #    front-end (RANSAC-DLT seed + per-model pseudo-Huber refine), not the plain-L2
+    #    front-end (robust DLT intrinsic seed + per-model pseudo-Huber refine), not the plain-L2
     #    cv2.calibrateCamera path (`_front_end_opencv`), which collapses the focal under
     #    gross outliers — so a direct calibrate_rig caller gets the robust behaviour the
     #    high-level entry points already use, without having to know to pass front_end.
@@ -689,7 +707,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        composed with the assembled rig, so gate on the rig reprojection, hard-drop, and
     #        re-solve. Down-weighting alone cannot: ``per_observation_errors`` still counts it,
     #        so a correct calibration reads as a 25px failure. Off unless ``reproj_gate_px`` set
-    #        (the config-driven entry passes ``ransac_threshold``).
+    #        (an API caller may pass ``reproj_gate_px`` explicitly; the inherited config field
+    #        ``ransac_threshold`` is parsed for compatibility but is deliberately not auto-wired).
     if reproj_gate_px and reproj_gate_px > 0:
         kept, ndrop = _reject_outlier_observations(rig, object_obs, reproj_gate_px)
         if ndrop:

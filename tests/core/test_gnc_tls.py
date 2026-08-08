@@ -3,8 +3,8 @@
 The redescending-kernel + MAD-auto-scale path in ``lm_solve`` is capped at MAD's 50% breakdown:
 past half gross outliers the median-based scale is dragged up and the solve fails. ``gnc_tls_solve``
 graduates a truncated-least-squares surrogate against an *explicit* noise bound, so it recovers
-well past 50% with no initial guess and returns a hard inlier set. These tests pin both the weight
-mechanics and that breakdown gap on a self-contained SE(3) registration problem.
+well past 50% from the declared identity seed and returns a hard inlier set. These tests pin both
+the weight mechanics and that breakdown gap on a self-contained SE(3) registration problem.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def test_gnc_tls_weight_binarizes_as_mu_grows():
 
 
 def test_gnc_tls_mu_init_admits_everything():
-    """The data-driven μ init makes th1 = 2·max(s): nothing is rejected at the start (no-init)."""
+    """The data-driven μ init makes th1 = 2·max(s): no row is rejected at the first level."""
     s = np.array([0.1, 0.5, 3.0])
     mu0 = gnc_tls_mu_init(s, barc2=0.01)
     assert np.all(gnc_tls_weight(s, 0.01, mu0) > 0.0)

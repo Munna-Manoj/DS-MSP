@@ -17,7 +17,7 @@ with both a clean implementation *and* a chapter that explains them.
 - Multi-model library + parameter conversion between models.
 - Generic Levenberg–Marquardt calibration with analytic Jacobians.
 - Kalibr camchain I/O; OpenCV-compatible wrappers; TI LDC hardware export.
-- Reproducible setup: `pip install -e .`, 417 passing tests, dataset fetcher.
+- Reproducible setup: `pip install -e .`, a tiered deterministic test suite, and a dataset fetcher.
 - Learning track: **Chapters 1–2** — camera models on real TUM-VI data, and the
   Double Sphere model reproducing TUM-VI's published calibration to 0.025 px.
 - **Capstone**: calibrate a real fisheye end-to-end from AprilGrid footage

@@ -12,9 +12,9 @@ possibly-*different* chosen model and check we recover, to 1%:
     that metric is meaningless when the chosen model cannot represent the original's FOV
     (a fisheye is not reproducible by RadTan at the periphery), so it is checked only there.
 
-Under gross outliers this exercises the from-scratch robust front-end (RANSAC DLT resection
-+ RANSAC PnP — no ``cv2.calibrateCamera``/``solvePnP``), the inlier-gated per-view PnP, and
-the robust SE(3) extrinsics-init consensus. Marked ``slow``::
+Under gross outliers this exercises the from-scratch robust front-end (RANSAC DLT intrinsic
+resection + deterministic bearing GNC-TLS PnP — no ``cv2.calibrateCamera``), the inlier-gated
+per-view PnP, and the robust SE(3) extrinsics-init consensus. Marked ``slow``::
 
     pytest tests/rig/test_param_pose.py -q
 """

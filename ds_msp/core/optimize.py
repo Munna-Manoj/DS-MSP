@@ -366,7 +366,7 @@ def gnc_tls_solve(
     weights: Optional[np.ndarray] = None,
     **lm_kwargs: Any,
 ) -> OptResult:
-    r"""High-breakdown, **median-free**, no-initial-guess robust optimization via Graduated
+    r"""High-breakdown, **median-free** robust optimization via Graduated
     Non-Convexity with a Truncated-Least-Squares surrogate (Yang et al., RA-L 2020).
 
     Why this exists (vs ``lm_solve(robust_kernel=..., robust_scale='auto')``)
@@ -376,7 +376,10 @@ def gnc_tls_solve(
     the kernel never tightens to the true band, and the solve fails. ``gnc_tls_solve`` instead
     graduates a *truncated* surrogate against an **explicit noise bound** ``c̄ = noise_bound``
     (in calibration this is known — the expected reprojection σ), so it recovers **well past 50%**
-    contamination and returns a **hard inlier set**. It is deterministic and needs no init.
+    contamination and returns a **hard inlier set**. It is deterministic. This generic wrapper
+    uses local LM for each weighted variable update and therefore still depends on ``state0``;
+    the no-initial-guess/global guarantees of GNC variants with globally solved variable updates
+    do not apply here.
 
     It reuses :func:`lm_solve` as the inner weighted least-squares solver: each graduation level
     fixes per-block weights and runs an ordinary (non-robust) weighted solve, so the same Lie
@@ -473,7 +476,7 @@ def _gnc_tls_graduate(
             raise ValueError(f"residual length {r.size} not a multiple of block {block}")
         return np.sum(r.reshape(-1, block) ** 2, axis=1)
 
-    # Initialize from an ordinary (unweighted) solve — no robustness yet, no init guess needed.
+    # Start with an ordinary unweighted solve from the caller's state — no robustness yet.
     res = inner_solve(state0, weights)
     state = res.state
     s = block_sq(state)
@@ -482,7 +485,9 @@ def _gnc_tls_graduate(
     w = np.ones_like(s)
     prev = float("inf")
     outer = 0
+    weight_mu = mu
     for outer in range(1, max_outer + 1):
+        weight_mu = mu
         w = gnc_tls_weight(s, barc2, mu)
         bw = w if weights is None else w * weights
         res = inner_solve(state, bw)
@@ -495,6 +500,10 @@ def _gnc_tls_graduate(
         mu *= continuation
         prev = cost
 
+    # The last inner solve changes ``state`` and therefore ``s``. Return weights evaluated on
+    # that final residual, not the pre-solve weights that drove the last variable update. The
+    # latter can be the exact opposite classification when the state moves across the TLS band.
+    w = gnc_tls_weight(s, barc2, weight_mu)
     bn = np.sqrt(s)
     rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
     return OptResult(state=state, cost=float((s * w).sum()), rms=rms, iterations=outer,

@@ -1,4 +1,4 @@
-"""From-scratch robust intrinsic seed + RANSAC PnP (pure NumPy, no OpenCV).
+"""From-scratch robust resection and bearing-native PnP (pure NumPy, no OpenCV).
 
 Why this exists
 ---------------
@@ -11,20 +11,19 @@ out — the rig diverges past ~6-10 % gross outliers (one camera's extrinsic
 collapses entirely).
 
 The robustness has to live in the *seed*, before any reweighting can help. This
-module replaces those primitives with **RANSAC over a linear DLT model**, which
-rejects gross outliers by construction:
+module supplies two robust-estimator families around the same linear geometry:
 
 * :func:`ransac_resection` — RANSAC a 3x4 camera matrix on the genuinely-3D
   target (multi-board), then RQ-decompose it into ``K, R, t``. The intrinsic seed
   is the robust median of the per-view ``K`` over the inlier views.
-* :func:`ransac_pnp_normalized` — RANSAC a pose on the normalized image plane
-  (pixels already unprojected to bearings through the camera's own model), the
-  drop-in robust replacement for ``cv2.solvePnP`` seeding.
+* :func:`gnc_pnp_bearings` — deterministic GNC-TLS pose estimation on full-sphere
+  unit bearings. This is the preferred per-view pose seed.
+* :func:`ransac_pnp_normalized` — the compatibility RANSAC pose engine retained
+  for callers that explicitly request random minimal-set consensus.
 
-Everything here is closed-form linear algebra (SVD); the only randomness is the
-RANSAC sampling, seeded for reproducibility. Downstream, ``calib.bundle.calibrate``
-still does the metric refinement under IRLS — this module only has to land the
-seed in the right basin despite the blunders.
+The foundation stays NumPy-only. Downstream calibration still performs metric
+refinement; these estimators only have to land it in the right basin despite
+gross correspondence blunders.
 """
 
 from __future__ import annotations
@@ -32,6 +31,10 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 import numpy as np
+
+from ..core.lie import hat, se3_exp
+from ..core.optimize import gnc_tls_solve, lm_solve
+from .bearing import chordal_bearing_residual_jacobian
 
 
 # --------------------------------------------------------------------------- #
@@ -387,11 +390,319 @@ def _is_coplanar(X: np.ndarray, tol: float = 1e-3) -> bool:
     object with a tilted board is not. The pose solver must branch on this: the general 3×4
     DLT is **degenerate for coplanar points**, so a planar target needs a homography/IPPE pose.
     """
-    Xc = np.asarray(X, float) - np.asarray(X, float).mean(0)
-    if len(Xc) < 4:
+    X = np.asarray(X, float)
+    if len(X) < 4:
         return True
+    Xc = X - X.mean(0)
     s = np.linalg.svd(Xc, compute_uv=False)
     return s[-1] <= tol * max(s[0], 1e-12)
+
+
+def bearing_pose_residual_jacobian(
+    T: np.ndarray,
+    X: np.ndarray,
+    rays: np.ndarray,
+    *,
+    focal: float = 1.0,
+    whiteners: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Chordal bearing residual and left-SE(3) Jacobian for absolute pose.
+
+    The predicted direction for world point ``X_i`` is
+    ``d_i = normalize(T[:3, :3] @ X_i + T[:3, 3])`` and the residual is
+    ``focal * (d_i - f_i)``. It is finite over the complete sphere and has squared norm
+    ``2 focal**2 * (1 - cos(theta_i))``. With a fixed concentration, minimizing this cost
+    is also maximum likelihood under an isotropic von Mises--Fisher bearing model. Optional
+    per-observation ``whiteners`` replace the scalar focal with a local anisotropic metric,
+    such as :func:`projection_bearing_whiteners`, while preserving the signed chordal ray.
+
+    The Jacobian uses the left perturbation consumed by :func:`refine_pose_bearings`,
+    ``T <- exp(delta) @ T``. Invalid zero-length/non-finite rows are returned with zero
+    residual and Jacobian and ``valid=False``.
+
+    Returns
+    -------
+    residual : (N, 3) ndarray
+        Pixel-equivalent chordal residual blocks.
+    jacobian : (N, 3, 6) ndarray
+        Derivative with respect to ``delta = [translation, rotation]``.
+    valid : (N,) ndarray of bool
+        Rows with finite, non-zero predicted and observed directions.
+    """
+    T = np.asarray(T, float)
+    X = np.asarray(X, float)
+    rays = np.asarray(rays, float)
+    if T.shape != (4, 4):
+        raise ValueError("T must have shape (4, 4)")
+    if X.ndim != 2 or X.shape[1:] != (3,) or rays.shape != X.shape:
+        raise ValueError("X and rays must have matching shape (N, 3)")
+    if not np.isfinite(focal) or focal <= 0.0:
+        raise ValueError("focal must be finite and positive")
+    if whiteners is not None:
+        whiteners = np.asarray(whiteners, float)
+        if whiteners.shape != (len(X), 3, 3):
+            raise ValueError("whiteners must have shape (N, 3, 3)")
+        if not np.isfinite(whiteners).all():
+            raise ValueError("whiteners must be finite")
+
+    camera_points = X @ T[:3, :3].T + T[:3, 3]
+    residual, dres_dpoint, valid = chordal_bearing_residual_jacobian(
+        camera_points, rays, eps=1e-12
+    )
+    jacobian = np.zeros((len(X), 3, 6), dtype=float)
+    for i in np.flatnonzero(valid):
+        dpoint_ddelta = np.hstack((np.eye(3), -hat(camera_points[i])))
+        jacobian[i] = dres_dpoint[i] @ dpoint_ddelta
+    if whiteners is None:
+        return focal * residual, focal * jacobian, valid
+    residual = np.einsum("nij,nj->ni", whiteners, residual)
+    jacobian = np.einsum("nij,njk->nik", whiteners, jacobian)
+    return residual, jacobian, valid
+
+
+def bearing_pose_angular_error(T: np.ndarray, X: np.ndarray, rays: np.ndarray) -> np.ndarray:
+    """Per-correspondence angular pose error in radians over the complete bearing sphere."""
+    residual, _, valid = bearing_pose_residual_jacobian(T, X, rays)
+    # For unit directions, ||d-f|| = 2 sin(theta/2). This avoids a separate duplicate
+    # normalization path and is more accurate than acos(dot) close to a perfect fit.
+    half_chord = np.clip(0.5 * np.linalg.norm(residual, axis=1), 0.0, 1.0)
+    error = 2.0 * np.arcsin(half_chord)
+    error[~valid] = np.inf
+    return error
+
+
+def refine_pose_bearings(
+    T0: np.ndarray,
+    X: np.ndarray,
+    rays: np.ndarray,
+    *,
+    focal: float = 1.0,
+    whiteners: Optional[np.ndarray] = None,
+    max_iter: int = 30,
+) -> np.ndarray:
+    """Refine an absolute pose directly on unit bearings with manifold LM.
+
+    Callers unproject pixels once, then this camera-neutral consensus-polish primitive
+    minimizes the 3-component chordal residual without projecting through a concrete lens
+    model or dividing by bearing ``z``. The ordinary least-squares objective is appropriate
+    after a robust estimator has selected a clean consensus. :func:`lm_solve` accepts only
+    cost-reducing steps, so numerical failure safely leaves ``T0`` unchanged; public robust
+    callers also rescore support over all observations before accepting the result.
+    """
+    T0 = np.asarray(T0, float)
+    X = np.asarray(X, float)
+    rays = np.asarray(rays, float)
+    if T0.shape != (4, 4) or not np.isfinite(T0).all():
+        raise ValueError("T0 must be a finite array with shape (4, 4)")
+    if X.ndim != 2 or X.shape[1:] != (3,) or rays.shape != X.shape:
+        raise ValueError("X and rays must have matching shape (N, 3)")
+    if len(X) < 4:
+        raise ValueError("at least four bearing correspondences are required")
+    if whiteners is not None:
+        whiteners = np.asarray(whiteners, float)
+        if whiteners.shape != (len(X), 3, 3):
+            raise ValueError("whiteners must have shape (N, 3, 3)")
+
+    def residual(T: object) -> np.ndarray:
+        e, _, _ = bearing_pose_residual_jacobian(
+            np.asarray(T), X, rays, focal=focal, whiteners=whiteners
+        )
+        return e.reshape(-1)
+
+    def jacobian(T: object) -> np.ndarray:
+        _, J, _ = bearing_pose_residual_jacobian(
+            np.asarray(T), X, rays, focal=focal, whiteners=whiteners
+        )
+        return J.reshape(-1, 6)
+
+    def retract(T: object, delta: np.ndarray) -> np.ndarray:
+        return se3_exp(delta) @ np.asarray(T)
+
+    result = lm_solve(
+        T0.copy(), residual, jacobian, retract, block=3, max_iter=max_iter,
+        robust_kernel="none", tol=1e-10,
+    )
+    candidate = np.asarray(result.state, float)
+    return candidate if candidate.shape == (4, 4) and np.isfinite(candidate).all() else T0.copy()
+
+
+def guarded_refine_pose_bearings(
+    T: np.ndarray,
+    X: np.ndarray,
+    rays: np.ndarray,
+    inliers: np.ndarray,
+    *,
+    focal: float,
+    threshold: float,
+    whiteners: Optional[np.ndarray] = None,
+    max_iter: int = 30,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Polish a bearing consensus without weakening its robust-estimator support.
+
+    The first candidate is fit to the current consensus. A bounded least-trimmed refinement
+    then keeps the same number of smallest-residual observations while allowing threshold-edge
+    membership to change; this avoids bias from freezing an imperfect discrete consensus.
+    The result is rescored over all correspondences and accepted only if it preserves support
+    and does not increase the truncated residual (MSAC-style) score. A failed or non-finite
+    refinement is therefore a harmless no-op.
+    """
+    inliers = np.asarray(inliers, bool)
+    if inliers.shape != (len(X),):
+        raise ValueError("inliers must have shape (N,)")
+    if inliers.sum() < 4:
+        return np.asarray(T, float).copy(), inliers.copy()
+    whiteners = None if whiteners is None else np.asarray(whiteners, float)
+    if whiteners is not None and whiteners.shape != (len(X), 3, 3):
+        raise ValueError("whiteners must have shape (N, 3, 3)")
+    X = np.asarray(X)
+    rays = np.asarray(rays)
+    support = int(inliers.sum())
+    try:
+        candidate = refine_pose_bearings(
+            T, X[inliers], rays[inliers],
+            focal=focal,
+            whiteners=None if whiteners is None else whiteners[inliers],
+            max_iter=max_iter,
+        )
+    except (FloatingPointError, np.linalg.LinAlgError, ValueError):
+        return np.asarray(T, float).copy(), inliers.copy()
+
+    def block_error(pose: np.ndarray) -> np.ndarray:
+        residual, _, valid = bearing_pose_residual_jacobian(
+            pose, X, rays, focal=focal, whiteners=whiteners
+        )
+        error = np.linalg.norm(residual, axis=1)
+        error[~valid] = np.inf
+        return error
+
+    # One bounded least-trimmed update is the deterministic local-optimization analogue of
+    # replacing a threshold-edge RANSAC/GNC member with a better-supported observation. Keep
+    # cardinality fixed here; the final threshold rescore below may still grow the consensus.
+    error_candidate = block_error(candidate)
+    finite = np.isfinite(error_candidate)
+    if finite.sum() >= support:
+        order = np.argsort(error_candidate, kind="stable")
+        trimmed = np.zeros(len(X), dtype=bool)
+        trimmed[order[:support]] = True
+        if not np.array_equal(trimmed, inliers):
+            try:
+                candidate = refine_pose_bearings(
+                    candidate, X[trimmed], rays[trimmed],
+                    focal=focal,
+                    whiteners=None if whiteners is None else whiteners[trimmed],
+                    max_iter=max_iter,
+                )
+            except (FloatingPointError, np.linalg.LinAlgError, ValueError):
+                return np.asarray(T, float).copy(), inliers.copy()
+
+    error_before = block_error(T)
+    error_after = block_error(candidate)
+    candidate_inliers = error_after < threshold
+    score_before = float(np.minimum(error_before ** 2, threshold ** 2).sum())
+    score_after = float(np.minimum(error_after ** 2, threshold ** 2).sum())
+    if candidate_inliers.sum() >= inliers.sum() and score_after <= score_before:
+        return candidate, candidate_inliers
+    return np.asarray(T, float).copy(), inliers.copy()
+
+
+def gnc_pnp_bearings(
+    X: np.ndarray,
+    rays: np.ndarray,
+    *,
+    focal: float = 1.0,
+    noise_bound_px: float = 3.0,
+    max_outer: int = 100,
+    inner_max_iter: int = 2,
+    refine: bool = True,
+    whiteners: Optional[np.ndarray] = None,
+) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    """Deterministic GNC-TLS absolute pose on full-sphere bearing vectors.
+
+    This is the robust non-minimal alternative to minimal-set RANSAC. A bearing DLT
+    (non-coplanar) or bearing homography (coplanar) supplies a deterministic all-data seed;
+    :func:`gnc_tls_solve` then alternates weighted chordal pose updates with closed-form TLS
+    weights against the explicit ``noise_bound_px``. When local pixel ``whiteners`` are
+    supplied, the bound is in locally calibrated pixel units at every observed ray; otherwise
+    the residual uses the legacy scalar-``focal`` chordal approximation. The final weights form
+    a hard consensus mask, optionally followed by :func:`guarded_refine_pose_bearings`.
+
+    The nonlinear weighted pose step uses the repository's manifold LM, so this implementation
+    deliberately does **not** claim the certifiable/no-initial-guess guarantee available when
+    every GNC variable update has a globally optimal non-minimal solver. It is nevertheless
+    deterministic, uses all measurements rather than random minimal subsets, and inherits the
+    same full-sphere residual as the rest of the bearing backend.
+    """
+    X = np.asarray(X, float)
+    rays = np.asarray(rays, float)
+    if X.ndim != 2 or X.shape[1:] != (3,) or rays.shape != X.shape:
+        raise ValueError("X and rays must have matching shape (N, 3)")
+    if not np.isfinite(noise_bound_px) or noise_bound_px <= 0.0:
+        raise ValueError("noise_bound_px must be finite and positive")
+    if whiteners is not None:
+        whiteners = np.asarray(whiteners, float)
+        if whiteners.shape != (len(X), 3, 3) or not np.isfinite(whiteners).all():
+            raise ValueError("whiteners must be finite with shape (N, 3, 3)")
+    coplanar = _is_coplanar(X)
+    support_floor = 4 if coplanar else 6
+    if len(X) < support_floor:
+        return None, np.zeros(len(X), bool)
+
+    solve_linear = _pose_planar_bearing if coplanar else _pose_dlt_bearing
+    try:
+        seed = solve_linear(X, rays)
+    except np.linalg.LinAlgError:
+        seed = None
+    if seed is None:
+        return None, np.zeros(len(X), bool)
+    T0 = np.eye(4)
+    T0[:3, :3], T0[:3, 3] = seed
+
+    def residual(T: object) -> np.ndarray:
+        e, _, _ = bearing_pose_residual_jacobian(
+            np.asarray(T), X, rays, focal=focal, whiteners=whiteners
+        )
+        return e.reshape(-1)
+
+    def jacobian(T: object) -> np.ndarray:
+        _, J, _ = bearing_pose_residual_jacobian(
+            np.asarray(T), X, rays, focal=focal, whiteners=whiteners
+        )
+        return J.reshape(-1, 6)
+
+    def retract(T: object, delta: np.ndarray) -> np.ndarray:
+        return se3_exp(delta) @ np.asarray(T)
+
+    try:
+        result = gnc_tls_solve(
+            T0, residual, jacobian, retract,
+            noise_bound=noise_bound_px, block=3, max_outer=max_outer,
+            inner_max_iter=inner_max_iter,
+        )
+    except (FloatingPointError, np.linalg.LinAlgError, ValueError):
+        return None, np.zeros(len(X), bool)
+    T = np.asarray(result.state, float)
+    if T.shape != (4, 4) or not np.isfinite(T).all() or result.weights is None:
+        return None, np.zeros(len(X), bool)
+
+    final_residual, _, final_valid = bearing_pose_residual_jacobian(
+        T, X, rays, focal=focal, whiteners=whiteners
+    )
+    final_error = np.linalg.norm(final_residual, axis=1)
+    inliers = (
+        (np.asarray(result.weights) > 0.5)
+        & final_valid
+        & (final_error < noise_bound_px)
+    )
+    if inliers.sum() < support_floor:
+        return None, inliers
+    if refine:
+        T, inliers = guarded_refine_pose_bearings(
+            T, X, rays, inliers, focal=focal, threshold=noise_bound_px,
+            whiteners=whiteners,
+        )
+    if inliers.sum() < support_floor:
+        return None, inliers
+    return T, inliers
 
 
 def _pose_planar_normalized(X: np.ndarray, pn: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -553,11 +864,13 @@ def _pose_planar_bearing(X: np.ndarray, rays: np.ndarray) -> Optional[Tuple[np.n
 def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
                                thresh_px: float = 3.0, max_iters: int = 300,
                                confidence: float = 0.999, min_sample: int = 4,
-                               seed: int = 0) -> Tuple[Optional[np.ndarray], np.ndarray]:
+                               seed: int = 0, whiteners: Optional[np.ndarray] = None
+                               ) -> Tuple[Optional[np.ndarray], np.ndarray]:
     """RANSAC pose on **bearing vectors** for a **coplanar** target (a single calibration
     board), valid for the full sphere. The non-coplanar analogue of :func:`_ransac_pnp_bearing`
-    — same angular inlier metric, same reduction-to-legacy guarantee, minimal sample 4 (a
-    homography) instead of 6 (a general 3x4 DLT)."""
+    — same full-sphere inlier metric, same reduction-to-legacy guarantee, minimal sample 4 (a
+    homography) instead of 6 (a general 3x4 DLT). With ``whiteners``, ``thresh_px`` is evaluated
+    in the camera's local pixel metric at each observed bearing."""
     X = np.asarray(X, float)
     f = np.asarray(rays, float)
     n = len(X)
@@ -566,7 +879,11 @@ def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float 
     nrm = np.linalg.norm(f, axis=1, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
         f = f / nrm
-    thr = thresh_px / max(focal, 1e-9)
+    if whiteners is not None:
+        whiteners = np.asarray(whiteners, float)
+        if whiteners.shape != (n, 3, 3) or not np.isfinite(whiteners).all():
+            raise ValueError("whiteners must be finite with shape (N, 3, 3)")
+    thr = thresh_px if whiteners is not None else thresh_px / max(focal, 1e-9)
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
     best_sol = None
@@ -577,8 +894,12 @@ def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float 
         d = np.linalg.norm(Pc, axis=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             fp = Pc / d[:, None]
-        cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
-        e = np.arccos(cos)
+        if whiteners is None:
+            cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
+            e = np.arccos(cos)
+        else:
+            chord = fp - f
+            e = np.linalg.norm(np.einsum("nij,nj->ni", whiteners, chord), axis=1)
         e[~np.isfinite(d) | (d < 1e-12)] = np.inf
         return e
 
@@ -625,7 +946,8 @@ def _ransac_pnp_planar_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float 
 def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
                         thresh_px: float = 3.0, max_iters: int = 300,
                         confidence: float = 0.999, min_sample: int = 6,
-                        seed: int = 0) -> Tuple[Optional[np.ndarray], np.ndarray]:
+                        seed: int = 0, whiteners: Optional[np.ndarray] = None
+                        ) -> Tuple[Optional[np.ndarray], np.ndarray]:
     """RANSAC pose on **bearing vectors** (non-coplanar target), valid for the full sphere.
 
     The minimal-sample model is :func:`_pose_dlt_bearing` (cross-product DLT), so peripheral
@@ -635,18 +957,12 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
 
     Inlier metric
     -------------
-    An **angular** bearing residual (radians): for a candidate ``(R, t)`` the predicted bearing
-    is ``f_pred = normalize(R X + t)`` and the residual is the angle to the observed unit bearing
-    ``f_obs``, ``acos(clip(f_pred . f_obs, -1, 1))``. This is well-defined for *every* ray
-    direction (unlike the normalized-plane distance ``||xy/z - pn||``, which diverges as
-    ``z -> 0``). Cheirality is implicit: a point behind the camera along its bearing gives
-    ``f_pred ≈ -f_obs`` (angle ~pi), a huge residual, so it is rejected automatically.
-
-    The gate is converted from the same ``thresh_px`` used elsewhere via ``thresh_px / focal``
-    (radians). Near the optical axis a pixel error ``e_px`` corresponds to an angle
-    ``e_px / focal`` (small-angle ``tan θ ≈ θ``), so this is the exact analogue of the
-    normalized-plane pixel gate ``thresh_px / focal`` and reduces to it on ``z > 0`` data; at
-    wide angles it is a true angular tolerance rather than a tangent-space one.
+    The base error is the complete-sphere bearing discrepancy between
+    ``f_pred = normalize(R X + t)`` and ``f_obs``. With per-observation ``whiteners`` from the
+    camera projection Jacobian, its chord is measured in a locally calibrated pixel metric, so
+    ``thresh_px`` remains meaningful at the image periphery. Without whiteners, compatibility
+    callers retain the earlier angular gate ``thresh_px / focal``. Both forms stay finite at
+    ``z = 0`` and penalize the antipodal ray rather than dividing by bearing ``z``.
 
     Returns ``(T_cam_obj (4,4) | None, inlier_mask)`` over all ``len(X)`` input rows.
     """
@@ -658,7 +974,12 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
     nrm = np.linalg.norm(f, axis=1, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
         f = f / nrm
-    thr = thresh_px / max(focal, 1e-9)       # angular tolerance (rad); == the px gate near axis
+    if whiteners is not None:
+        whiteners = np.asarray(whiteners, float)
+        if whiteners.shape != (n, 3, 3) or not np.isfinite(whiteners).all():
+            raise ValueError("whiteners must be finite with shape (N, 3, 3)")
+    thr = (thresh_px if whiteners is not None else
+           thresh_px / max(focal, 1e-9))
     rng = np.random.default_rng(seed)
     best_inl = np.zeros(n, bool)
     best_sol = None
@@ -669,8 +990,12 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
         d = np.linalg.norm(Pc, axis=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             fp = Pc / d[:, None]
-        cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
-        e = np.arccos(cos)
+        if whiteners is None:
+            cos = np.clip(np.einsum("ij,ij->i", fp, f), -1.0, 1.0)
+            e = np.arccos(cos)
+        else:
+            chord = fp - f
+            e = np.linalg.norm(np.einsum("nij,nj->ni", whiteners, chord), axis=1)
         e[~np.isfinite(d) | (d < 1e-12)] = np.inf
         return e
 
@@ -717,11 +1042,14 @@ def _ransac_pnp_bearing(X: np.ndarray, rays: np.ndarray, *, focal: float = 1.0,
 def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
                           thresh_px: float = 3.0, max_iters: int = 300,
                           confidence: float = 0.999, min_sample: int = 6,
-                          seed: int = 0, rays: Optional[np.ndarray] = None
+                          seed: int = 0, rays: Optional[np.ndarray] = None,
+                          whiteners: Optional[np.ndarray] = None,
                           ) -> Tuple[Optional[np.ndarray], np.ndarray]:
-    """RANSAC pose from a camera's unprojected observations. ``thresh_px`` is interpreted in
-    pixels via ``focal`` (the model focal) so the gate matches the pixel-domain blunders.
-    Returns ``(T_cam_obj (4,4) | None, inlier_mask)``.
+    """RANSAC pose from a camera's unprojected observations.
+
+    Bearing callers can supply per-ray projection ``whiteners`` so ``thresh_px`` is evaluated
+    in a local pixel metric over the full sphere. Without them, the historical scalar-focal
+    angular conversion is retained. Returns ``(T_cam_obj (4,4) | None, inlier_mask)``.
 
     Branches on target geometry **and** the available observation form:
 
@@ -730,8 +1058,7 @@ def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
       board imaged edge-on enough to put corners past 90 deg off-axis (``z <= 0``).
     * **Non-coplanar** target with ``rays`` supplied → the bearing-vector DLT engine
       (:func:`_ransac_pnp_bearing`, ADR-0018), valid for the **full sphere** including peripheral
-      rays past 90 deg (``z <= 0``); the inlier metric is an angular residual (see that
-      function).
+      rays past 90 deg (``z <= 0``); see that function for the inlier metric.
     * ``rays=None`` (legacy callers) → the normalized-plane engine on ``pn`` — IPPE homography
       for coplanar, general 3×4 DLT otherwise — ``z > 0`` only, unchanged behaviour.
 
@@ -741,6 +1068,8 @@ def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
         ignored when a bearing path is taken.
     rays : (N, 3) optional bearing vectors (any ``z`` sign). When given, switches on the
         full-sphere bearing engine (coplanar or not) so ``z <= 0`` points are handled.
+    whiteners : (N, 3, 3) optional
+        Fixed local bearing-to-pixel metrics aligned with ``rays``.
     """
     X = np.asarray(X, float)
     pn = np.asarray(pn, float)
@@ -755,10 +1084,11 @@ def ransac_pnp_normalized(X: np.ndarray, pn: np.ndarray, *, focal: float = 1.0,
         if coplanar:
             return _ransac_pnp_planar_bearing(X, np.asarray(rays, float), focal=focal,
                                               thresh_px=thresh_px, max_iters=max_iters,
-                                              confidence=confidence, min_sample=4, seed=seed)
+                                              confidence=confidence, min_sample=4, seed=seed,
+                                              whiteners=whiteners)
         return _ransac_pnp_bearing(X, np.asarray(rays, float), focal=focal, thresh_px=thresh_px,
                                    max_iters=max_iters, confidence=confidence,
-                                   min_sample=min_sample, seed=seed)
+                                   min_sample=min_sample, seed=seed, whiteners=whiteners)
     solve = _pose_planar_normalized if coplanar else _pose_dlt_normalized
     thr = thresh_px / max(focal, 1e-9)       # normalized-plane tolerance
     rng = np.random.default_rng(seed)

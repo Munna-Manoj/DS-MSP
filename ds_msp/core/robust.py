@@ -163,7 +163,8 @@ def gnc_tls_mu_init(block_sq: np.ndarray, barc2: float) -> float:
     """Deterministic, data-driven initial ``mu`` for :func:`gnc_tls_weight` (no tuning).
 
     ``μ = 1/(2·max(sᵢ)/c̄² − 1)`` makes the first surrogate nearly convex (``th1 = 2·max sᵢ``,
-    so nothing is rejected at the start) — the no-initial-guess property of GNC-TLS.
+    so nothing is rejected at the start). This initializes the weight continuation only; whether
+    the variable estimate needs a good state initialization depends on the inner solver.
     """
     s_max = float(np.asarray(block_sq, float).max())
     denom = 2.0 * s_max / barc2 - 1.0
