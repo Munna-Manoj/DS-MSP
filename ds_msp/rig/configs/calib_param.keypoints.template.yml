@@ -70,7 +70,7 @@ keypoints_path: "/abs/out/detected_keypoints_data.yml"   # the file saved by STE
 
 ######################################## Optimization Parameters #############################################
 ransac_threshold: 10       # px; MC-Calib's hard-drop threshold. NOT auto-applied by ds-msp-calibrate-rig
-                           # (see ADR-0012): the default robustly down-weights + reports gross outliers
+                           # (see ADR-0013): the default robustly down-weights + reports gross outliers
                            # instead. Pass reproj_gate_px=ransac_threshold to calibrate_rig/
                            # calibrate_scenario explicitly for MC-Calib-parity hard-drop behavior.
 number_iterations: 1000    # max non-linear refinement iterations

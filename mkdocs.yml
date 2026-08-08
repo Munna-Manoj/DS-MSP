@@ -140,6 +140,7 @@ nav:
       - "Companion: stereo extrinsics": learn/stereo_extrinsics_calibration.md
       - "Companion: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
       - 8 · Two-view geometry on rays: learn/08_two_view_geometry_on_rays.md
+      - "Companion: loop closure on fisheye": learn/loop_closure_on_fisheye.md
   - How-to:
       - how-to/README.md
       - Calibrate any model: how-to/calibrate_any_model.md
@@ -180,4 +181,5 @@ nav:
       - Rig outlier benchmark: RIG_OUTLIER_BENCHMARK.md
       - Multi-model library & conversion: MULTI_MODEL.md
   - Project:
+      - Dependency compatibility: COMPATIBILITY.md
       - Roadmap: ROADMAP.md
