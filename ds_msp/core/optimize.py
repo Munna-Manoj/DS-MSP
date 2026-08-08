@@ -37,6 +37,7 @@ so the same loop drives two-view BA and multi-image calibration.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import fsum
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -92,18 +93,9 @@ def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
 def _safe_inv(M: np.ndarray) -> np.ndarray:
     """Inverse of a small SPD block with scale-aware jitter if near-singular.
 
-    NOTE (matrix-calculus study, 2026-07): instrumentation showed a single rig
-    calibration LU-inverts thousands of near-singular blocks here (Cholesky-
-    diagonal rcond estimates down to 1e-26). Replacing this with a regularized
-    (jittered-Cholesky) or pseudo-inverse changes end-to-end calibration
-    results enough to shift tests/rig/test_param_pose.py::
-    test_model_of_choice_clean[kb-kb] from 'worst pose' <1.0% to ~1.27%: the
-    huge-norm LU steps are rejected by lm_solve/schur_lm's cost gate (after
-    which a larger lambda re-conditions the block), whereas plausible
-    regularized steps get *accepted* into a slightly different basin. The
-    historical behavior is therefore load-bearing; changing it needs a
-    maintainer decision with recalibrated end-to-end thresholds, not a
-    drive-by swap.
+    The outer LM loop owns regularization and rejects bad trial steps before increasing
+    damping. Adding unconditional block-level regularization here changes that acceptance
+    path, so jitter is reserved for an actually singular inverse.
     """
     try:
         return np.linalg.inv(M)
@@ -116,12 +108,27 @@ def _cho_solve(L: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Solve ``(L L^T) x = b`` from a lower Cholesky factor, NumPy-only.
 
     The math-foundation layer must stay free of scipy (import-linter contract /
-    ``tests/contract/test_independence.py``), so the two triangular substitutions go
-    through ``np.linalg.solve`` on the factor instead of ``scipy.linalg.solve_triangular``.
-    Solving an already-triangular system via LAPACK's generic driver is numerically the
-    same backward-stable substitution; the extra factorization bookkeeping is negligible
-    at this solver's dense-path sizes."""
-    return np.linalg.solve(L.T, np.linalg.solve(L, b))
+    ``tests/contract/test_independence.py``), so perform the two triangular substitutions
+    directly instead of routing triangular factors through a generic dense driver.
+    :func:`math.fsum` accurately accumulates cancellation-prone rows without depending on
+    a BLAS reduction order, which matters for the ill-conditioned Schur systems this solver
+    encounters.
+    """
+    L = np.asarray(L)
+    b = np.asarray(b)
+    if L.ndim != 2 or L.shape[0] != L.shape[1] or b.shape != (L.shape[0],):
+        raise ValueError("expected square L and a matching vector b")
+
+    y = np.empty_like(b, dtype=np.result_type(L.dtype, b.dtype, float))
+    for i in range(len(b)):
+        acc = fsum((L[i, :i] * y[:i]).tolist())
+        y[i] = (b[i] - acc) / L[i, i]
+
+    x = np.empty_like(y)
+    for i in range(len(b) - 1, -1, -1):
+        acc = fsum((L[i + 1:, i] * x[i + 1:]).tolist())
+        x[i] = (y[i] - acc) / L[i, i]
+    return x
 
 
 def _solve_damped(H: np.ndarray, g: np.ndarray, lam: float,
