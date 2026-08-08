@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.13.0...v0.14.0) (2026-08-08)
+
+
+### Features
+
+* **pnp:** add deterministic bearing GNC-TLS robust pose ([0a9778b](https://github.com/Munna-Manoj/DS-MSP/commit/0a9778b519e392c927931cb023b54b81c5a72180))
+* **pnp:** make pose estimation full-sphere end to end ([28ff9cf](https://github.com/Munna-Manoj/DS-MSP/commit/28ff9cfe366cbc440ce6e41d951a207baa29dda6))
+* **rig:** calibration trust layer — observability audit, optimality certificate, full report deliverable ([bfe6dd8](https://github.com/Munna-Manoj/DS-MSP/commit/bfe6dd8b126fc8adf5673c543dbda6003ac5428b))
+
+
+### Bug Fixes
+
+* **adapt:** require fit quality for conversion convergence ([01436e6](https://github.com/Munna-Manoj/DS-MSP/commit/01436e6aeb71d9656e3dd7e906b50d0083816fec))
+* **calib:** canonicalize ChArUco coordinates across OpenCV ([0fc789b](https://github.com/Munna-Manoj/DS-MSP/commit/0fc789b6cc333320940baf6380b7cf152d5e830d))
+* **ci:** avoid nested pools in nightly slow tests ([2db1506](https://github.com/Munna-Manoj/DS-MSP/commit/2db15060426fdeb6811147526f065f43344a13f4))
+* **ci:** shard hosted nightly slow suite ([d3c1727](https://github.com/Munna-Manoj/DS-MSP/commit/d3c172758d4ea29a2b06a469dd949bc4503e4cb8))
+* **core:** stabilize NumPy-only Cholesky solves ([e787d3f](https://github.com/Munna-Manoj/DS-MSP/commit/e787d3f0e25ac4c219920f9b222ffdb3653e617d))
+* **pnp:** preserve supported RANSAC hypotheses after refit ([f727a32](https://github.com/Munna-Manoj/DS-MSP/commit/f727a3273714860992fb1425f864be1a9f01dc63))
+* **rig:** preserve corrective influence in front-end calibration ([df24930](https://github.com/Munna-Manoj/DS-MSP/commit/df24930f3aa601f8e3c672e47d1f0fa1e336d3fc))
+* **rig:** project refined poses back onto SO(3) ([24f2e84](https://github.com/Munna-Manoj/DS-MSP/commit/24f2e84dd881a6b33069f0f8e3f573bf5322ca65))
+
+
+### Documentation
+
+* **learn:** add a fisheye loop-closure companion ([ff09120](https://github.com/Munna-Manoj/DS-MSP/commit/ff091207dfe98cdb24336cb84b95b0cd9f1006e9))
+* **process:** align verification guidance with active CI ([1bc85ac](https://github.com/Munna-Manoj/DS-MSP/commit/1bc85ac3881e0c14ab3c33ec4873b019acde0540))
+* strengthen the writing guide ([7fdfe5d](https://github.com/Munna-Manoj/DS-MSP/commit/7fdfe5d3bacf3d2b92d72f8981bf82ffc4a48b58))
+
 ## [0.13.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.12.0...v0.13.0) (2026-07-19)
 
 
