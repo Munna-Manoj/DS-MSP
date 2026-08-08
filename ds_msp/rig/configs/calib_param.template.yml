@@ -64,7 +64,7 @@ keypoints_path: "None"       # pre-detected keypoints yml; "None" => detect ChAr
 ######################################## Optimization Parameters #############################################
 quaternion_averaging: 1    # [IGNORED by DS-MSP — uses its own rotation averaging]
 ransac_threshold: 10       # px; MC-Calib's hard-drop threshold. NOT auto-applied by ds-msp-calibrate-rig
-                           # (see ADR-0012): the default robustly down-weights + reports gross outliers
+                           # (see ADR-0013): the default robustly down-weights + reports gross outliers
                            # instead. Pass reproj_gate_px=ransac_threshold to calibrate_rig/
                            # calibrate_scenario explicitly for MC-Calib-parity hard-drop behavior.
 number_iterations: 1000    # max iterations for the non-linear refinement

@@ -71,6 +71,26 @@ def _make_board(spec: BoardSpec, dictionary, id_offset: int, legacy: bool):
 _SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
+def _canonical_charuco_corners(
+    corners: np.ndarray, *, opencv_version: str = cv2.__version__
+) -> np.ndarray:
+    """Convert detector output to DS-MSP's OpenCV-4/MC-Calib pixel convention.
+
+    OpenCV 5.0.x reports ChArUco corners half a pixel lower in both coordinates than
+    OpenCV 4.x for the same image.  DS-MSP supports 5.0.x but stores one canonical
+    convention so detections remain interoperable across supported versions.  The
+    dependency ceiling excludes later 5.x releases until their convention is measured.
+    """
+    try:
+        major, minor = (int(part) for part in opencv_version.split(".", 2)[:2])
+    except (TypeError, ValueError):
+        return np.asarray(corners)
+    out = np.asarray(corners)
+    if (major, minor) == (5, 0):
+        out = out + np.asarray(0.5, dtype=out.dtype)
+    return out
+
+
 def make_detectors(specs: List[BoardSpec], *, legacy: bool = True, tuned: bool = False):
     """One :class:`cv2.aruco.CharucoDetector` per board, with MC-Calib's id offsets.
 
@@ -147,6 +167,7 @@ def detect_image(detectors, gray: np.ndarray, *, min_corners: int = 4, subpix: b
         c = ch_corners.reshape(-1, 2).astype(np.float32)
         if subpix and len(c):
             c = cv2.cornerSubPix(gray, c, (5, 5), (-1, -1), _SUBPIX_CRITERIA)
+        c = _canonical_charuco_corners(c)
         out.append((b, ch_ids.ravel().astype(int), c.astype(float)))
     return out
 
