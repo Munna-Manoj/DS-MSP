@@ -8,8 +8,9 @@
 # NOT on this list fails closed regardless of its name or content. Adding a genuinely public doc
 # is a one-line, reviewable diff to THIS file, in the same PR that adds it.
 #
-# `research` is listed below only so a local checkout with that git-ignored directory present
-# doesn't spuriously fail this check -- it is never tracked or published.
+# `research` and `readme-options` are listed below only so a local checkout with those
+# git-ignored directories present doesn't spuriously fail this check -- they are never tracked
+# or published.
 
 # --- top-level files ---
 CALIBRATE_GUIDE.md
@@ -34,6 +35,7 @@ javascripts
 js
 learn
 process
+readme-options
 reference
 research
 stylesheets
