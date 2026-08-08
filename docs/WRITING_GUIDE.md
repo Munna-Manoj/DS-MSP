@@ -167,6 +167,74 @@ reproducible scripts whose heavy rendering dependencies stay out of this repo; o
 asset is committed. Every render imports `ds_msp` and cross-checks its math against the library,
 so a pretty picture can't drift from the real geometry.
 
+**A concept with a spatial or geometric relationship needs a figure by default** — not "if it
+doesn't help, cut it" as the only test, but "if it's spatial, assume yes and justify skipping
+it." Text alone rarely builds the mental model for a plane, a ray, a rotation, or a
+manifold — the reader needs to *see* it. This is the 3Blue1Brown standard: geometric intuition
+carried by a picture, not by a paragraph describing one.
+
+### Callouts — use the right one, not just Note/Warning
+
+MkDocs Material ships a full admonition vocabulary (`!!! type` or Typer-style `/// type`);
+this project uses six with fixed meanings — pick the one that matches the *job*, not whichever
+is closest to hand:
+
+| Type | Renders as | Use for |
+| :-- | :-- | :-- |
+| `abstract` | 📄 Summary | A **definition** — the one-sentence meaning of a new term, stated precisely, before it's used. |
+| `tip` | 💡 Tip | **Intuition** — the plain-language "why this makes sense" before or alongside the formal statement. |
+| `success` | ✅ Key result | The **one takeaway** to remember from a section, restated outside the flow of prose. |
+| `question` | ❓ Try it | A **predict-then-check** prompt: "what happens if...?" before the reader scrolls to the answer. |
+| `warning` | ⚠️ Common mistake | A specific, real error readers make here — not a generic caution. |
+| `quote` | 💬 Quote | An attributed line from a cited paper/source — never an unattributed aside. |
+
+Sparingly — one or two per page, at the moment they earn their interruption, per the existing
+"the one thing the reader must not miss" rule. A page with a callout every three lines has
+stopped using them as callouts.
+
+### Formulas get a walkthrough, not just a display block
+
+Section 5's "equations get their own line" rule fixes *layout*. It does not, by itself, make
+an equation *learnable*. Every equation that introduces a new relationship (not a trivial
+substitution) needs its terms named in prose immediately after — the Thomas' Calculus
+standard: no symbol reaches the page without the reader being told, in words, what it means
+and why it's there.
+
+```
+$$\theta_{\max} = \arccos(-w_2)$$
+
+Here $\theta_{\max}$ is the largest ray angle the model can represent (measured from the
+optical axis), and $w_2$ is the model's *second shape parameter* — it controls how sharply
+the projection surface curves away from the sensor. As $w_2 \to -1$, $\arccos(-w_2) \to 0$:
+the model collapses to a pinhole with no valid wide-angle rays at all.
+```
+
+- **Name every symbol** that hasn't been named in the same section — not just the new ones,
+  since a reader dropping in mid-page has no memory of a definition three screens up.
+- **Say what happens at the edges** where that's illuminating (limits, degenerate cases,
+  sign flips) — this is usually *where* the intuition lives, not an afterthought.
+- **Use `///details | Full derivation`** (a collapsible block, closed by default) to hold the
+  step-by-step algebra *behind* the walkthrough, not inline with it — Khan Academy's "show me
+  the work" pattern. The main flow stays at the intuition/result level; rigor is one click
+  away for the reader who wants it, never forced on the one who doesn't.
+
+### Intuition before formalism
+
+For any page introducing a genuinely new concept (not a mechanical how-to step), give the
+geometric or intuitive picture *before* the equation that formalizes it — never derive first
+and explain what it means afterward. A reader should be able to predict the shape of the
+equation from the intuition, then see it confirmed.
+
+### Define the vocabulary, then keep using it
+
+**Bold a term the first time it's precisely defined on a page** (not every time it recurs) —
+`**principal point** — the pixel where the optical axis meets the sensor`. If the term repeats
+across the same page more than once and a reader could plausibly land there from a search
+engine, wrap the first use in an `abbr:` inline tooltip too, so hovering recalls the
+definition without breaking the reading flow. Consistent term choice site-wide is already a
+`WRITING_GUIDE`/recall-stage rule (§6, EDIT stage P13) — this is the *first-use* half of that
+same discipline.
+
 ---
 
 ## 6. Voice and word choice
@@ -192,6 +260,14 @@ Run this before committing any doc change:
 - [ ] **Headings** are descriptive; one idea per section.
 - [ ] **Equations are display blocks** (`$$...$$`), one relationship per block — never two or
       more formulas chained into one sentence with inline `$...$`.
+- [ ] **Every equation has a walkthrough** — each symbol named in prose right after it appears;
+      full algebra (if any) lives in a collapsible `///details | Full derivation`, not inline.
+- [ ] **Intuition precedes formalism** for any new concept — the picture/plain-language "why"
+      comes before the equation that formalizes it, not after.
+- [ ] **Callouts use the right type** (abstract/tip/success/question/warning/quote per the
+      table above), sparingly — not just Note/Warning by default.
+- [ ] **A spatial/geometric concept has a figure**, or the omission is a deliberate call, not
+      an oversight.
 - [ ] **Links resolve and assets exist** (`grep` the anchors; check the image paths).
 - [ ] **Cold read** — a newcomer with no context could follow it and learn something.
 
