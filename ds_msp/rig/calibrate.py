@@ -239,7 +239,7 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
                                    max_nfev=max_nfev)
                  for s in start_seeds]
         # Focal-collapse anchor: the robust pinhole pre-calibration (RANSAC DLT) gives
-        # a reliable paraxial focal even under gross outliers, but the per-model Cauchy
+        # a reliable paraxial focal even under gross outliers, but the per-model robust
         # refine can still slide into a tiny-focal local minimum that absorbs surviving
         # blunders into distortion (a low-RMS but wrong fit). Reject any candidate whose
         # paraxial focal departs the seed by >2x; if both collapse, fall back to the
@@ -309,7 +309,7 @@ def _resolve_model_map(model_spec, cam_ids) -> Dict[int, type]:
     return {c: cls for c in cam_ids}
 
 
-def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 1.0,
+def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float = 1.0,
                           max_nfev: int = 150, init_K: Optional[Dict[int, np.ndarray]] = None,
                           n_jobs: Optional[int] = -1):
     """Build a front-end that calibrates each camera with its chosen model.
@@ -321,8 +321,12 @@ def make_bundle_front_end(model_spec, *, loss: str = "cauchy", f_scale: float = 
     a focal / principal-point seed, then the DS-MSP single-camera bundle adjuster
     (``calib.bundle.calibrate``) refines the *chosen model's* full parameter vector from
     that seed. Avoiding a blind focal sweep matters for models whose distortion can absorb a
-    focal-seed error (e.g. KB). Returns a callable with the ``front_end`` signature used by
-    :func:`calibrate_rig`.
+    focal-seed error (e.g. KB). The default pseudo-Huber (``soft_l1``) refine follows the
+    RANSAC-inlier seed: it bounds an individual corner's influence without redescending to
+    zero, so every view retains a corrective gradient. A Cauchy refine here can silently
+    abandon an initially flipped view while reporting a good median over all other views.
+    The later global rig BA still uses Cauchy + GNC, after the rig is in the correct basin.
+    Returns a callable with the ``front_end`` signature used by :func:`calibrate_rig`.
 
     ``init_K`` (``{cam_id: 3x3}``) supplies a per-camera focal / principal-point **seed** from
     a known intrinsics file — MC-Calib's ``cam_params_path`` initialization. When given for a
@@ -590,7 +594,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     objects_by_id = {o.object_id: o for o in objects}
 
     # 1. per-camera intrinsics + object poses (T_c_o). Default to the robust from-scratch
-    #    front-end (RANSAC-DLT seed + per-model Cauchy refine), not the plain-L2
+    #    front-end (RANSAC-DLT seed + per-model pseudo-Huber refine), not the plain-L2
     #    cv2.calibrateCamera path (`_front_end_opencv`), which collapses the focal under
     #    gross outliers — so a direct calibrate_rig caller gets the robust behaviour the
     #    high-level entry points already use, without having to know to pass front_end.
