@@ -10,14 +10,17 @@
 | **Contract** | `contract` | Model-agnostic guarantees every model must meet (shapes, dtypes, unit bearings, serialize round-trip, protocol satisfaction) | fast | every PR |
 | **Gradient-check** | `jac` | Analytic Jacobian vs Richardson-extrapolated finite differences ≤1e-6 | fast | every model PR |
 | **Integration** | `integration` | Multiple components end-to-end on **synthetic** scenarios (calibrate → poses → residuals) | medium | every PR |
-| **Statistical** | `slow` | Long-running statistical properties (e.g. robust-kernel behaviour over many trials) | slow | every PR (allowed to be slower) |
-| **Real-data validation** | `realdata` | Validation against real datasets (e.g. calibration parity vs published intrinsics) | slow, dataset-gated | **pre-release / nightly**, skipped in ordinary PR CI |
+| **Statistical** | `slow` | Long-running statistical properties (e.g. robust-kernel behaviour over many trials) | slow | nightly; locally before merge when relevant to the change |
+| **Real-data validation** | `realdata` | Validation against real datasets (e.g. calibration parity vs published intrinsics) | slow, dataset-gated | nightly when provisioned and before a release-gated release; skipped in ordinary PR CI |
 
 ## Selection
 
-- Full suite (PR default): `pytest -q`
+- Fast suite (PR default): `pytest -q -m "not slow"`
+- Complete synthetic verification: run the fast command above, then `pytest -q -m "slow"`
 - A single level: `pytest -m jac`, `pytest -m contract`, `pytest -m "integration"`, …
 - Real-data only (where the dataset is present): `pytest -m realdata`
+
+A green dataset-gated job in which every linked real-data test skipped is not validation evidence.
 
 ## Requirement linkage
 

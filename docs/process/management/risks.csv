@@ -4,6 +4,6 @@ RSK-02,Planar two-fold (mirror) pose ambiguity inflates mean/p95 error,technical
 RSK-03,Internal R&D / process content leaks into the public repo,process,low,high,Defence in depth: ignore rules + a local pre-push guard + the CI tree-hygiene gate,mitigated
 RSK-04,Analytic Jacobian regression slips in undetected,technical,low,high,jac gradient-check gate at 1e-6 on every model PR (NFR-NUM-001),mitigated
 RSK-05,Architecture erodes (cycles / cv2 in math path) as features are added,process,medium,medium,import-linter contracts + test_independence layered gates (NFR-ARCH-001/002),mitigated
-RSK-06,Requirements and tests drift out of sync,process,medium,medium,CI traceability gate (check_traceability.py) fails on orphan/dangling links,planned
-RSK-07,A release ships without real-data validation,process,low,high,Release-gated requirements require a realdata test; pre-release validation job gates the release,planned
+RSK-06,Requirements and tests drift out of sync,process,medium,medium,CI traceability gate fails on orphan/dangling links and an out-of-date generated matrix,mitigated
+RSK-07,A release ships without real-data validation,process,low,high,Structural release check plus nightly/on-demand real-data runner; automated non-skipping release dependency remains to be wired,planned
 RSK-08,Third-party dependency CVE (numpy/opencv/scipy/pyyaml),security,low,medium,Pinned dev deps; SECURITY.md reporting; dependency review,planned

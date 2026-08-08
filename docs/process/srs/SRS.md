@@ -37,7 +37,7 @@ Canonical list in [`constraints.csv`](constraints.csv); each is verified, not as
 | ID | Constraint | Verified by |
 |----|-----------|-------------|
 | CON-01 | Math foundation depends only on NumPy + stdlib | `test_independence.py` |
-| CON-02 | OpenCV confined to detection / IO adapters | `test_math_foundation_is_cv2_and_scipy_free` |
+| CON-02 | OpenCV and SciPy excluded from the math foundation | `test_math_foundation_is_cv2_and_scipy_free` |
 | CON-03 | Support Python 3.10–3.12 | CI matrix |
 | CON-04 | Analytic Jacobians only (no autodiff dependency) | `test_gradcheck.py` |
 | CON-05 | Examples run on small (<10 GB) public data on a laptop | `docs/ROADMAP.md` |
@@ -49,49 +49,53 @@ These map onto the architecture decisions: CON-01/02/04 ↔ ADR-0004/ADR-0003; C
 ## 4. External interfaces `[IFC]`
 
 The public API surface and external file formats are specified in
-[`interfaces.md`](interfaces.md) (IFC-01 … IFC-08): the `CameraModel` protocol, the calibration and
-rig APIs, the data containers, the conversion API, the IO formats, the OpenCV-compatible API, and the
-TI LDC export.
+[`interfaces.md`](interfaces.md) (IFC-01 … IFC-09): the `CameraModel` protocol, calibration and rig
+APIs, data containers, conversion and camera-agnostic pose operations, IO formats, the
+OpenCV-compatible API, and TI LDC export.
 
 ## 5. Functional requirements `[FR]`
 
-28 functional requirements, grouped by area; each row in [`requirements.csv`](requirements.csv) names
-its architecture component and the test that verifies it. Areas:
+Functional requirements are grouped by area; each canonical row in
+[`requirements.csv`](requirements.csv) names its architecture component and verification method.
+The registry, rather than a duplicated aggregate count here, is authoritative. Areas:
 
-- **MODEL** (FR-MODEL-001..005) — project / unproject / analytic Jacobians / one contract / serialize.
-- **CALIB** (FR-CALIB-001..004) — bundle-adjustment calibration for any model; robust PnP seeding;
-  stereo relative pose; board detection.
-- **RIG** (FR-RIG-001..005) — multi-camera rig calibration (intrinsics + extrinsics + object poses);
-  single-file `calib_param.yml` entry; per-camera intrinsics handling (load / validate / fix /
-  convert+warn / scratch); detect-once keypoints reuse; MC-Calib drop-in config & intrinsics interop.
-- **MVG** (FR-MVG-001..003) — two-view pose + triangulation; RANSAC on Sampson; angular BA refine.
-- **STEREO** (FR-STEREO-001..002) — sphere-sweep depth; spherical epipolar rectification.
-- **OPS** (FR-OPS-001..003) — undistort; multi-chart reproject; PnP on bearings.
-- **ADAPT** (FR-ADAPT-001..002) — model conversion without images; automatic model selection.
-- **IO** (FR-IO-001..004) — Kalibr, COLMAP, nerfstudio, MC-Calib.
-- **VO** (FR-VO-001..002) — monocular trajectory; Sim(3) ATE/RPE evaluation.
-- **INTEROP** (FR-INTEROP-001..002) — OpenCV-compatible API; TI Jacinto LDC export.
+- **CORE** — reusable robust optimization and other pipeline-neutral capabilities.
+- **MODEL** — project / unproject / analytic Jacobians / one contract / serialization.
+- **CALIB** — model-agnostic bundle adjustment, bearing-native pose initialization, board
+  detection, configuration, reporting, and stereo calibration.
+- **RIG** — multi-camera calibration, non-overlapping-board fusion, robust estimation, diagnostics,
+  trust reporting, configuration, packaging, and live visualization.
+- **MVG** — two-view pose and triangulation, robust sampling, and full-sphere bundle refinement.
+- **STEREO** — sphere-sweep depth and spherical epipolar rectification.
+- **OPS** — undistortion, multi-chart reprojection, and clean/robust PnP on bearings.
+- **ADAPT** — model conversion without images and automatic model selection.
+- **IO** — Kalibr, COLMAP, nerfstudio, and MC-Calib interchange.
+- **VO** — monocular trajectory estimation and Sim(3) ATE/RPE evaluation.
+- **INTEROP** — OpenCV-compatible API and TI Jacinto LDC export.
 
 ## 6. Non-functional requirements `[NFR]`
 
-11 non-functional requirements in [`requirements.csv`](requirements.csv):
+Non-functional requirements are canonical rows in [`requirements.csv`](requirements.csv); the
+registry is authoritative as the set grows:
 
-- **NUM** — analytic Jacobians ≤1e-6 vs FD (NFR-NUM-001); KB/RadTan ~1e-13 vs OpenCV (NFR-NUM-002);
-  sub-pixel undistort/reproject round-trip (NFR-NUM-003); **real-data calibration parity within stated
-  tolerance (NFR-NUM-004, release-gated)**; >180° FOV half-space validity (NFR-NUM-005).
-- **ARCH** — strictly layered & acyclic (NFR-ARCH-001); cv2/scipy-free foundation (NFR-ARCH-002);
-  every model satisfies the contract (NFR-ARCH-003).
-- **PORT** — runs on Python 3.10/3.11/3.12 (NFR-PORT-001).
-- **REPRO** — deterministic via fixed seeds (NFR-REPRO-001).
-- **PRIV** — no internal R&D / process content in tracked files (NFR-PRIV-001).
+- **NUM** — Jacobian accuracy, external numerical parity, round-trip and calibration accuracy,
+  full-sphere validity, robust convergence, and deterministic conversion.
+- **ARCH** — a strictly layered, acyclic system; a NumPy-native math foundation; camera-model
+  contract conformance.
+- **PORT** — the supported Python runtime matrix.
+- **REPRO** — deterministic tests and validations with explicit seeds.
+- **PRIV** — no internal R&D/process content in tracked files.
+- **PERF** — measured, regression-tested performance and parallelism behavior.
+- **DOCS** — strict site builds, executable source-backed examples, and the top-level docs allowlist.
 
 ## 7. Verification approach
 
 Each requirement carries a **verify_method** (a test path / CI workflow) in the CSV. Test levels,
 entry/exit criteria, and the synthetic→real-data gate are defined in the
-[QA & V&V plan](../quality/QA_VV_PLAN.md). Two requirements classes are **release-gated** (ADR-0006):
-they must have *both* a synthetic and a `realdata` test linked and green before a release —
-`tools/check_traceability.py --release` enforces it.
+[QA & V&V plan](../quality/QA_VV_PLAN.md). Requirements whose canonical row has
+`release_gated=yes` are governed by ADR-0006: they must have *both* synthetic and `realdata`
+coverage linked, and the linked real-data tests must actually execute and pass before a release.
+`tools/check_traceability.py --release` enforces the structural coverage half of that gate.
 
 ## 8. Traceability
 

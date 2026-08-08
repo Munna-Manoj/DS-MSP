@@ -18,9 +18,13 @@ validated on real data before it ships. This file is the short version; the full
    ruff check .
    mypy ds_msp/core --follow-imports=silent --ignore-missing-imports
    lint-imports
-   pytest -q
+   pytest -q -m "not slow"
+   pytest -q -m "slow"  # required locally for relevant solver/optimizer changes
    python tools/check_traceability.py --check
    python tools/check_tree_hygiene.py
+   python tools/check_docs_zone.py
+   python tools/check_docs_src_coverage.py
+   python tools/check_packaging.py
    ```
 5. **Conventional Commits** — `feat:` / `fix:` / `feat!:` (breaking) drive versioning automatically.
 6. **Open a PR** — the template is the [Definition of Done](docs/process/quality/DEFINITION_OF_DONE.md).

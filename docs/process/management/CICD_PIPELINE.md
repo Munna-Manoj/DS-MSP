@@ -13,7 +13,7 @@ while the expensive validation still runs — just not on the PR path:
 |------|--------|------|---------------|--------|
 | **fast** | *(default, `not slow`)* | unit + contract + Jacobian gradient-checks + **rig smoke** (small-fixture end-to-end) | **every PR / push** (`ci.yml`) | seconds-to-minutes; per-test `--timeout` |
 | **slow** | `@pytest.mark.slow` | heavy synthetic statistical validation (multi-model × multi-seed sweeps, robustness sweeps, full-size bundle adjustment) | **nightly** (`nightly.yml`) | ≤ 60 min |
-| **realdata** | `@pytest.mark.realdata` | validation against real datasets (TUM-VI, MC-Calib Blender); dataset-gated, self-skips without data | **nightly** (if a dataset is provisioned) + pre-release | ≤ 30 min |
+| **realdata** | `@pytest.mark.realdata` | validation against real datasets (TUM-VI, MC-Calib Blender); dataset-gated, self-skips without data | **nightly** when provisioned; manually dispatched and evidenced before a release-gated release | ≤ 30 min |
 
 The rig tests are tiered in `tests/rig/conftest.py`: only the genuinely-heavy tests are marked `slow`
 (listed explicitly there), everything else is a fast smoke test. This was a deliberate correction — the
@@ -33,15 +33,16 @@ same run keeps coverage from regressing.
 |-----|-------|--------|
 | `detect changes` | `dorny/paths-filter` → `code` output | routes docs-only changes around the test work (see below) |
 | `lint + types + layering` | `ruff check .`; `lint-imports`; `mypy ds_msp/core` | code style; the layered architecture (NFR-ARCH-001/002); typed core |
-| **`governance`** | `check_traceability.py --check`; `check_tree_hygiene.py`; `check_packaging.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content (NFR-PRIV-001); **docs never advertise a subpackage the wheel excludes** |
+| **`governance`** | `check_traceability.py --check`; `check_tree_hygiene.py`; `check_docs_zone.py`; `check_docs_src_coverage.py`; `check_packaging.py` | requirement↔test↔ADR traceability; no tracked local-only/leak content; top-level docs allowlist; source-backed tested examples; **docs never advertise a subpackage the wheel excludes** |
 | `tests (py3.10/3.11/3.12)` | `pytest -m "not slow" --timeout=120 --cov=ds_msp --cov-fail-under=80` on the version matrix | the fast tier, parallelized; portability (NFR-PORT-001); the timeout + coverage budget guards |
 
 The **slow** and **realdata** tiers are **not** in this workflow — they run in `nightly.yml`. This is the
 change that keeps the PR gate fast: the heavy synthetic suite (30+ min) no longer gates a merge.
 
-The `governance` job uses only the standard library (no extra install), so it is fast, always runs
-(a docs-only PR is exactly when traceability/tree-hygiene/packaging matter), and cannot break on
-dependency drift.
+The traceability, hygiene, and docs-structure checks use only the standard library. The packaging
+check installs the project and imports each advertised entry point, because static inspection alone
+cannot prove that the wheel's public commands resolve. The governance job always runs; a docs-only PR
+is exactly when these contracts still matter.
 
 **Concurrency.** `concurrency: { group: ci-<workflow>-<ref>, cancel-in-progress: true }`, so a second
 push to a PR cancels the superseded run instead of paying for both.
@@ -60,7 +61,7 @@ Runs daily (`cron: 0 6 * * *`) and via `workflow_dispatch`:
 |-----|------|---------|
 | `slow synthetic suite` | `pytest -m "slow" --timeout=1200` | the full multi-model × multi-seed rig statistical validation; ≤ 60 min |
 | `fast tier + coverage (matrix)` | `pytest -m "not slow" --cov` on 3.10/3.11/3.12 | daily portability + coverage snapshot |
-| `real-data validation (dataset-gated)` | `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | the FR-RIG-001 / NFR-NUM-004 real-data evidence; self-skips when no dataset |
+| `real-data validation (dataset-gated)` | `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | real-data evidence for release-gated requirements when data is provisioned; self-skips otherwise, and an all-skipped run is not evidence |
 
 ### `release.yml` — on push to `main`
 
@@ -74,15 +75,16 @@ Builds and publishes the documentation site.
 
 ## The release gate
 
-The policy (ADR-0006): a release of any **release-gated** requirement (FR-CALIB-001, FR-RIG-001,
-NFR-NUM-004) requires both `tools/check_traceability.py --release` to pass **and** the `realdata` tests
-to be green against real datasets. `realdata` tests are dataset-gated and skipped in ordinary PR CI to
-keep PRs fast.
+The policy (ADR-0006): a release involving any requirement whose `requirements.csv` row has
+`release_gated=yes` requires both `tools/check_traceability.py --release` to pass **and** its linked
+`realdata` tests to execute and pass against real datasets. `realdata` tests are dataset-gated and
+skipped in ordinary PR CI to keep PRs fast.
 
-Status: the `--release` traceability check is available today and is run as part of the release
-checklist. The automated **pre-release / nightly validation job** that runs the `realdata` suite is
-**planned, not yet wired** (RSK-07); until it exists the real-data validation is performed manually
-before a release-gated release.
+Status: the structural `--release` check and the scheduled/on-demand `nightly.yml` real-data runner
+are wired. `release.yml` does not yet depend on a non-skipping real-data result, and a dataset-gated
+job can report green when every test skipped. Until that remaining RSK-07 control is wired, the
+maintainer must record evidence that every linked real-data test actually executed and passed before
+merging a release PR that contains release-gated work.
 
 ## Lifecycle mapping (ISO/IEC/IEEE 12207)
 

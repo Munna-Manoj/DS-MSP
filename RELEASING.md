@@ -44,7 +44,10 @@ You don't tag by hand. The version comes from your commit messages:
    bumps `pyproject.toml` + `ds_msp/__init__` and writes the grouped `CHANGELOG.md` section. Leave
    it open until you're ready to ship; it keeps updating as more commits land.
 3. **Review the release PR** — confirm the proposed version and curate the changelog wording if you
-   want a more narrative entry. (Optional local sanity check below.)
+   want a more narrative entry. If it includes a requirement with `release_gated=yes`, run
+   `python tools/check_traceability.py --release` and confirm every linked `realdata` test actually
+   executed (did not skip) and passed on the provisioned dataset. A green all-skipped nightly run is
+   not release evidence. (Optional local sanity check below.)
 4. **Merge the release PR.** release-please creates the `vX.Y.Z` tag and a GitHub Release; the same
    workflow then builds, runs `twine check`, and publishes to PyPI via OIDC. Confirm at
    <https://pypi.org/project/ds-msp/>.
