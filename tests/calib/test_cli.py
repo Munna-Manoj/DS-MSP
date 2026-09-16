@@ -37,6 +37,29 @@ def test_no_images_dir_or_config_is_a_clear_argument_error(monkeypatch, capsys):
     assert "images" in capsys.readouterr().err.lower()
 
 
+@pytest.mark.req("FR-INTEROP-003")
+def test_cli_can_request_isaac_lut_during_calibration(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(cfg, **_thresholds):
+        captured["cfg"] = cfg
+        return 0
+
+    monkeypatch.setattr(cli, "_run", fake_run)
+    monkeypatch.setattr(sys, "argv", [
+        "ds-msp-calibrate", str(tmp_path), "--rows", "5", "--cols", "6",
+        "--square-size", "0.025", "--save-dir", str(tmp_path / "out"),
+        "--isaac-lut", "--lut-texture-size", "320", "240", "--lut-overwrite",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    cfg = captured["cfg"]
+    assert cfg.isaac_lut.enabled is True
+    assert (cfg.isaac_lut.texture_width, cfg.isaac_lut.texture_height) == (320, 240)
+    assert cfg.isaac_lut.overwrite is True
+
+
 def _render_checkerboard(model, R, t, rows, cols, square, w, h, supersample=4):
     W, H = w * supersample, h * supersample
     img = np.full((H, W), 255, dtype=np.uint8)
@@ -85,6 +108,10 @@ camera_model: ds
 images_path: "{images_dir}"
 save_path: "{save_dir}"
 max_nfev: 100
+isaac_lut:
+  enabled: true
+  texture_width: 32
+  texture_height: 24
 """)
     monkeypatch.setattr(sys, "argv", ["ds-msp-calibrate", "--config", str(config_path), "--quiet"])
     with pytest.raises(SystemExit) as exc:
@@ -104,3 +131,8 @@ max_nfev: 100
     loaded = calib.load_camera(str(out_file))
     assert isinstance(loaded, DoubleSphereModel)
     assert np.isclose(loaded.fx, fx)
+
+    lut_dir = save_dir / "isaac_lut"
+    assert len(list(lut_dir.glob("*_ray_enter_direction.exr"))) == 1
+    assert len(list(lut_dir.glob("*_ray_exit_position.exr"))) == 1
+    assert len(list(lut_dir.glob("*_isaac_lut.json"))) == 1

@@ -26,7 +26,7 @@ import os
 import shutil
 
 from . import report as rpt
-from .config import BoardConfig, CalibConfig, build_board, load_config
+from .config import BoardConfig, CalibConfig, IsaacLutConfig, build_board, load_config
 from .single_camera import calibrate_camera
 
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
@@ -83,6 +83,29 @@ def _run(cfg: CalibConfig, *, pass_px: float, warn_px: float) -> int:
         else:
             raise SystemExit(f"unknown output_format {cfg.output_format!r} (only 'kalibr' "
                              f"is supported today)")
+
+    if cfg.isaac_lut.enabled:
+        from ..isaac_sim import export_lut
+
+        if cfg.isaac_lut.output_dir:
+            lut_dir = cfg.isaac_lut.output_dir
+            if not os.path.isabs(lut_dir):
+                lut_dir = os.path.join(cfg.save_path or os.getcwd(), lut_dir)
+        elif cfg.save_path:
+            lut_dir = os.path.join(cfg.save_path, "isaac_lut")
+        else:
+            raise SystemExit(
+                "Isaac LUT export needs save_path/--save-dir or --lut-output-dir"
+            )
+        texture_width = cfg.isaac_lut.texture_width or w
+        texture_height = cfg.isaac_lut.texture_height or h
+        bundle = export_lut(
+            result["model"], w, h, lut_dir,
+            texture_width=texture_width,
+            texture_height=texture_height,
+            overwrite=cfg.isaac_lut.overwrite,
+        )
+        print(f"wrote Isaac LUT manifest {bundle.manifest}")
     return 0 if level in ("PASS", "WARN") else 1
 
 
@@ -132,6 +155,15 @@ def main() -> None:
                     help=f"median-px verdict PASS threshold (default {rpt.DEFAULT_PASS_PX})")
     ap.add_argument("--warn-px", type=float, default=rpt.DEFAULT_WARN_PX, dest="warn_px",
                     help=f"median-px verdict WARN threshold (default {rpt.DEFAULT_WARN_PX})")
+    ap.add_argument("--isaac-lut", action="store_true",
+                    help="also export an Isaac Sim OmniLensDistortionLutAPI bundle")
+    ap.add_argument("--lut-output-dir", dest="lut_output_dir",
+                    help="Isaac LUT directory (default: <save-dir>/isaac_lut)")
+    ap.add_argument("--lut-texture-size", nargs=2, type=int,
+                    metavar=("WIDTH", "HEIGHT"), dest="lut_texture_size",
+                    help="Isaac LUT texture size (default: calibrated image size)")
+    ap.add_argument("--lut-overwrite", action="store_true",
+                    help="replace an existing content-matched Isaac LUT bundle")
     args = ap.parse_args()
 
     if args.init_config:
@@ -149,6 +181,14 @@ def main() -> None:
         cfg = load_config(args.config, sets or None)
         if args.quiet:
             cfg.verbose = False
+        if args.isaac_lut:
+            cfg.isaac_lut.enabled = True
+        if args.lut_output_dir:
+            cfg.isaac_lut.output_dir = args.lut_output_dir
+        if args.lut_texture_size:
+            cfg.isaac_lut.texture_width, cfg.isaac_lut.texture_height = args.lut_texture_size
+        if args.lut_overwrite:
+            cfg.isaac_lut.overwrite = True
         raise SystemExit(_run(cfg, pass_px=args.pass_px, warn_px=args.warn_px))
 
     if not args.images_dir:
@@ -157,7 +197,14 @@ def main() -> None:
     cfg = CalibConfig(board=BoardConfig(type=args.board, rows=args.rows, cols=args.cols,
                                         square_size=args.square_size),
                       camera_model=args.model, images_path=args.images_dir,
-                      pattern=args.pattern, save_path=args.save_dir, verbose=not args.quiet)
+                      pattern=args.pattern, save_path=args.save_dir, verbose=not args.quiet,
+                      isaac_lut=IsaacLutConfig(
+                          enabled=args.isaac_lut,
+                          output_dir=args.lut_output_dir,
+                          texture_width=args.lut_texture_size[0] if args.lut_texture_size else 0,
+                          texture_height=args.lut_texture_size[1] if args.lut_texture_size else 0,
+                          overwrite=args.lut_overwrite,
+                      ))
     raise SystemExit(_run(cfg, pass_px=args.pass_px, warn_px=args.warn_px))
 
 

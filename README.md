@@ -39,6 +39,7 @@ pip install "ds-msp[calib]"        # + AprilGrid detector
 | Calibrate a multi-camera rig (any FOV) for extrinsics | [→ Multi-camera rig](#multi-camera-rig-extrinsics-any-fov) |
 | Run stereo depth on raw fisheye | [→ Stereo depth](#stereo-depth) |
 | Export to TI hardware | [→ Hardware LDC export](#hardware-ldc-export) |
+| Reproduce a camera in Isaac Sim | [→ Isaac Sim camera LUT](#isaac-sim-camera-lut) |
 | Pick the right model | [→ Choosing a model](#choosing-a-model) |
 | Learn the geometry | [→ Learn](#learn) |
 
@@ -261,6 +262,22 @@ from ds_msp.ldc import TI_LDC_MeshGenerator
 res = TI_LDC_MeshGenerator(cam).generate_mesh_and_intrinsics(1920, 1080, downsample_factor=4, balance=0.5)
 mesh_lut, K_new = res["mesh_lut"], res["K_new"]
 ```
+
+### Isaac Sim camera LUT
+
+Bake any calibrated model into NVIDIA RTX's generalized camera format: two float32 EXRs,
+an assignment manifest, and a ready Camera USDA.
+
+```bash
+# Existing DS-MSP/Kalibr calibration artifact
+ds-msp lut --path ./results/camchain.yaml --camera cam0
+
+# Or generate automatically at the end of calibration
+ds-msp-calibrate --config calib_config.yml --isaac-lut
+```
+
+Direct named parameters are supported too; run `ds-msp lut --list-models` for every model's
+parameter names. → [Isaac Sim LUT guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/export_isaac_sim_lut.md)
 
 ---
 

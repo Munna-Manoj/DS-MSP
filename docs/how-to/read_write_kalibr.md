@@ -117,10 +117,10 @@ Sphere write — as representative of all five:
 To write a EUCM, UCM, or RadTan file, pass that model to the same `save_kalibr`
 call below; it places the fields from the row above.
 
-The same module also reads/writes one DS-MSP-only extension format, `DSPlusModel`
-(`ds_plus`) — omitted from the table above since
-it isn't a real Kalibr camera type, but supported the same way if your camchain
-declares one.
+The same module also reads/writes two DS-MSP-only extension formats: `DSPlusModel`
+(`ds_plus`) and `OCamModel` (`ocam`). They are omitted from the native table above because a
+stock Kalibr executable does not understand them, but DS-MSP round-trips both so calibration
+artifacts remain reusable.
 
 ## Write a model to Kalibr YAML
 

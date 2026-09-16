@@ -242,11 +242,12 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 `load_camera` reads the `camchain.yaml` this run just wrote and returns a ready `CameraModel` —
 `cam.project(...)` works immediately, no re-parsing.
 
-It works for every model the CLI can write (`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`).
+It works for every model the CLI can write (`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`,
+`ocam`).
 
-`ocam` has no Kalibr representation yet, so `load_camera`/`save_kalibr` raise a documented
-`ValueError` for it instead of writing something wrong — calibrate `ocam` and use
-`result["model"]` in memory instead.
+`dsplus` and `ocam` are DS-MSP extensions rather than native Kalibr models. They
+round-trip through DS-MSP, but a stock Kalibr executable does not understand their custom
+`camera_model` strings.
 
 /// note
 The `robust`/`robust_scale`/`gnc` config keys are recipe 2's equivalent of recipe 1's

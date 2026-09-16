@@ -71,7 +71,8 @@ The registry, rather than a duplicated aggregate count here, is authoritative. A
 - **ADAPT** — model conversion without images and automatic model selection.
 - **IO** — Kalibr, COLMAP, nerfstudio, and MC-Calib interchange.
 - **VO** — monocular trajectory estimation and Sim(3) ATE/RPE evaluation.
-- **INTEROP** — OpenCV-compatible API and TI Jacinto LDC export.
+- **INTEROP** — OpenCV-compatible API, TI Jacinto LDC export, and Isaac Sim
+  generalized-camera LUT export.
 
 ## 6. Non-functional requirements `[NFR]`
 

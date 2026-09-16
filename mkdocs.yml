@@ -149,6 +149,7 @@ nav:
       - Solve PnP on a fisheye: how-to/solve_pnp_on_fisheye.md
       - Undistort images: how-to/undistort_images.md
       - Export an LDC mesh: how-to/export_ldc_mesh.md
+      - Export an Isaac Sim camera LUT: how-to/export_isaac_sim_lut.md
   - Explanation:
       - explain/README.md
       - Two-view geometry (derivations): explain/two_view_geometry.md
@@ -173,6 +174,7 @@ nav:
       - Data: reference/data.md
       - OpenCV-compatible shim: reference/cv.md
       - LDC mesh export: reference/ldc.md
+      - Isaac Sim LUT export: reference/isaac_sim.md
   - Guides:
       - Calibrate a single camera: CALIBRATE_GUIDE.md
       - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md

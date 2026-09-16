@@ -60,6 +60,8 @@ docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions", "mkdocs
 # wrappers kept for git-clone convenience. validate.py/visualize.py (ad-hoc single-camera
 # scripts) don't have an equivalent console command yet -- they still require a repo clone.
 [project.scripts]
+ds-msp = "ds_msp.cli:main"
+ds-msp-lut = "ds_msp.isaac_sim.cli:main"
 ds-msp-calibrate-rig = "ds_msp.rig.cli:main"
 ds-msp-calibrate = "ds_msp.calib.cli:main"
 
@@ -128,7 +130,7 @@ forbidden_modules = [
     "ds_msp.data", "ds_msp.geometry", "ds_msp.models", "ds_msp.detect",
     "ds_msp.ops", "ds_msp.adapt", "ds_msp.calib", "ds_msp.mvg",
     "ds_msp.stereo", "ds_msp.rig", "ds_msp.vo",
-    "ds_msp.io", "ds_msp.cv", "ds_msp.ldc",
+    "ds_msp.io", "ds_msp.cv", "ds_msp.ldc", "ds_msp.isaac_sim",
 ]
 
 [[tool.importlinter.contracts]]
@@ -138,7 +140,7 @@ source_modules = ["ds_msp.data"]
 forbidden_modules = [
     "ds_msp.geometry", "ds_msp.models", "ds_msp.detect", "ds_msp.ops",
     "ds_msp.adapt", "ds_msp.calib", "ds_msp.mvg", "ds_msp.stereo",
-    "ds_msp.rig", "ds_msp.vo", "ds_msp.io", "ds_msp.cv", "ds_msp.ldc",
+    "ds_msp.rig", "ds_msp.vo", "ds_msp.io", "ds_msp.cv", "ds_msp.ldc", "ds_msp.isaac_sim",
 ]
 
 [[tool.importlinter.contracts]]
@@ -148,7 +150,7 @@ source_modules = ["ds_msp.geometry"]
 forbidden_modules = [
     "ds_msp.models", "ds_msp.detect", "ds_msp.ops", "ds_msp.adapt",
     "ds_msp.calib", "ds_msp.mvg", "ds_msp.stereo", "ds_msp.rig",
-    "ds_msp.vo", "ds_msp.io", "ds_msp.cv", "ds_msp.ldc",
+    "ds_msp.vo", "ds_msp.io", "ds_msp.cv", "ds_msp.ldc", "ds_msp.isaac_sim",
 ]
 
 [[tool.importlinter.contracts]]

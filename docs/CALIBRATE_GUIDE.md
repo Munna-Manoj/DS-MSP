@@ -241,12 +241,11 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 ```
 
 `load_camera` works for every model calibration can produce with `output_format: kalibr`:
-`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`.
+`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`, and `ocam`.
 
 /// note
-`ocam`'s polynomial parameterization has no Kalibr-native or DS-MSP-extended representation
-yet — a documented gap, not a silent one. `to_kalibr_cam`/`save_kalibr` raise a clear
-`ValueError` for it rather than writing something wrong.
+`dsplus` and `ocam` use explicitly named DS-MSP extensions. They round-trip through
+DS-MSP, but a stock Kalibr executable does not understand those two camera-model strings.
 ///
 
 If you need the resolution too:
@@ -320,7 +319,6 @@ included in this repo), the **same physical ChArUco board** was calibrated two w
 | "no board detected in any of the given images" | wrong `board.rows`/`board.cols` (remember: interior corners, not squares), wrong `board.type` for the physical board, or images genuinely don't show the board |
 | Low detection yield with `board.type: checkerboard` on a wide lens | expected — see [§2](#2-prepare-your-data)/[§7](#7-worked-example-robustness-real-data); switch to `charuco` or `aprilgrid` |
 | `cv2.error` about `markerLength`/`squareLength` | `board.length_marker` conflicts with `board.square_size` — leave it unset to use the `0.75×` default, or set it below `square_size` |
-| `ValueError: No Kalibr mapping for model 'ocam'` | documented gap ([§5](#5-load-the-result-back-into-a-camera-instance)) — `ocam`'s polynomial has no Kalibr representation yet; calibrate with another model, or use the in-memory `result["model"]` directly without `output_format: kalibr` |
 | Wrong real-world scale | `board.square_size` must be the **physically measured** square size |
 | Want to silence live progress (CI logs) | `--quiet`, or `verbose: false` in the config |
 

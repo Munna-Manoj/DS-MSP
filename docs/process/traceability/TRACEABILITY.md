@@ -18,6 +18,7 @@ CI fails if this file is out of sync with the registry and the test suite.
 | FR-CORE-001 | FR | CORE | ARC-CORE | `ds_msp/core/optimize.py` | `tests/core/test_gnc_tls.py;tests/core/test_gnc_tls_final_weights.py` | implemented | no | tests/core/test_gnc_tls.py (module)<br>tests/core/test_gnc_tls_final_weights.py (module)<br>tests/ops/test_pose_gnc.py (module)<br>tests/rig/test_gnc_tls_ba.py (module) |
 | FR-INTEROP-001 | FR | INTEROP | ARC-INTEROP | `ds_msp/cv.py` | `tests/test_ds_camera_cv.py` | implemented | no | tests/test_ds_camera_cv.py (module) |
 | FR-INTEROP-002 | FR | INTEROP | ARC-INTEROP | `ds_msp/ldc.py` | `tests/test_robustness_and_ldc.py` | implemented | no | tests/test_robustness_and_ldc.py (module) |
+| FR-INTEROP-003 | FR | INTEROP | ARC-INTEROP | `ds_msp/isaac_sim;ds_msp/cli.py;ds_msp/calib/cli.py` | `tests/isaac_sim` | implemented | no | tests/calib/test_cli.py::test_cli_can_request_isaac_lut_during_calibration<br>tests/isaac_sim/test_artifacts_cli.py (module)<br>tests/isaac_sim/test_exr.py (module)<br>tests/isaac_sim/test_lut.py (module) |
 | FR-IO-001 | FR | IO | ARC-IO | `ds_msp/io/kalibr.py` | `tests/io/test_kalibr.py` | implemented | no | tests/io/test_kalibr.py (module) |
 | FR-IO-002 | FR | IO | ARC-IO | `ds_msp/io/colmap.py` | `tests/io/test_colmap.py` | implemented | no | tests/io/test_colmap.py (module) |
 | FR-IO-003 | FR | IO | ARC-IO | `ds_msp/io/nerfstudio.py` | `tests/io/test_nerfstudio.py` | implemented | no | tests/io/test_nerfstudio.py (module) |

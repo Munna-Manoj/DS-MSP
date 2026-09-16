@@ -108,7 +108,7 @@ def test_core_is_dependency_free():
                      if any(m.startswith(f"ds_msp.{layer}")
                             for layer in ("models", "data", "geometry", "detect", "ops",
                                           "adapt", "io", "calib", "mvg", "stereo", "rig",
-                                          "vo", "cv", "ldc"))}
+                                          "vo", "cv", "ldc", "isaac_sim"))}
         assert not forbidden, f"{f.name} (core) must not import {forbidden}"
         bad_ext = external - STDLIB_OK
         assert not bad_ext, f"{f.name} (core) has unexpected external deps {bad_ext}"

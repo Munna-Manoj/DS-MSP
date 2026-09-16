@@ -50,6 +50,23 @@ def test_load_config_types_and_path_resolution(tmp_path):
     assert cfg.verbose is False
 
 
+def test_load_config_parses_optional_isaac_lut_export(tmp_path):
+    cfgp = _write_cfg(tmp_path, """
+        camera_model: ds
+        isaac_lut:
+          enabled: true
+          output_dir: renderer_assets
+          texture_width: 1024
+          texture_height: 768
+          overwrite: true
+    """)
+    cfg = load_config(cfgp)
+    assert cfg.isaac_lut.enabled is True
+    assert cfg.isaac_lut.output_dir == "renderer_assets"
+    assert (cfg.isaac_lut.texture_width, cfg.isaac_lut.texture_height) == (1024, 768)
+    assert cfg.isaac_lut.overwrite is True
+
+
 def test_load_config_overrides(tmp_path):
     cfgp = _write_cfg(tmp_path, """
         board:

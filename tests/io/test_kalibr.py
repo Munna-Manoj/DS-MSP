@@ -8,11 +8,12 @@ from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
+from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 
 MODELS = [DoubleSphereModel.sample, EUCMModel.sample, KannalaBrandtModel.sample,
-          RadTanModel.sample, UCMModel.sample, DSPlusModel.sample]
+          RadTanModel.sample, UCMModel.sample, DSPlusModel.sample, OCamModel.sample]
 
 
 @pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)

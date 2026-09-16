@@ -81,7 +81,7 @@ Canonical list with dependencies in [`components.csv`](components.csv). Summary:
 | ARC-STEREO | stereo | `ds_msp/stereo` | Wide-FOV stereo depth and rectification |
 | ARC-RIG | rig | `ds_msp/rig` | Multi-camera rig calibration pipeline (composes calib + geometry) |
 | ARC-VO | vo | `ds_msp/vo` | Monocular visual odometry pipeline (composes mvg) |
-| ARC-INTEROP | interop | `ds_msp/cv.py`, `ds_msp/ldc.py` | OpenCV-compatible API and TI Jacinto LDC export |
+| ARC-INTEROP | interop | `ds_msp/cv.py`, `ds_msp/ldc.py`, `ds_msp/isaac_sim` | OpenCV-compatible API and TI Jacinto / Isaac Sim LUT export |
 
 ## 4. The contract seam
 
