@@ -35,6 +35,7 @@ FR-VO-001,FR,VO,Estimate a monocular camera trajectory from a fisheye stream,ARC
 FR-VO-002,FR,VO,Evaluate trajectories with Sim(3) alignment and ATE/RPE,ARC-VO,ds_msp/vo/metrics.py,tests/vo/test_metrics.py,implemented,no
 FR-INTEROP-001,FR,INTEROP,Provide an OpenCV-compatible drop-in API,ARC-INTEROP,ds_msp/cv.py,tests/test_ds_camera_cv.py,implemented,no
 FR-INTEROP-002,FR,INTEROP,Generate TI Jacinto LDC distortion-correction mesh,ARC-INTEROP,ds_msp/ldc.py,tests/test_robustness_and_ldc.py,implemented,no
+FR-INTEROP-003,FR,INTEROP,"Export every registered CameraModel as an Isaac Sim OmniLensDistortionLutAPI texture pair, load existing calibration artifacts or explicit parameters from the installed CLI, and optionally export at the end of intrinsics calibration",ARC-INTEROP,ds_msp/isaac_sim;ds_msp/cli.py;ds_msp/calib/cli.py,tests/isaac_sim,implemented,no
 NFR-NUM-001,NFR,NUM,Analytic Jacobians match finite differences to <=1e-6 relative error,ARC-MODELS,ds_msp/models,tests/contract/test_gradcheck.py,implemented,no
 NFR-NUM-002,NFR,NUM,KB and RadTan models match OpenCV to ~1e-13,ARC-MODELS,ds_msp/models,tests/test_ds_camera_cv.py,implemented,no
 NFR-NUM-003,NFR,NUM,Undistort/reproject round-trip error stays sub-pixel,ARC-OPS,ds_msp/ops/reproject.py,tests/ops/test_reproject.py,implemented,no

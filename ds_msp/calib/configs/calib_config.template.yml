@@ -70,6 +70,16 @@ pattern: "*"                    # glob pattern selecting image files within imag
 save_path: "../data/Results"    # "None"/omit to skip writing an output file
 output_format: kalibr           # only "kalibr" (single-camera camchain.yaml) is supported today
 
+# Optional: bake the calibrated project/unproject functions into NVIDIA RTX's generalized
+# camera format. The output contains two float32 EXRs, a manifest with the exact
+# OmniLensDistortionLutAPI attributes, and a ready-to-reference Camera USDA.
+isaac_lut:
+  enabled: false
+  output_dir: isaac_lut          # relative paths are placed under save_path
+  texture_width: 0               # 0 => calibrated image width
+  texture_height: 0              # 0 => calibrated image height
+  overwrite: false
+
 ######################################## Bundle-adjustment tuning ################################
 # These map 1:1 onto ds_msp.calib.bundle.calibrate's own keyword arguments.
 robust: cauchy               # robust loss kernel

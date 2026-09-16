@@ -71,6 +71,22 @@ class BoardConfig:
 
 
 @dataclass
+class IsaacLutConfig:
+    """Optional Isaac Sim LUT export performed after intrinsics calibration.
+
+    A zero texture dimension means "use the calibrated image dimension". A
+    relative ``output_dir`` is placed under ``save_path``; when omitted the
+    default is ``<save_path>/isaac_lut``.
+    """
+
+    enabled: bool = False
+    output_dir: Optional[str] = None
+    texture_width: int = 0
+    texture_height: int = 0
+    overwrite: bool = False
+
+
+@dataclass
 class CalibConfig:
     """Top-level ``calib_config.yml`` schema for ``ds-msp-calibrate``.
 
@@ -95,6 +111,7 @@ class CalibConfig:
     seed: int = 0
     max_nfev: int = 200
     verbose: bool = True
+    isaac_lut: IsaacLutConfig = field(default_factory=IsaacLutConfig)
     raw: Dict = field(default_factory=dict)
 
 
@@ -149,8 +166,12 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> CalibConf
     raw = _apply_overrides(dict(raw), overrides)
 
     board_cfg = _build_dataclass(BoardConfig, raw.get("board") or {})
-    cfg = _build_dataclass(CalibConfig, {k: v for k, v in raw.items() if k != "board"})
+    lut_cfg = _build_dataclass(IsaacLutConfig, raw.get("isaac_lut") or {})
+    cfg = _build_dataclass(
+        CalibConfig, {k: v for k, v in raw.items() if k not in ("board", "isaac_lut")}
+    )
     cfg.board = board_cfg
+    cfg.isaac_lut = lut_cfg
     cfg.raw = {"path": config_path}
 
     def resolve(p):
