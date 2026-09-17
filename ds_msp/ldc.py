@@ -1,37 +1,102 @@
 """
-Texas Instruments (TI) Jacinto LDC displacement-mesh export.
+Texas Instruments (TI) Jacinto LDC displacement-mesh export for **any** camera model.
 
 Generates a quantized displacement-mesh lookup table for the on-chip Lens
-Distortion Correction (LDC) hardware accelerator on TI Jacinto J7/TDA4 SoCs,
-from a calibrated :class:`~ds_msp.model.DoubleSphereCamera`, plus a point
+Distortion Correction (LDC) hardware accelerator on TI Jacinto J7/TDA4 SoCs
+from any calibrated :class:`~ds_msp.core.contracts.CameraModel`, plus a point
 undistorter that simulates the hardware's own mesh-inversion behavior. See
 [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md).
+
+The generator depends only on the model contract -- ``project()`` for the
+distorted source location of every mesh node and ``K`` for the pinhole focal
+that seeds the rectified intrinsics -- so every model that satisfies the
+contract (the registered ones, models added in the future, and the legacy
+:class:`~ds_msp.model.DoubleSphereCamera`) exports a mesh with no
+model-specific code.
 """
 
+from __future__ import annotations
+
+import warnings
+from typing import Any, Dict, Tuple
+
 import numpy as np
-from typing import Tuple, Dict
-from .model import DoubleSphereCamera, balanced_pinhole_K
+
+from .core.contracts import CameraModel
+from .core.pinhole import balanced_pinhole_K
+
+#: Q3 fixed point: the hardware stores ``round(delta_px * 8)`` as ``int16``.
+Q3_SCALE = 8.0
+Q3_INT16_MIN, Q3_INT16_MAX = -32768, 32767
+
+
+def _pinhole_focal(camera: Any) -> Tuple[float, float]:
+    """``(fx, fy)`` of the model's pinhole-equivalent ``K`` (contract property).
+
+    Every :class:`CameraModel` exposes ``K``; models without a native focal
+    (e.g. OCam) return their pinhole-equivalent focal there, so the rectified
+    ``K_new`` seeds identically for every model. Falls back to ``fx``/``fy``
+    attributes for duck-typed legacy objects.
+    """
+    K = getattr(camera, "K", None)
+    if K is not None:
+        K = np.asarray(K, dtype=np.float64)
+        return float(K[0, 0]), float(K[1, 1])
+    if hasattr(camera, "fx") and hasattr(camera, "fy"):
+        return float(camera.fx), float(camera.fy)
+    raise TypeError(
+        f"{type(camera).__name__} exposes neither a pinhole K nor fx/fy; it does not "
+        "satisfy the DS-MSP CameraModel contract"
+    )
+
+
+def _describe_camera(camera: Any) -> Dict[str, Any]:
+    """Self-describing record of the source camera for the flashed config."""
+    to_dict = getattr(camera, "to_dict", None)
+    if callable(to_dict):
+        record = dict(to_dict())
+        name = record.pop("model", None) or getattr(camera, "name", type(camera).__name__)
+        return {"name": str(name), "params": {k: float(v) for k, v in record.items()}}
+    # Legacy duck-typed camera (no contract serialization): record what it exposes.
+    record: Dict[str, Any] = {"name": type(camera).__name__}
+    K = getattr(camera, "K", None)
+    if K is not None:
+        record["K"] = np.asarray(K, dtype=np.float64).tolist()
+    D = getattr(camera, "D", None)
+    if D is not None:
+        record["distortion"] = np.asarray(D, dtype=np.float64).ravel().tolist()
+    return record
+
 
 class TI_LDC_MeshGenerator:
     """
     Texas Instruments (TI) Lens Distortion Correction (LDC) Mesh LUT Generator.
 
     Generates downsampled displacement mesh lookup tables compatible with
-    TI Jacinto J7/TDA4 hardware accelerators, from a calibrated
-    :class:`~ds_msp.model.DoubleSphereCamera`. See
+    TI Jacinto J7/TDA4 hardware accelerators from **any** calibrated
+    :class:`~ds_msp.core.contracts.CameraModel` -- Double Sphere, UCM, EUCM,
+    Kannala-Brandt, RadTan, OCam, DS⁺, and any model added later that
+    implements the contract. See
     [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md)
     for a worked example with real mesh numbers.
 
     Parameters
     ----------
-    ds_camera : DoubleSphereCamera
-        The calibrated fisheye camera to generate a mesh for. Its
-        ``width``/``height`` attributes are **not** used by this class — the
-        mesh is sized from the ``output_width``/``output_height`` arguments
-        passed to :meth:`generate_mesh_and_intrinsics`.
+    camera : CameraModel
+        The calibrated camera to generate a mesh for. Only ``project()`` and
+        ``K`` are used. Any ``width``/``height`` attributes on the model are
+        **not** used by this class — the mesh is sized from the
+        ``output_width``/``output_height`` arguments passed to
+        :meth:`generate_mesh_and_intrinsics`.
     """
-    def __init__(self, ds_camera: DoubleSphereCamera) -> None:
-        self.cam = ds_camera
+    def __init__(self, camera: CameraModel) -> None:
+        if not callable(getattr(camera, "project", None)):
+            raise TypeError(
+                f"{type(camera).__name__} has no project(); it does not satisfy the "
+                "DS-MSP CameraModel contract"
+            )
+        _pinhole_focal(camera)  # fail fast with a clear message
+        self.cam = camera
 
     def generate_mesh_and_intrinsics(
         self,
@@ -45,23 +110,26 @@ class TI_LDC_MeshGenerator:
 
         Samples one mesh node every ``2**downsample_factor`` output pixels (plus a
         one-node border), computing at each node the pixel displacement between
-        the undistorted (pinhole) location and its Double Sphere-distorted
-        source location, quantized to Q3 fixed point (``round(delta_px * 8)``,
-        ``int16``).
+        the undistorted (pinhole) location and its distorted source location
+        under the camera model, quantized to Q3 fixed point
+        (``round(delta_px * 8)``, ``int16``).
 
         Parameters
         ----------
         output_width, output_height : int
             Size of the undistorted (on-chip output) image, pixels. Independent
-            of ``ds_camera``'s own ``width``/``height``.
+            of the camera's own sensor size.
         downsample_factor : int, default=4
             Power-of-two mesh node spacing: nodes are sampled every
             ``2**downsample_factor`` output pixels. Larger values give a
             coarser, smaller LUT; smaller values a denser, more accurate one.
         balance : float, default=0.5
             Field-of-view/border trade-off in ``[0, 1]`` passed to
-            :func:`~ds_msp.core.pinhole.balanced_pinhole_K` to build ``K_new``;
-            ``0.0`` widest FOV, ``1.0`` tightest crop.
+            :func:`~ds_msp.core.pinhole.balanced_pinhole_K` to build ``K_new``
+            from the model's pinhole focal (``K[0, 0]``, ``K[1, 1]``) -- the
+            same ``K_new`` :class:`~ds_msp.ops.undistort.Undistorter` builds
+            for that model and balance; ``0.0`` widest FOV, ``1.0`` tightest
+            crop.
 
         Returns
         -------
@@ -69,56 +137,82 @@ class TI_LDC_MeshGenerator:
             With keys:
 
             - ``mesh_lut`` : ndarray of shape (mesh_h, mesh_w, 2), int16 —
-              quantized Q3 ``(h, v)`` displacements (pixels x 8, rounded).
+              quantized Q3 ``(h, v)`` displacements (pixels x 8, rounded,
+              clipped to the ``int16`` range).
             - ``mesh_lut_float`` : ndarray of shape (mesh_h, mesh_w, 2), float64 —
               the same displacements before quantization.
             - ``K_new`` : ndarray of shape (3, 3), float64 — rectified pinhole
               intrinsics of the undistorted output image.
+            - ``valid_mask`` : ndarray of shape (mesh_h, mesh_w), bool —
+              ``False`` at nodes whose pinhole ray the model cannot project
+              (outside its field of view); those nodes hold zero displacement.
             - ``config`` : dict — the call parameters, resulting ``mesh_size``,
-              and the source Double Sphere intrinsics, for a self-describing
+              the source ``camera_model`` (name + parameters),
+              ``n_invalid_nodes`` and ``q3_overflow``, for a self-describing
               record to flash alongside the mesh.
 
-        Notes
+        Warns
         -----
-        Overflow of the ``int16`` Q3 range (``[-32768, 32767]``) is **not**
-        checked or raised here — a large enough field of view produces
-        displacements that silently wrap to the wrong sign. Inspect
-        ``mesh_lut.min()``/``.max()`` after generation, especially for
-        aggressive fields of view (see the how-to guide's Warning).
+        UserWarning
+            If any mesh node is invalid for the model (raise ``balance`` to
+            crop the periphery), or if any displacement exceeds the ``int16``
+            Q3 range (``[-4096, 4095.875]`` px) -- such values are clipped, not
+            wrapped, and ``config["q3_overflow"]`` is set.
         """
         K_new = self._compute_K_new(output_width, output_height, balance)
-        mesh_lut_int, mesh_lut_float = self._generate_mesh(
+        mesh_lut_int, mesh_lut_float, valid, overflow = self._generate_mesh(
             output_width, output_height, K_new, downsample_factor
         )
+        n_invalid = int((~valid).sum())
+        if n_invalid:
+            warnings.warn(
+                f"{n_invalid} of {valid.size} LDC mesh nodes are invalid for this camera "
+                "model (outside its field of view); they hold zero displacement. Raise "
+                "`balance` to crop the periphery.",
+                stacklevel=2,
+            )
+        if overflow:
+            warnings.warn(
+                "LDC mesh displacements exceed the int16 Q3 range and were clipped; "
+                "raise `balance` (or lower the output resolution) before flashing.",
+                stacklevel=2,
+            )
+        config: Dict[str, Any] = {
+            "output_width": output_width,
+            "output_height": output_height,
+            "downsample_factor": downsample_factor,
+            "balance": balance,
+            "mesh_size": mesh_lut_int.shape,
+            "camera_model": _describe_camera(self.cam),
+            "n_invalid_nodes": n_invalid,
+            "q3_overflow": bool(overflow),
+        }
+        params = config["camera_model"].get("params")
+        if isinstance(params, dict) and {"xi", "alpha"} <= set(params):
+            # Backward-compatible alias for consumers that read the pre-generalization
+            # Double Sphere record; ``camera_model`` is the canonical entry.
+            config["double_sphere_params"] = {
+                k: params[k] for k in ("fx", "fy", "cx", "cy", "xi", "alpha") if k in params
+            }
         return {
             "mesh_lut": mesh_lut_int,
             "mesh_lut_float": mesh_lut_float,
             "K_new": K_new,
-            "config": {
-                "output_width": output_width,
-                "output_height": output_height,
-                "downsample_factor": downsample_factor,
-                "balance": balance,
-                "mesh_size": mesh_lut_int.shape,
-                "double_sphere_params": {
-                    "fx": self.cam.fx,
-                    "fy": self.cam.fy,
-                    "cx": self.cam.cx,
-                    "cy": self.cam.cy,
-                    "xi": self.cam.xi,
-                    "alpha": self.cam.alpha,
-                },
-            },
+            "valid_mask": valid,
+            "config": config,
         }
 
     def _compute_K_new(self, width: int, height: int, balance: float) -> np.ndarray:
-        # Shared with DoubleSphereCamera.compute_K_new; LDC may target an output
-        # resolution different from the sensor, so width/height are explicit.
-        return balanced_pinhole_K(self.cam.fx, self.cam.fy, width, height, balance)
+        # Same seed as ops.undistort.Undistorter.new_K (the model's pinhole focal),
+        # so the mesh and the software undistorter share one rectified frame; LDC may
+        # target an output resolution different from the sensor, so width/height
+        # are explicit.
+        fx, fy = _pinhole_focal(self.cam)
+        return balanced_pinhole_K(fx, fy, width, height, balance)
 
     def _generate_mesh(
         self, width: int, height: int, K_new: np.ndarray, m: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
         fx_new, fy_new = K_new[0, 0], K_new[1, 1]
         cx_new, cy_new = K_new[0, 2], K_new[1, 2]
         step = 2**m
@@ -127,40 +221,30 @@ class TI_LDC_MeshGenerator:
         padded_width = ((width + step - 1) // step) * step
         padded_height = ((height + step - 1) // step) * step
 
+        # Only the node locations are evaluated (every `step` pixels, plus the border).
         h_undist, v_undist = np.meshgrid(
-            np.arange(0, padded_width + 1, dtype=np.float64),
-            np.arange(0, padded_height + 1, dtype=np.float64),
+            np.arange(0, padded_width + 1, step, dtype=np.float64),
+            np.arange(0, padded_height + 1, step, dtype=np.float64),
             indexing="xy",
         )
         mx = (h_undist - cx_new) / fx_new
         my = (v_undist - cy_new) / fy_new
         rays = np.stack([mx, my, np.ones_like(mx)], axis=-1)
-        # Omit redundant norm computation since ds_project is scale-invariant
+        # Not normalised: every contract model's project() is scale-invariant.
 
-        distorted_pts, _ = self.cam.project(rays)
-        h_distorted = distorted_pts[..., 0]
-        v_distorted = distorted_pts[..., 1]
+        distorted_pts, valid = self.cam.project(rays)
+        distorted_pts = np.asarray(distorted_pts, dtype=np.float64)
+        valid = np.asarray(valid, dtype=bool) & np.all(np.isfinite(distorted_pts), axis=-1)
 
-        delta_h_float = h_distorted - h_undist
-        delta_v_float = v_distorted - v_undist
+        mesh_float = np.zeros(h_undist.shape + (2,), dtype=np.float64)
+        mesh_float[..., 0] = distorted_pts[..., 0] - h_undist
+        mesh_float[..., 1] = distorted_pts[..., 1] - v_undist
+        mesh_float[~valid] = 0.0
 
-        delta_h_q3 = np.round(delta_h_float * 8.0).astype(np.int16)
-        delta_v_q3 = np.round(delta_v_float * 8.0).astype(np.int16)
-
-        h_down = delta_h_q3[::step, ::step]
-        v_down = delta_v_q3[::step, ::step]
-        h_float_down = delta_h_float[::step, ::step]
-        v_float_down = delta_v_float[::step, ::step]
-
-        mesh_height, mesh_width = h_down.shape
-        mesh_int = np.zeros((mesh_height, mesh_width, 2), dtype=np.int16)
-        mesh_int[..., 0] = h_down
-        mesh_int[..., 1] = v_down
-
-        mesh_float = np.zeros((mesh_height, mesh_width, 2), dtype=np.float64)
-        mesh_float[..., 0] = h_float_down
-        mesh_float[..., 1] = v_float_down
-        return mesh_int, mesh_float
+        q3 = np.round(mesh_float * Q3_SCALE)
+        overflow = bool((q3 < Q3_INT16_MIN).any() or (q3 > Q3_INT16_MAX).any())
+        mesh_int = np.clip(q3, Q3_INT16_MIN, Q3_INT16_MAX).astype(np.int16)
+        return mesh_int, mesh_float, valid, overflow
 
 
 class TI_LDC_PointUndistorter:
@@ -170,12 +254,14 @@ class TI_LDC_PointUndistorter:
     Inverts a mesh produced by :meth:`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`
     to recover undistorted (pinhole) coordinates for distorted input pixels, by the
     same bilinear-interpolation + fixed-point-iteration approach the LDC hardware
-    itself performs. **Prefer the closed-form**
-    :meth:`~ds_msp.model.DoubleSphereCamera.undistort_points` for anything other
-    than reproducing hardware behavior — the mesh inverse is exact only near the
-    image center and diverges sharply toward the periphery (measured ~0.08 px
-    median disagreement overall, ~80 px at the corners in a representative
-    1920x1080 configuration; see
+    itself performs. **Prefer the closed form** for anything other than
+    reproducing hardware behavior:
+    :meth:`ds_msp.ops.undistort.Undistorter.undistort_points` for any model (or
+    :meth:`~ds_msp.model.DoubleSphereCamera.undistort_points` on the legacy
+    class) — the mesh inverse is exact only near the image center and diverges
+    sharply toward the periphery (measured ~0.08 px median disagreement
+    overall, ~80 px at the corners in a representative 1920x1080
+    configuration; see
     [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md)).
 
     Parameters
