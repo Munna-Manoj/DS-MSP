@@ -254,13 +254,15 @@ points = sweep_to_points(ref_cam, depth, valid)        # (N,3) metric point clou
 
 ### Hardware LDC export
 
-Generate a TI Jacinto LDC displacement-mesh lookup table (J7 / TDA4) directly from a calibrated model:
+Generate a TI Jacinto LDC displacement-mesh lookup table (J7 / TDA4) directly from **any**
+calibrated model — the generator uses only the `CameraModel` contract, so every model in the
+library (and any you add) exports the same way:
 
 ```python
 from ds_msp.ldc import TI_LDC_MeshGenerator
 
 res = TI_LDC_MeshGenerator(cam).generate_mesh_and_intrinsics(1920, 1080, downsample_factor=4, balance=0.5)
-mesh_lut, K_new = res["mesh_lut"], res["K_new"]
+mesh_lut, K_new = res["mesh_lut"], res["K_new"]     # cam: DS, UCM, EUCM, KB, RadTan, OCam, DS⁺, ...
 ```
 
 ### Isaac Sim camera LUT

@@ -19,7 +19,7 @@ def test_main_prints_expected_values(capsys):
     out = capsys.readouterr().out
     assert "(69, 121, 2) int16" in out
     assert "426.84" in out
-    assert "['mesh_lut', 'mesh_lut_float', 'K_new', 'config']" in out
+    assert "['mesh_lut', 'mesh_lut_float', 'K_new', 'valid_mask', 'config']" in out
     assert "(69, 121, 2)" in out
     assert "4" in out
     assert "[ -87 -156]" in out

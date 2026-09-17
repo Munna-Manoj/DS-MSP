@@ -14,7 +14,7 @@
 | IFC-05 | Model conversion / autoselect | Python API | convert params between any two models; pick best-fitting | `ds_msp/adapt` | FR-ADAPT-001..002 |
 | IFC-06 | Interop file formats | File I/O | Kalibr camchain YAML, COLMAP, nerfstudio `transforms.json`, MC-Calib | `ds_msp/io` | FR-IO-001..004 |
 | IFC-07 | OpenCV-compatible API | Python API | drop-in `cv`-style calls for wide-FOV models | `ds_msp/cv.py` | FR-INTEROP-001 |
-| IFC-08 | TI Jacinto LDC export | File I/O | distortion-correction mesh for hardware rectification | `ds_msp/ldc.py` | FR-INTEROP-002 |
+| IFC-08 | TI Jacinto LDC export | File I/O | distortion-correction mesh for hardware rectification, from any `CameraModel` | `ds_msp/ldc.py` | FR-INTEROP-002 |
 | IFC-09 | Model-agnostic pose operations | Python API | `solve_pnp`, recommended `solve_pnp_robust`, compatibility `solve_pnp_ransac` over any central `CameraModel` | `ds_msp/ops/pose.py`, `ds_msp/model.py` | FR-OPS-003 |
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 

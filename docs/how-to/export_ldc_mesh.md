@@ -12,10 +12,13 @@ SoC, see [Undistort a fisheye image](undistort_images.md).
 **Prerequisites**
 
 - `ds_msp` installed (`numpy` comes with it).
-- A calibrated `DoubleSphereCamera`. `width`/`height` on the model are **not** required by
-  the mesh generator — it uses the `output_width`/`output_height` arguments you pass to
-  `generate_mesh_and_intrinsics`. If you still need to calibrate, start from the
-  [README usage](https://github.com/Munna-Manoj/DS-MSP#readme).
+- A calibrated camera — **any** DS-MSP `CameraModel` (`DoubleSphereModel`, `UCMModel`,
+  `EUCMModel`, `KannalaBrandtModel`, `RadTanModel`, `OCamModel`, `DSPlusModel`, the legacy
+  `DoubleSphereCamera`, or a model you add later). The generator only calls `project()` and
+  reads `K`, so every model that implements the contract works with no exporter changes.
+  `width`/`height` on the model are **not** required by the mesh generator — it uses the
+  `output_width`/`output_height` arguments you pass to `generate_mesh_and_intrinsics`. If you
+  still need to calibrate, start from the [README usage](https://github.com/Munna-Manoj/DS-MSP#readme).
 - The output of this recipe is a NumPy array you flash to the SoC; this page does not cover
   the board-side flashing toolchain.
 
@@ -61,7 +64,8 @@ call above.
 | `mesh_lut` | `(69, 121, 2)` `int16` | Q3 fixed-point `(h, v)` displacements — the array you flash to the LDC. |
 | `mesh_lut_float` | `(69, 121, 2)` `float64` | The same displacements before quantization (for verification on the host). |
 | `K_new` | `(3, 3)` `float64` | Rectified pinhole intrinsics of the undistorted output image. |
-| `config` | `dict` | The call parameters, the resulting `mesh_size`, and the source DS intrinsics — a self-describing record to flash alongside the mesh. |
+| `valid_mask` | `(69, 121)` `bool` | `False` at nodes the model cannot project (outside its field of view); those nodes hold zero displacement and a warning is issued. |
+| `config` | `dict` | The call parameters, the resulting `mesh_size`, the source `camera_model` (name + parameters, whatever the model), `n_invalid_nodes` and `q3_overflow` — a self-describing record to flash alongside the mesh. |
 
 {* docs_src/how_to/export_ldc_mesh/mesh_pipeline.py ln[10:35] hl[33:35] *}
 
@@ -70,7 +74,7 @@ call above.
 ```console
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 # (excerpt -- this stage's prints)
-['mesh_lut', 'mesh_lut_float', 'K_new', 'config']
+['mesh_lut', 'mesh_lut_float', 'K_new', 'valid_mask', 'config']
 (69, 121, 2)
 4
 ```
@@ -108,9 +112,9 @@ The integer range of this mesh runs from `-3046` to `2873` Q3 units — roughly 
 
 /// warning
 A much wider FOV produces larger displacements, which can push Q3 values past the `int16`
-range (`-32768..32767`) and wrap silently to the wrong sign. After generating a mesh for an
-aggressive FOV, check `mesh_lut.min()` and `mesh_lut.max()` stay inside that range. If they
-sit near the limits, raise `balance` to crop the periphery before flashing.
+range (`-32768..32767`, i.e. about `±4096 px`). The generator clips such values instead of
+letting them wrap, issues a warning, and sets `config["q3_overflow"] = True`. A clipped mesh
+is wrong at the periphery — raise `balance` to crop it before flashing.
 ///
 
 ## Trade mesh size against accuracy with `downsample_factor`
@@ -151,8 +155,10 @@ It sets `K_new` — at `balance=0.5` here, `fx_new = 426.84 px`. See
 
 ## Undistort keypoints with the closed form, not the mesh
 
-Use the mesh for the **picture**. Undistort **keypoints** with the closed-form
-`cam.undistort_points(pts, K_new)` at the same `K_new` — that is, the same `balance`.
+Use the mesh for the **picture**. Undistort **keypoints** with the closed form at the same
+`K_new` — that is, the same `balance`: `Undistorter(cam, w, h).undistort_points(pts, K_new)`
+from `ds_msp.ops.undistort` for any model, or `cam.undistort_points(pts, K_new)` on the
+legacy `DoubleSphereCamera` shown here.
 
 The mesh's point-inverse is exact at the center and diverges toward the periphery. Sharing
 `K_new` keeps the image pipeline and the keypoint pipeline on the same rectified frame.
@@ -165,7 +171,7 @@ The mesh's point-inverse is exact at the center and diverges toward the peripher
 $ python3 -m docs_src.how_to.export_ldc_mesh.mesh_pipeline
 (69, 121, 2) int16
 426.84
-['mesh_lut', 'mesh_lut_float', 'K_new', 'config']
+['mesh_lut', 'mesh_lut_float', 'K_new', 'valid_mask', 'config']
 (69, 121, 2)
 4
 [ -87 -156]
@@ -200,16 +206,48 @@ precisely: PnP, feature tracks, reprojection. Both must use the same `K_new`.
 
 /// warning
 Do not undistort keypoints by inverting the displacement mesh. It is accurate only near the
-center. `cam.undistort_points` is exact everywhere a ray is recoverable, and its second return
-value flags points that are not.
+center. The closed form is exact everywhere a ray is recoverable, and its second return value
+flags points that are not.
 ///
+
+## The same recipe for any camera model
+
+Nothing above is specific to Double Sphere. `TI_LDC_MeshGenerator` calls only the
+`CameraModel` contract — `project()` for each node's distorted source location and `K` for
+the focal that seeds `K_new` — so a Kannala-Brandt fisheye, an OCam polynomial camera, or a
+model added to DS-MSP next year all export through the same code path. `K_new` is the same
+matrix `Undistorter` builds for that model and `balance`, so the mesh and the software
+undistorter always share one rectified frame.
+
+{* docs_src/how_to/export_ldc_mesh/any_model.py hl[17:18,26] *}
+
+<div class="termy">
+
+```console
+$ python3 -m docs_src.how_to.export_ldc_mesh.any_model
+kb (31, 41, 2) int16 True
+192.3 kb
+[[320.0, 240.0], [441.83, 179.28]] [True, True]
+ocam (31, 41, 2) int16 True
+132.0 ocam
+[[320.0, 240.0], [436.57, 181.71]] [True, True]
+```
+
+</div>
+
+`config["camera_model"]` records the model's name and parameters whatever the model is, so
+the flashed record stays self-describing. Two situations are reported rather than silently
+absorbed: a node whose pinhole ray the model cannot project (a very wide `K_new` for a
+narrow-FOV model) is marked `False` in `valid_mask`, holds zero displacement, and triggers a
+warning; a displacement beyond the `int16` Q3 range is clipped and flagged in
+`config["q3_overflow"]`. In both cases raise `balance`.
 
 ## Troubleshooting: a camera method raises about image dimensions
 
-`width`/`height` on the `DoubleSphereCamera` are **not** used by `TI_LDC_MeshGenerator` — the
-mesh is sized from the explicit `output_width`/`output_height` arguments. The camera's own
-image-level helpers do need them: `cam.compute_K_new()` and `cam.get_undistortion_maps()` both
-raise `ValueError` without them.
+`width`/`height` on the legacy `DoubleSphereCamera` are **not** used by `TI_LDC_MeshGenerator`
+— the mesh is sized from the explicit `output_width`/`output_height` arguments. The camera's
+own image-level helpers do need them: `cam.compute_K_new()` and `cam.get_undistortion_maps()`
+both raise `ValueError` without them.
 
 {* docs_src/how_to/export_ldc_mesh/troubleshooting.py hl[15,23:26,29:31] *}
 
@@ -242,9 +280,14 @@ re-deriving the rectified frame your keypoint pipeline shares.
 - **Undistort on the CPU/GPU instead** —
   [Undistort a fisheye image](undistort_images.md): the software path with the same `balance`
   knob, for hosts without an LDC engine.
+- **Reproduce the same camera in Isaac Sim** —
+  [Export an Isaac Sim camera LUT](export_isaac_sim_lut.md): the renderer-side counterpart,
+  also generated from any `CameraModel`.
 - **The code used here** — source on GitHub:
   [`ds_msp/ldc.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/ldc.py)
-  (`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`) and
+  (`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`),
+  [`ds_msp/ops/undistort.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/ops/undistort.py)
+  (`Undistorter.undistort_points`, any model) and
   [`ds_msp/model.py`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/model.py)
-  (`DoubleSphereCamera.undistort_points`).
+  (`DoubleSphereCamera.undistort_points`, legacy class).
 - **Other recipes** — back to the [How-to guides](README.md).
