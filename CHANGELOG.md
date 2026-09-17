@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.16.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.15.0...v0.16.0) (2026-09-17)
+
+
+### Features
+
+* **interop:** make TI LDC mesh export model-agnostic (any CameraModel) ([47e9482](https://github.com/Munna-Manoj/DS-MSP/commit/47e9482baddd318d0c257c7d7096142f45a247bb))
+
 ## [0.15.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.14.0...v0.15.0) (2026-09-17)
 
 
