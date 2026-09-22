@@ -84,7 +84,8 @@ registry is authoritative as the set grows:
 - **ARCH** — a strictly layered, acyclic system; a NumPy-native math foundation; camera-model
   contract conformance.
 - **PORT** — the supported Python runtime matrix.
-- **REPRO** — deterministic tests and validations with explicit seeds.
+- **REPRO** — deterministic tests/validations with explicit seeds, attributable rig-run manifests,
+  immutable-input verification, replay, and a locked reference environment for golden baselines.
 - **PRIV** — no internal R&D/process content in tracked files.
 - **PERF** — measured, regression-tested performance and parallelism behavior.
 - **DOCS** — strict site builds, executable source-backed examples, and the top-level docs allowlist.

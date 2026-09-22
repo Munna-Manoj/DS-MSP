@@ -39,17 +39,19 @@ Examples
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib.resources
 import os
 
 from ..io.mccalib import load_scenario, radtan_from_cameragt
 from . import report as rpt
+from . import provenance as prov
 from .pipeline import calibrate_scenario, random_model_assignment
 
 
 def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_path,
                           audit=None, certificate=None, covariance=None, metrics=None,
-                          output_paths=None):
+                          output_paths=None, manifest=None):
     """Shared tail for both entry points: assemble the full calibration deliverable ONCE
     (:func:`ds_msp.rig.report.full_report_data` — capture summary, error distributions +
     verdict, calibrated intrinsics/extrinsics with 1σ when covariance is on, trust layer,
@@ -67,11 +69,15 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
         files.setdefault("mccalib_output_dir", save_dir)
         files["calibration_report_txt"] = os.path.join(save_dir, "calibration_report.txt")
         files["calibration_report_json"] = os.path.join(save_dir, "calibration_report.json")
+        files["calibration_manifest_json"] = os.path.join(save_dir, prov.MANIFEST_NAME)
     if html_path:
         files["interactive_html"] = html_path
+    if manifest is None:
+        manifest = prov.build_manifest(scn, configuration={"entrypoint": "rig-python-api"})
     data = rpt.full_report_data(rig, scn, models, per_cam, overall, level, message,
                                 metrics=metrics, audit=audit, certificate=certificate,
-                                covariance=covariance, output_files=files)
+                                covariance=covariance, provenance=prov.summary(manifest),
+                                output_files=files)
     print()
     print(rpt.render_full_report(data))
     if html_path:
@@ -79,7 +85,10 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
         print(f"\ninteractive report: {html_path}  (open in any browser, no server needed)")
     if save_dir:
         paths = rpt.write_report_files(save_dir, data)
+        manifest_path = prov.write_manifest(
+            files["calibration_manifest_json"], manifest, {**files, **paths})
         print(f"report saved: {paths['report_txt']}  +  {paths['report_json']}")
+        print(f"run manifest: {manifest_path}")
     return 0 if level in ("PASS", "WARN") else 1
 
 
@@ -98,12 +107,28 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
     print(f"per-camera model: {res['models']}")
     html_path = report_path or (os.path.join(cfg.save_path, "report.html") if cfg.save_path
                                 else None)
+    source_paths = [os.path.abspath(config_path), cfg.keypoints_path, cfg.cam_params_path,
+                    cfg.object_path]
+    source_paths.extend(prov.image_files_under(cfg.root_path, exclude=cfg.save_path))
+    source_paths.extend(o.image_path for o in res["scenario"].object_obs
+                        if getattr(o, "image_path", None))
+    replay_argv = ["--config", os.path.abspath(config_path)]
+    for item in sets or []:
+        replay_argv.extend(["--set", item])
+    replay_argv.extend(["--pass-px", str(pass_px), "--warn-px", str(warn_px)])
+    if report_path == "":
+        replay_argv.extend(["--report", ""])
+    configuration = {"entrypoint": "config", "config_path": os.path.abspath(config_path),
+                     "overrides": list(sets or []), "resolved": dataclasses.asdict(cfg)}
+    manifest = prov.build_manifest(
+        res["scenario"], configuration=configuration, source_paths=source_paths,
+        replay_argv=replay_argv, input_objects=res.get("input_objects", res["scenario"].object))
     code = _report_and_exit_code(res["rig"], res["scenario"], res["models"], cfg.save_path,
                                  pass_px=pass_px, warn_px=warn_px, html_path=html_path,
                                  audit=res.get("audit"), certificate=res.get("certificate"),
                                  covariance=res.get("covariance"),
                                  metrics=res.get("metrics"),
-                                 output_paths=res.get("paths"))
+                                 output_paths=res.get("paths"), manifest=manifest)
     res["exit_code"] = code
     return res
 
@@ -225,12 +250,37 @@ def main():
     animator.finish(res["rig"], rms=m["max_rms_px"])
 
     html_path = args.report if args.report is not None else os.path.join(save_dir, "report.html")
+    results_dir = os.path.join(os.path.abspath(args.scenario), "Results")
+    source_paths = [os.path.join(results_dir, name) for name in (
+        "calibrated_objects_data.yml", "detected_keypoints_data.yml",
+        "calibrated_cameras_data.yml")]
+    gt_path = os.path.join(os.path.abspath(args.scenario), "GroundTruth.yml")
+    if os.path.exists(gt_path):
+        source_paths.append(gt_path)
+    replay_argv = [os.path.abspath(args.scenario)]
+    if args.random:
+        replay_argv.extend(["--random", args.random, "--seed", str(args.seed)])
+    elif args.models:
+        replay_argv.extend(["--models", args.models])
+    else:
+        replay_argv.extend(["--model", args.model])
+    if args.fix_intrinsics:
+        replay_argv.append("--fix-intrinsics")
+    replay_argv.extend(["--pass-px", str(args.pass_px), "--warn-px", str(args.warn_px)])
+    configuration = {
+        "entrypoint": "scenario", "scenario": os.path.abspath(args.scenario),
+        "model_spec": {str(k): str(v) for k, v in spec.items()} if isinstance(spec, dict)
+        else str(spec), "fix_intrinsics": bool(args.fix_intrinsics), "seed": int(args.seed),
+    }
+    manifest = prov.build_manifest(scn, configuration=configuration,
+                                   source_paths=source_paths, replay_argv=replay_argv,
+                                   seed=args.seed, input_objects=scn.object)
     code = _report_and_exit_code(res["rig"], scn, res["models"], save_dir,
                                  pass_px=args.pass_px, warn_px=args.warn_px,
                                  html_path=html_path or None, audit=res.get("audit"),
                                  certificate=res.get("certificate"),
                                  covariance=res.get("covariance"), metrics=m,
-                                 output_paths=res.get("paths"))
+                                 output_paths=res.get("paths"), manifest=manifest)
     raise SystemExit(code)
 
 

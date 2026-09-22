@@ -681,6 +681,7 @@ def full_report_data(rig: RigState, scn, models: Dict[int, str],
                      level: str, message: str, *, metrics: Optional[Dict] = None,
                      audit: Optional[Dict] = None, certificate: Optional[Dict] = None,
                      covariance: Optional[Dict] = None,
+                     provenance: Optional[Dict] = None,
                      output_files: Optional[Dict] = None) -> Dict:
     """Assemble the complete, JSON-safe calibration deliverable: capture summary, verdict,
     per-camera error distributions, calibrated intrinsics/extrinsics (with 1-sigma
@@ -711,6 +712,7 @@ def full_report_data(rig: RigState, scn, models: Dict[int, str],
         "metrics": metrics,
         "audit": audit,
         "certificate": certificate,
+        "provenance": provenance,
         "output_files": output_files or {},
     })
 
@@ -865,6 +867,23 @@ def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
     if ref_lines:
         L.append("-- reference comparison --")
         L.extend(ref_lines)
+        L.append("")
+
+    # --- reproducibility ---------------------------------------------------------------
+    provenance = data.get("provenance")
+    if provenance:
+        L.append("-- reproducibility --")
+        L.append(f"run id: {provenance.get('run_id', '--')}")
+        commit = provenance.get("git_commit")
+        if commit:
+            dirty = " (dirty worktree)" if provenance.get("git_dirty") else ""
+            L.append(f"source: {commit}{dirty}")
+        env_match = provenance.get("reference_environment_match")
+        env_tag = "MATCH" if env_match else ("DIFFERENT" if env_match is False else "UNKNOWN")
+        L.append(f"reference environment: {env_tag}  "
+                 f"({provenance.get('reference_environment') or '--'})")
+        if provenance.get("observations_sha256"):
+            L.append(f"observation digest: {provenance['observations_sha256']}")
         L.append("")
 
     # --- outputs -----------------------------------------------------------------------

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "ds-msp-rig-production-py310-2026-09",
+  "python": "3.10",
+  "packages": {
+    "numpy": "2.2.6",
+    "opencv-python": "5.0.0.93",
+    "scipy": "1.15.3",
+    "PyYAML": "6.0.3"
+  },
+  "forbidden_packages": [
+    "opencv-python-headless"
+  ]
+}

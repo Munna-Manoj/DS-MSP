@@ -131,7 +131,7 @@ def test_color_render_differs_only_by_ansi_codes():
     assert "report_covariance" in rpt.render_full_report(data, color=False)
 
 
-@pytest.mark.req("FR-RIG-023")
+@pytest.mark.req("FR-RIG-023", "NFR-REPRO-002")
 def test_cli_tail_prints_the_same_content_it_persists(tmp_path, capsys):
     rig, scn = _consistent_rig()
     models = {c: rig.cameras[c].name for c in rig.cameras}
@@ -147,3 +147,10 @@ def test_cli_tail_prints_the_same_content_it_persists(tmp_path, capsys):
         saved = f.read().rstrip("\n")
     assert saved in out                 # terminal shows verbatim what the file contains
     assert (tmp_path / "calibration_report.json").exists()
+    manifest_path = tmp_path / "calibration_manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["outputs"]["calibration_report_json"]["sha256"]
+    report_data = json.loads((tmp_path / "calibration_report.json").read_text())
+    assert report_data["provenance"]["run_id"] == manifest["run_id"]
+    assert str(manifest_path) in report_data["output_files"].values()

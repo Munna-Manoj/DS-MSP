@@ -59,12 +59,12 @@ Current controls are:
 
 - **Active structural control:** `tools/check_traceability.py --release` fails if a release-gated
   requirement lacks linked synthetic or `realdata` coverage.
-- **Active execution path:** `nightly.yml` runs the real-data suite on schedule or on demand when
-  datasets are provisioned.
-- **Remaining RSK-07 gap:** `release.yml` does not depend on a non-skipping result, and the
-  dataset-gated job can be green after all tests skip. Until an automated release dependency proves
-  execution, the maintainer must verify and record that the linked tests ran and passed before
-  merging the release PR.
+- **Active execution path:** `nightly.yml` runs the real-data suite in the locked Python 3.10
+  reference environment. A manual dispatch with `require_realdata=true` fails when datasets are
+  absent or every test skips (`tools/require_tests_executed.py`).
+- **Remaining RSK-07 gap:** `release.yml` does not yet consume that required dispatch result
+  automatically. Until it does, the maintainer must retain the green required-dispatch URL and
+  verify all linked tests passed before merging the release PR.
 
 See ADR-0006 and [CHANGE_RELEASE_MGMT.md](../management/CHANGE_RELEASE_MGMT.md).
 
