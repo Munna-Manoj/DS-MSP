@@ -74,13 +74,16 @@ those references.
 A saved run can be verified and replayed from its manifest without overwriting the original:
 
 ```bash
-python tools/replay_rig_manifest.py Results_dsmsp/calibration_manifest.json \
-  --output Results_dsmsp_replay
+MANIFEST=/absolute/path/to/your/results/calibration_manifest.json
+REPLAY_OUTPUT=/absolute/path/to/a/new/replay-directory
+python tools/replay_rig_manifest.py "$MANIFEST" --output "$REPLAY_OUTPUT"
 ```
 
 The command first verifies every recorded source-file SHA-256 hash. The replay report then checks
 that the effective 2D observations, target geometry, and deterministic MC-Calib outputs match. Use
-`--verify-only` when you only want to check whether the recorded inputs are still intact.
+`--verify-only` when you only want to check whether the recorded inputs are still intact. The paths
+above are examples: the manifest is written inside the `save_path` of the original calibration run,
+and the replay output must be a new or empty directory.
 
 For release qualification and golden baselines, create a Python 3.10 environment and install the
 exact numerical runtime before installing DS-MSP:
