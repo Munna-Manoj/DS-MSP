@@ -667,4 +667,7 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
     animator.finish(res["rig"], rms=res["metrics"]["max_rms_px"])
     res["config"] = cfg
     res["scenario"] = scn
+    # Preserve the pre-optimization target geometry for the run manifest.  The calibrated rig may
+    # hold a structure-refined copy; provenance must identify the prior/input, not only the result.
+    res["input_objects"] = objects
     return res

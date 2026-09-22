@@ -82,3 +82,4 @@ CI fails if this file is out of sync with the registry and the test suite.
 | NFR-PORT-001 | NFR | PORT | ARC-CORE | `ds_msp` | `.github/workflows/ci.yml` | implemented | no | — |
 | NFR-PRIV-001 | NFR | PRIV | ARC-CORE | `.` | `tools/check_tree_hygiene.py` | implemented | no | — |
 | NFR-REPRO-001 | NFR | REPRO | ARC-CORE | `tests` | `tests/contract/test_gradcheck.py` | implemented | no | tests/contract/test_gradcheck.py (module)<br>tests/core/test_cholesky_solve.py (module) |
+| NFR-REPRO-002 | NFR | REPRO | ARC-RIG | `ds_msp/rig/provenance.py;ds_msp/rig/cli.py;tools/replay_rig_manifest.py` | `tests/rig/test_provenance.py;tests/rig/test_report_deliverable.py` | implemented | no | tests/rig/test_provenance.py (module)<br>tests/rig/test_report_deliverable.py::test_cli_tail_prints_the_same_content_it_persists<br>tests/tools/test_replay_rig_manifest.py (module)<br>tests/tools/test_require_tests_executed.py (module) |

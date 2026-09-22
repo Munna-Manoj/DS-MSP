@@ -20,7 +20,7 @@ still reducing it.
 | RSK-04 | Analytic Jacobian regression slips in undetected | technical | L | H | **mitigated** | `-m jac` gradient-check at 1e-6 on every model PR (NFR-NUM-001) |
 | RSK-05 | Architecture erodes (cycles / cv2 in math path) | process | M | M | **mitigated** | import-linter contracts + `test_independence.py` (NFR-ARCH-001/002) |
 | RSK-06 | Requirements and tests drift out of sync | process | M | M | **mitigated** | CI traceability gate (`check_traceability.py`) fails on orphan/dangling links and an out-of-date generated matrix |
-| RSK-07 | A release ships without real-data validation | process | L | H | **planned** | Structural release check + nightly/on-demand real-data runner are active; a non-skipping result is not yet an automated dependency of `release.yml` |
+| RSK-07 | A release ships without real-data validation | process | L | H | **planned** | Structural check + a required manual reference-environment dispatch fail on all-skipped evidence; `release.yml` does not yet consume that result automatically |
 | RSK-08 | Third-party dependency CVE (numpy/opencv/scipy/pyyaml) | security | L | M | **planned** | Pinned dev deps; `SECURITY.md` reporting; dependency review |
 
 ## Notes on the open risks
@@ -32,10 +32,10 @@ still reducing it.
 - **RSK-06** is *mitigated*: the `governance` CI job runs `check_traceability.py --check` on every PR
   and push to `main`, rejecting orphan requirements, dangling test links, incomplete ADR indexing,
   and a stale generated matrix.
-- **RSK-07** stays *planned*: `check_traceability.py --release` provides the structural check and
-  `nightly.yml` provides a scheduled/on-demand real-data runner, but `release.yml` does not depend on
-  a non-skipping result. A green all-skipped dataset-gated run is not evidence, so the maintainer must
-  confirm actual execution manually until that dependency is wired.
+- **RSK-07** stays *planned*: `check_traceability.py --release` provides the structural check and a
+  `nightly.yml` dispatch with `require_realdata=true` now fails on missing/all-skipped data in the
+  locked reference environment. The remaining gap is automatic consumption of that green result by
+  `release.yml`; until then, the maintainer retains the required dispatch URL manually.
 
 ## Maintenance
 

@@ -1,0 +1,7 @@
+# DS-MSP rig-calibration reference environment (ADR-0022 / NFR-REPRO-002).
+# Python 3.10; exact runtime pins used for release qualification and golden baselines.
+# The library's pyproject.toml intentionally keeps compatibility ranges for consumers.
+numpy==2.2.6
+opencv-python==5.0.0.93
+scipy==1.15.3
+PyYAML==6.0.3

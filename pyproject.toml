@@ -80,7 +80,7 @@ include = ["ds_msp*"]
 # ds_msp/calib/cli.py) -- setuptools does not include non-.py package data by default, so this
 # must be declared explicitly or the wheel silently ships without them.
 [tool.setuptools.package-data]
-"ds_msp.rig" = ["configs/*.yml"]
+"ds_msp.rig" = ["configs/*.yml", "configs/*.json"]
 "ds_msp.calib" = ["configs/*.yml"]
 
 [tool.pytest.ini_options]

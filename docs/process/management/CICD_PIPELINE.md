@@ -61,7 +61,7 @@ Runs daily (`cron: 0 6 * * *`) and via `workflow_dispatch`:
 |-----|------|---------|
 | `slow synthetic suite` (3-shard matrix) | `pytest -m "slow" --timeout=1200` | the full multi-model × multi-seed rig statistical validation; ≤ 60 min per shard |
 | `fast tier + coverage (matrix)` | `pytest -m "not slow" --cov` on 3.10/3.11/3.12 | daily portability + coverage snapshot |
-| `real-data validation (dataset-gated)` | `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | real-data evidence for release-gated requirements when data is provisioned; self-skips otherwise, and an all-skipped run is not evidence |
+| `real-data validation (dataset-gated)` | Python 3.10 reference environment; `pytest -m "realdata"` with `DSMSP_*_DIR` secrets | optional schedules may self-skip; a manual dispatch with `require_realdata=true` fails unless at least one test executed, producing non-skipping release evidence |
 
 The slow synthetic shards are serial at the pytest level but internally parallel: rig calibration
 tests exercise the production `ProcessPoolExecutor` path. Running those cases through an additional
@@ -88,10 +88,11 @@ The policy (ADR-0006): a release involving any requirement whose `requirements.c
 skipped in ordinary PR CI to keep PRs fast.
 
 Status: the structural `--release` check and the scheduled/on-demand `nightly.yml` real-data runner
-are wired. `release.yml` does not yet depend on a non-skipping real-data result, and a dataset-gated
-job can report green when every test skipped. Until that remaining RSK-07 control is wired, the
-maintainer must record evidence that every linked real-data test actually executed and passed before
-merging a release PR that contains release-gated work.
+are wired. A manual dispatch with `require_realdata=true` also runs
+`tools/require_tests_executed.py`, so missing datasets/all-skipped tests fail and cannot be retained
+as release evidence. `release.yml` does not yet consume that prior workflow result automatically;
+until that remaining RSK-07 dependency is wired, the maintainer must retain the required dispatch's
+green URL before merging a release PR that contains release-gated work.
 
 ## Lifecycle mapping (ISO/IEC/IEEE 12207)
 

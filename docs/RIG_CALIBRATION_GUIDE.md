@@ -61,11 +61,38 @@ The run writes MC-Calib's exact result set into `save_path/`:
 | `calibrated_objects_pose_data.yml` | object pose per frame |
 | `reprojection_error_data.yml` | per-camera / per-point reprojection residuals |
 | `detected_keypoints_data.yml` | the detected 2D corners — save this to skip detection next time (see [§6](#6-detect-once-calibrate-many-keypoints-reuse)) |
+| `calibration_report.txt`, `calibration_report.json` | human- and machine-readable result generated from the same report data |
+| `calibration_manifest.json` | code/data/config/environment provenance, effective-input digests, and output hashes |
 | `Detection/`, `Reprojection/` | (optional) overlay images per camera/frame |
 
 The console prints per-camera reprojection <abbr title="Root Mean Square">RMS</abbr> and, if a
 `GroundTruth.yml` / MC-Calib `Results/` is found next to the data, the worst baseline error vs
 those references.
+
+### Reproduce an attributed run
+
+A saved run can be verified and replayed from its manifest without overwriting the original:
+
+```bash
+python tools/replay_rig_manifest.py Results_dsmsp/calibration_manifest.json \
+  --output Results_dsmsp_replay
+```
+
+The command first verifies every recorded source-file SHA-256 hash. The replay report then checks
+that the effective 2D observations, target geometry, and deterministic MC-Calib outputs match. Use
+`--verify-only` when you only want to check whether the recorded inputs are still intact.
+
+For release qualification and golden baselines, create a Python 3.10 environment and install the
+exact numerical runtime before installing DS-MSP:
+
+```bash
+python3.10 -m venv .venv-production
+.venv-production/bin/python -m pip install -r requirements-production.txt
+.venv-production/bin/python -m pip install -e .
+```
+
+The public `pyproject.toml` intentionally retains compatibility ranges; the production requirements
+file defines the one reference environment, not the only environment in which DS-MSP can run.
 
 ### Loading a camera back into a ready instance
 

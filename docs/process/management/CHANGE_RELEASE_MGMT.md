@@ -33,9 +33,9 @@ internal-process content and is kept.
 
 1. Merges to `main` accumulate; release-please maintains a **release PR** (version bump + changelog).
 2. **Before merging the release PR for a release-gated change**, run
-   `tools/check_traceability.py --release` and retain evidence that every linked `realdata` test
-   actually executed (not skipped) and passed. The dataset-gated nightly job can be dispatched for
-   this purpose, but an all-skipped green run is not validation (ADR-0006).
+   `tools/check_traceability.py --release`, then dispatch `nightly.yml` with
+   `require_realdata=true` and retain its green URL. The JUnit evidence guard fails the dispatch if
+   every dataset-gated test skipped, so an all-skipped run cannot qualify (ADR-0006).
 3. Merging the release PR creates the tag + GitHub Release and triggers the PyPI publish via Trusted
    Publishing (OIDC) — no stored token (CON-07). See [`RELEASING.md`](../../../RELEASING.md).
 4. Docs are published by `deploy-pages.yml`.

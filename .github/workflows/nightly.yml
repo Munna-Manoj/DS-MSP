@@ -7,7 +7,13 @@ name: Nightly
 on:
   schedule:
     - cron: "0 6 * * *"          # 06:00 UTC daily
-  workflow_dispatch: {}          # manual "run now" from the Actions tab
+  workflow_dispatch:
+    inputs:
+      require_realdata:
+        description: "Fail unless at least one real-data test executes (required release evidence)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -97,12 +103,15 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
           cache: pip
-      - name: Install
-        run: pip install -e ".[calib]" -r requirements-dev.txt
+      - name: Install reference production runtime
+        run: pip install -e . -r requirements-production.txt -r requirements-dev.txt
       - name: pytest (realdata; skips if no dataset)
         env:
           DSMSP_BLENDER_DIR: ${{ secrets.DSMSP_BLENDER_DIR }}
           DSMSP_MCCALIB_DIR: ${{ secrets.DSMSP_MCCALIB_DIR }}
-        run: pytest -q -m "realdata" -rs
+        run: pytest -q -m "realdata" -rs --junitxml=realdata-junit.xml
+      - name: Require executed real-data evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.require_realdata
+        run: python tools/require_tests_executed.py realdata-junit.xml
