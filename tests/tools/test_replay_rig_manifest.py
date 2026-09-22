@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -64,3 +65,15 @@ def test_comparison_ignores_dynamic_reports_but_checks_calibration_artifacts():
     assert replay.compare_manifests(original, replayed) == []
     replayed["outputs"]["cameras"]["sha256"] = "different"
     assert "cameras" in replay.compare_manifests(original, replayed)[0]
+
+
+def test_missing_manifest_has_actionable_error_without_traceback(tmp_path, monkeypatch, capsys):
+    missing = tmp_path / "RESULTS" / "calibration_manifest.json"
+    monkeypatch.setattr(sys, "argv", ["replay_rig_manifest.py", str(missing), "--verify-only"])
+
+    assert _module().main() == 2
+
+    stderr = capsys.readouterr().err
+    assert f"REPLAY REFUSED: manifest not found: {missing}" in stderr
+    assert "Pass the actual calibration_manifest.json" in stderr
+    assert "Traceback" not in stderr

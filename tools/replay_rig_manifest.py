@@ -2,7 +2,7 @@
 """Verify a DS-MSP rig manifest's inputs and reproduce its calibration in a new directory.
 
 Usage:
-  python tools/replay_rig_manifest.py OLD/calibration_manifest.json --output NEW
+  python tools/replay_rig_manifest.py /path/to/calibration_manifest.json --output /path/to/replay
 
 The original output directory is never reused.  Before launching DS-MSP, every recorded input
 file is SHA-256 checked.  Afterward the effective observation/target digests and deterministic
@@ -110,7 +110,20 @@ def main() -> int:
                     help="check recorded source files but do not run calibration")
     args = ap.parse_args()
 
-    original = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    manifest_path = Path(args.manifest).expanduser()
+    if not manifest_path.is_file():
+        print(f"REPLAY REFUSED: manifest not found: {manifest_path}", file=sys.stderr)
+        print(
+            "Pass the actual calibration_manifest.json created in your calibration "
+            "output directory (for example, find . -name calibration_manifest.json -type f).",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        original = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"REPLAY REFUSED: cannot read manifest {manifest_path}: {exc}", file=sys.stderr)
+        return 2
     errors = verify_inputs(original)
     if errors:
         for error in errors:
@@ -122,11 +135,10 @@ def main() -> int:
     if not args.output:
         ap.error("--output is required unless --verify-only is used")
     output = os.path.abspath(args.output)
-    if os.path.exists(output):
-        if not os.path.isdir(output) or os.listdir(output):
-            print(f"REPLAY REFUSED: output path is not an empty directory: {output}",
-                  file=sys.stderr)
-            return 2
+    if os.path.exists(output) and (not os.path.isdir(output) or os.listdir(output)):
+        print(f"REPLAY REFUSED: output path is not an empty directory: {output}",
+              file=sys.stderr)
+        return 2
     os.makedirs(output, exist_ok=True)
 
     recorded = original.get("invocation", {}).get("replay_argv") or []
