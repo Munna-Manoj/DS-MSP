@@ -49,9 +49,9 @@ def main(scn_dir):
     for c in sorted(rig.T_c_g):
         if c == ref:
             continue
-        # rig.T_c_g is the projection extrinsic (ref-frame -> camera, i.e. world-to-cam);
-        # GT/MC-Calib store camera-to-world. Invert to compare in their convention.
-        T_mine = np.linalg.inv(rel(rig.T_c_g[ref], rig.T_c_g[c]))
+        # rig.T_c_g and Blender GroundTruth P_i are world-to-camera. MC-Calib's saved
+        # camera_pose_matrix is camera-to-world and is normalized below.
+        T_mine = rel(rig.T_c_g[ref], rig.T_c_g[c])
         base = np.linalg.norm(T_mine[:3, 3])
         row = [f"{c:>4}", f"{base:>11.5f}"]
         # ground truth
@@ -67,7 +67,8 @@ def main(scn_dir):
         # mc-calib
         rot_mc = float("nan")
         if scn.mccalib:
-            T_mc = rel(scn.mccalib[ref].pose, scn.mccalib[c].pose)
+            T_mc = rel(np.linalg.inv(scn.mccalib[ref].pose),
+                       np.linalg.inv(scn.mccalib[c].pose))
             mcb = np.linalg.norm(T_mc[:3, 3])
             rot_mc = rot_angle_deg(T_mine[:3, :3] @ T_mc[:3, :3].T)
             row += [f"{mcb:>9.5f}"]

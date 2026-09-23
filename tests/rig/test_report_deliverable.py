@@ -15,6 +15,7 @@ from ds_msp.core.lie import so3_exp
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.rig import bundle
 from ds_msp.rig import report as rpt
+from ds_msp.rig.accuracy import accuracy_metrics, accuracy_profile_from_dict
 from ds_msp.rig.audit import audit_rig
 from ds_msp.rig.certify import certify_rotations
 from ds_msp.rig.cli import _report_and_exit_code
@@ -72,9 +73,20 @@ def _full_data(rig, scn, *, with_cov=True):
     models = {c: rig.cameras[c].name for c in rig.cameras}
     cov = bundle.parameter_covariance(rig, scn.object_obs, fix_intrinsics=False) \
         if with_cov else None
+    profile = accuracy_profile_from_dict({
+        "schema": "ds-msp-rig-accuracy-profile", "schema_version": 1,
+        "name": "report-roi", "length_unit": "m",
+        "roi": {"frame": "pair_source_camera", "points": [[0, 0, 2], [0, 0, 10]]},
+        "required_pairs": [], "limits": {"task_space_p95_max": 0.01},
+    })
+    accuracy = accuracy_metrics(
+        rig.T_c_g,
+        ground_truth_world_to_camera=rig.T_c_g,
+        profile=profile)
     return rpt.full_report_data(
         rig, scn, models, per_cam, overall, level, message,
-        metrics={"max_rms_px": overall.rms}, audit=audit_rig(rig, scn.object_obs),
+        metrics={"max_rms_px": overall.rms, "accuracy": accuracy},
+        audit=audit_rig(rig, scn.object_obs),
         certificate=certify_rotations(rig, scn.object_obs), covariance=cov,
         output_files={"mccalib_output_dir": "/out"})
 
@@ -97,7 +109,8 @@ def test_report_sections_are_informative_and_numbers_correct():
     text = rpt.render_full_report(data, color=False)
 
     # verdict + zero-error distribution on an exactly-consistent rig
-    assert "verdict:" in text and " PASS " in text
+    assert "training-fit verdict:" in text and " PASS " in text
+    assert data["fit"]["basis"] == "training reprojection error distribution"
     assert data["overall_errors_px"]["median"] < 1e-9
 
     # intrinsics: every model parameter present, with a 1-sigma bound from the clustered cov
@@ -114,6 +127,11 @@ def test_report_sections_are_informative_and_numbers_correct():
     assert e1["rot_deg"] == pytest.approx(8.0, abs=1e-9)
     assert e1["rot_sigma_deg_rss"] is not None
     assert "extrinsics" in text and "(reference)" in text
+
+    # Accuracy is truth-referenced and task-space-specific, not inferred from reprojection.
+    assert "independent ground truth: EVALUATED" in text
+    assert "exact ROI displacement (m)" in text
+    assert data["metrics"]["accuracy"]["ground_truth"]["summary"]["task_space"]["max"] == 0.0
 
     # trust layer: audit line + certificate verdict, capture summary counts
     assert "observability:" in text and "certificate:" in text and "CERTIFIED" in text

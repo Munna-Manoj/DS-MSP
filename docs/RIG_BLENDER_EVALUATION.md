@@ -25,9 +25,10 @@ Each scenario runs in three modes:
 Both `dsplus` and `dsplus_seeded` reuse the pre-detected 2D keypoints (`keypoints_path`), so
 only the rig reconstruction and bundle-adjustment math is exercised — not the corner detector.
 
-Two error metrics recur through every table:
+These historical tables predate the full-pose evaluator. Two legacy diagnostics recur:
 
-- **`base%GT`** — worst inter-camera baseline error vs ground-truth extrinsics.
+- **`base%GT`** — worst inter-camera **baseline-length** error vs ground truth. This scalar does
+  not test rotation or translation direction and is not full extrinsic accuracy.
 - **`foc%GT`** — <abbr title="The model-independent focal: the slope dr/dθ at the optical axis, so different camera models stay comparable in the same column.">paraxial-focal</abbr>
   error vs ground-truth intrinsics (model-independent).
 
@@ -51,7 +52,7 @@ worst baseline error vs GroundTruth : 0.012%
 ---------------------------------------------------------------------------
  all                  6289   0.062   0.048   0.149   0.516   0.085  100.00%
 
-verdict: PASS  median 0.048px, p95 0.149px <= 1.00/3.00px
+training-fit verdict: PASS  median 0.048px, p95 0.149px <= 1.00/3.00px
 
 wrote MC-Calib-format output to: Blender_Images/Scenario_1/Results_dsmsp_given
 ```
@@ -59,6 +60,34 @@ wrote MC-Calib-format output to: Blender_Images/Scenario_1/Results_dsmsp_given
 </div>
 
 That matches the Scenario_1 `given` row below: 0.085 px per-camera <abbr title="Root Mean Square">RMS</abbr>, 0.012% worst baseline error vs ground truth.
+
+### Full-pose Stage-1 rerun (Scenario 1)
+
+On 2026-09-23 the `given` and from-scratch `dsplus` cases were rerun from the official raw Blender
+images with the packaged full-pose evaluator and a metric ROI spanning `[-2,-1,1]` to
+`[2,1,10]` metres (150 grid points, pair 0→1). This also corrected a convention ambiguity hidden
+by baseline length: Blender
+`GroundTruth.yml` stores world→camera while MC-Calib output stores camera→world.
+
+| evidence | given intrinsics | DS+ from scratch |
+|---|---:|---:|
+| training-fit median / p95 | 0.046 / 0.113 px | 0.045 / 0.108 px |
+| geodesic rotation error | 0.00244° | **2.41336°** |
+| camera-center vector error | 0.065 mm | 1.973 mm |
+| translation-direction error | 0.00506° | **2.25053°** |
+| exact ROI displacement p50 / p95 / max | 0.285 / 0.462 / 0.485 mm | **246.1 / 425.0 / 436.2 mm** |
+| auxiliary baseline-length error | 0.00734% | 0.00843% |
+| declared 10 mm p95 profile | **PASS** | **FAIL** |
+
+This is the decisive example for the new evaluator: DS+ from scratch has a slightly *better*
+training fit and an excellent baseline-length number, yet carries a 2.41° rotation error that
+becomes 425 mm p95 displacement over the 1–10 m workspace. The observability audit also flags five
+weak directions and zero peripheral coverage. The old baseline-only wording would have called this
+result accurate; the full-pose result correctly rejects the 10 mm deployment goal.
+
+These are complete full-pose/task-space results for Scenario 1. The older five-scenario tables
+below remain explicitly legacy baseline-length evidence until each row is regenerated through the
+versioned evaluator.
 
 ## Summary (one row per scenario × mode)
 
@@ -180,7 +209,8 @@ Both `given` and `dsplus_seeded` start from the same authors' original intrinsic
 - **`dsplus_seeded`** selects DS+ with `fix_intrinsic: false`. `convert()` seeds DS+ from that
   original lens, then the bundle adjustment refines intrinsics *and* extrinsics jointly.
 
-`base%GT` is the worst inter-camera baseline error vs ground-truth extrinsics — lower is better.
+`base%GT` is the worst inter-camera baseline-**length** error — lower is better, but it does not
+measure rotation or translation direction.
 
 | dataset | given base%GT (fixed) | dsplus_seeded base%GT (optimized) | Δ base%GT | given max rms | dsplus_seeded max rms |
 |---|---|---|---|---|---|
@@ -190,13 +220,12 @@ Both `given` and `dsplus_seeded` start from the same authors' original intrinsic
 | Scenario_4 | 0.102 | 0.080 | -0.022 | 0.097 | 0.097 |
 | Scenario_5 | 0.010 | 0.004 | -0.006 | 0.704 | 0.706 |
 
-Worst extrinsic baseline error vs ground truth: **0.131%** with the original intrinsics held
+Worst baseline-length error vs ground truth: **0.131%** with the original intrinsics held
 fixed, **0.156%** with DS+ seeded and optimized.
 
 /// tip
-Both stay far below the 1% bar. Optimizing intrinsics in DS+ — seeded from the original lens —
-keeps extrinsics at essentially the same ground-truth accuracy as trusting the original
-intrinsics outright.
+Both stay far below the legacy 1% baseline-length bar. This comparison does not establish equal
+full-pose or task-space accuracy; use the Stage-1 results above for that conclusion.
 ///
 
 ## On the `foc%GT` ≈ 4% rows (an observability limit, not an error)
@@ -218,13 +247,13 @@ as close to ground truth as the established MC-Calib reference.
 Where the focal *is* observable, every camera recovers it to under 0.7% of ground truth.
 ///
 
-/// tip | Overall: PASS
-**Worst extrinsic baseline error vs ground truth:** 0.156% (pass, threshold <1%).
-**Worst reprojection RMS:** 0.706 px (pass, threshold <1 px).
+/// note | Scope of these historical results
+**Worst baseline-length error vs ground truth:** 0.156% (legacy threshold <1%).
+**Worst training reprojection RMS:** 0.706 px (legacy threshold <1 px).
 
-Across every Blender scenario, with the given intrinsics held fixed, with DS+ estimated from
-scratch, and with DS+ seeded from the given intrinsics, DS-MSP[rig] recovers extrinsics within
-1% of ground truth at sub-pixel reprojection.
+Across these runs, all three modes achieved sub-pixel training fit and similar baseline lengths.
+That does **not** establish full extrinsic accuracy. A current run must also report all-pair
+rotation, camera-center vector/direction, and exact task-space displacement over a declared ROI.
 
 All three modes agree to within 0.001 px mean RMS.
 ///

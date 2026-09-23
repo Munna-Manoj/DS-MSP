@@ -20,6 +20,8 @@ Config keys (MC-Calib's, plus the ``camera_models`` extension):
   intrinsics);
 * output — ``save_path``, ``camera_params_file_name``, ``save_detection``,
   ``save_reprojection`` (``true``/``false``);
+* accuracy — DS-MSP extension ``accuracy_profile_path``: strict JSON units, operating-volume
+  ROI, required camera pairs, and optional limits for independent truth evaluation;
 * live view — ``webviewer`` (``true``/``false``, default ``true``): launch the live browser
   3D view during the run. Independent of ``verbose`` (terminal progress lines) so either can
   be silenced without the other, e.g. a headless/CI run wants ``webviewer: false`` but often
@@ -52,11 +54,18 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from ..detect.charuco import BoardSpec, detect_rig, single_board_object
-from ..io.mccalib import (Scenario, _load_cameras, _load_detections, _load_groundtruth,
-                          _load_object, radtan_from_cameragt)
+from ..io.mccalib import (
+    Scenario,
+    _load_cameras,
+    _load_detections,
+    _load_groundtruth,
+    _load_object,
+    radtan_from_cameragt,
+)
 from ..models.kb import KannalaBrandtModel
 from ..models.registry import canonical_name, model_class
 from ..rig.types import ObjectObs
+from .accuracy import load_accuracy_profile
 from .calibrate import _seed_from_K
 from .pipeline import calibrate_scenario
 
@@ -313,11 +322,12 @@ class RigConfig:
     he_approach: int
     noise_bound: Optional[float] = 1.0
     verbose: bool = True
-    webviewer: bool = True                      # launch the live browser view (independent of `verbose`)
+    webviewer: bool = True                      # launch live view independently of `verbose`
     object_path: Optional[str] = None
     report_covariance: bool = False              # opt-in parameter-uncertainty report (FR-RIG-020)
     audit_gate: str = "warn"                     # observability audit: off|warn|refuse (FR-RIG-021)
-    certify: bool = False                        # opt-in rotation-backbone optimality certificate (FR-RIG-022)
+    certify: bool = False                        # rotation-backbone certificate (FR-RIG-022)
+    accuracy_profile_path: Optional[str] = None  # task-space ROI, units, pairs, limits (FR-RIG-024)
     raw: Dict = field(default_factory=dict)
 
     @property
@@ -403,6 +413,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         report_covariance=_bool_field(ov, fs, "report_covariance", 0),
         audit_gate=_audit_gate_field(ov, fs),
         certify=_bool_field(ov, fs, "certify", 0),
+        accuracy_profile_path=path_key("accuracy_profile_path", "None"),
         raw={"path": config_path},
     )
     fs.release()
@@ -490,8 +501,8 @@ def _reconstruct(cfg: RigConfig, *, animator=None):
     When ``cam_params_path`` is given, boards are resected with each camera's **native model**
     (built from the provided intrinsics) so a wide-FOV fisheye is reconstructed correctly — the
     default Brown bootstrap cannot model it and corrupts the fused geometry."""
-    from .reconstruct import (reconstruct_objects_from_images,
-                              reconstruct_objects_from_keypoints)
+    from .reconstruct import reconstruct_objects_from_images, reconstruct_objects_from_keypoints
+
     init_models = None
     if cfg.cam_params_path and os.path.exists(cfg.cam_params_path):
         cams = _load_cameras(cfg.cam_params_path)[0]
@@ -643,6 +654,8 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
     init_cameras, init_K = _resolve_init_intrinsics(cfg, cam_ids, spec, img_size)
 
     gt, mccalib = _gt_and_mccalib(cfg)
+    accuracy_profile = (load_accuracy_profile(cfg.accuracy_profile_path)
+                        if cfg.accuracy_profile_path else None)
     scn = Scenario(name=os.path.basename(os.path.dirname(config_path)) or "rig", object=obj,
                    object_obs=object_obs, cam_ids=cam_ids, img_size=img_size,
                    gt=gt, mccalib=mccalib, mccalib_rms={})
@@ -656,7 +669,8 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
                              on_iter=animator, objects=objects,
                              report_covariance=cfg.report_covariance,
-                             audit_gate=cfg.audit_gate, certify=cfg.certify)
+                             audit_gate=cfg.audit_gate, certify=cfg.certify,
+                             accuracy_profile=accuracy_profile)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
     # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical

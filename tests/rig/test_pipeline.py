@@ -6,13 +6,25 @@ Builds a synthetic Scenario (so the test is self-contained, no external dataset)
 
 import cv2
 import numpy as np
+import pytest
 
 from ds_msp.io.mccalib import CameraGT, Scenario
 from ds_msp.models.radtan import RadTanModel
+from ds_msp.rig.accuracy import accuracy_profile_from_dict
 from ds_msp.rig.pipeline import calibrate_scenario, random_model_assignment
+
 from ._synth import make_rig
 
 W, H = 1280, 960
+
+
+def _accuracy_profile():
+    return accuracy_profile_from_dict({
+        "schema": "ds-msp-rig-accuracy-profile", "schema_version": 1,
+        "name": "synthetic-metric-roi", "length_unit": "m",
+        "roi": {"frame": "pair_source_camera", "points": [[0, 0, 2], [0, 0, 10]]},
+        "required_pairs": [], "limits": {"task_space_p95_max": 1.0},
+    })
 
 
 def _scenario(seed=0, n_cam=3):
@@ -21,13 +33,16 @@ def _scenario(seed=0, n_cam=3):
         return RadTanModel(fx, fx, W / 2, H / 2, -0.05, 0.01, 0.0, 0.0, 0.0)
     obj, obs, img, gt_ext, gtm = make_rig(n_cam=n_cam, n_frame=45, noise_px=0.3, seed=seed,
                                           w=W, h=H, model_factory=fac)
-    # GT/MC-Calib store camera->world; rig T_c_g is world->camera -> invert for the reference.
-    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c]))
+    # Blender GT stores world->camera; MC-Calib calibrated output stores camera->world.
+    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=gt_ext[c])
+          for c in range(n_cam)}
+    mc = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c]))
           for c in range(n_cam)}
     return Scenario(name="synth", object=obj, object_obs=obs, cam_ids=sorted(img),
-                    img_size=img, gt=gt, mccalib=gt, mccalib_rms={}), gtm
+                    img_size=img, gt=gt, mccalib=mc, mccalib_rms={}), gtm
 
 
+@pytest.mark.req("FR-RIG-024")
 def test_calibrate_scenario_smoke(tmp_path):
     """Fast PR-time smoke test: ``calibrate_scenario`` runs end-to-end on a minimal
     2-camera / few-frame rig and writes the MC-Calib output set. The full-size accuracy
@@ -38,14 +53,21 @@ def test_calibrate_scenario_smoke(tmp_path):
         return RadTanModel(fx, fx, W / 2, H / 2, -0.05, 0.01, 0.0, 0.0, 0.0)
     obj, obs, img, gt_ext, gtm = make_rig(n_cam=2, n_frame=6, noise_px=0.2, seed=0,
                                           w=W, h=H, model_factory=fac)
-    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c])) for c in range(2)}
+    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=gt_ext[c]) for c in range(2)}
+    mc = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c])) for c in range(2)}
     scn = Scenario(name="smoke", object=obj, object_obs=obs, cam_ids=sorted(img),
-                   img_size=img, gt=gt, mccalib=gt, mccalib_rms={})
-    res = calibrate_scenario(scn, {0: "radtan", 1: "ucm"}, save_dir=str(tmp_path))
+                   img_size=img, gt=gt, mccalib=mc, mccalib_rms={})
+    res = calibrate_scenario(scn, {0: "radtan", 1: "ucm"}, save_dir=str(tmp_path),
+                             accuracy_profile=_accuracy_profile())
     assert res["models"] == {0: "radtan", 1: "ucm"}
     assert len(res["rig"].cameras) == 2
     # sub-pixel reprojection on the tiny fixture (loose bound; tight accuracy is nightly)
     assert res["metrics"]["max_rms_px"] < 2.0
+    accuracy = res["metrics"]["accuracy"]
+    assert accuracy["schema_version"] == 1
+    assert accuracy["ground_truth"]["summary"]["n_pairs"] == 1
+    assert accuracy["ground_truth"]["summary"]["task_space"]["status"] == "EVALUATED"
+    assert "worst_baseline_pct_vs_gt" in res["metrics"]["compatibility"]["deprecated_fields"]
     for fn in ("calibrated_cameras_data.yml", "calibrated_objects_data.yml"):
         assert (tmp_path / fn).exists()
 
@@ -71,7 +93,7 @@ def test_fix_intrinsics_extrinsics_only(tmp_path):
     init = {c: gtm[c] for c in scn.cam_ids}                 # known intrinsics held fixed
     res = calibrate_scenario(scn, "radtan", fix_intrinsics=True, init_cameras=init,
                              save_dir=str(tmp_path))
-    # intrinsics unchanged (held fixed), extrinsics recovered within 1%
+    # intrinsics unchanged; legacy baseline-length diagnostic remains within 1%
     for c in scn.cam_ids:
         assert np.allclose(res["rig"].cameras[c].K, gtm[c].K, atol=1e-9)
     assert res["metrics"]["worst_baseline_pct_vs_gt"] < 1.0
@@ -84,10 +106,12 @@ def test_random_assignment_runs_within_1pct(tmp_path):
     assert res["metrics"]["worst_baseline_pct_vs_gt"] < 1.0
 
 
-def test_intrinsics_and_extrinsics_within_1pct():
-    """Both the optimized intrinsics (paraxial focal vs GT) and the extrinsics (baseline vs
-    GT) land within 1% with a random per-camera model — the headline guarantee."""
-    from ds_msp.rig.pipeline import intrinsics_error, baseline_error_per_camera
+def test_intrinsics_and_legacy_baseline_diagnostic_within_1pct():
+    """Focal and baseline-length diagnostics remain compatible with the historical output.
+
+    Baseline length is not full extrinsic accuracy; FR-RIG-024 tests the full metric suite.
+    """
+    from ds_msp.rig.pipeline import baseline_error_per_camera, intrinsics_error
     scn, _ = _scenario(seed=4)
     spec = random_model_assignment(scn.cam_ids, kind="pinhole", seed=5)
     res = calibrate_scenario(scn, spec)

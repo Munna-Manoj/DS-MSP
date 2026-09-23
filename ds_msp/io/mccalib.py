@@ -12,8 +12,8 @@ File formats (per scenario directory ``<scn>/Results/``):
 * ``calibrated_objects_data.yml`` — ``object_<j>.points``: a ``(5, N)`` matrix whose rows
   are ``[x, y, z, board_id, corner_id]`` in the object frame.
 * ``calibrated_cameras_data.yml`` — per camera: ``camera_matrix``, ``distortion_vector``,
-  ``camera_pose_matrix`` (group-ref -> camera), ``img_width/height``.
-* ``<scn>/GroundTruth.yml`` — ``K_<i>`` and ``P_<i>`` (4x4 pose) per camera.
+  ``camera_pose_matrix`` (camera -> group/world), ``img_width/height``.
+* ``<scn>/GroundTruth.yml`` — ``K_<i>`` and ``P_<i>`` (world -> camera) per camera.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ class CameraGT:
         Raw distortion coefficient vector in the file's native order, or ``None``
         when the source file has none (e.g. ``GroundTruth.yml``).
     pose : (4, 4) array
-        Camera pose as stored by the source file (group-reference -> camera
-        convention for MC-Calib's own result; see the module docstring).
+        Pose as stored by the source file: world-to-camera for Blender ``GroundTruth.yml``;
+        camera-to-world/group-reference for MC-Calib calibrated camera output.
     model_name : str or None, default None
         Canonical DS-MSP model name (e.g. ``"ds"``, ``"kb"``) when the file states
         it explicitly (``camera_model`` string or MC-Calib's ``distortion_type``
@@ -68,7 +68,7 @@ class CameraGT:
 
     K: np.ndarray
     dist: Optional[np.ndarray]
-    pose: np.ndarray            # 4x4 (group-ref -> camera convention, as stored)
+    pose: np.ndarray            # 4x4; source-specific convention documented above
     model_name: Optional[str] = None   # canonical model the intrinsics are stored in, when the
                                        # file states it (camera_model string / distortion_type int);
                                        # None for a plain MC-Calib file (caller infers from dist len)

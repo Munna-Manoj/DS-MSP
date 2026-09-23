@@ -1,0 +1,23 @@
+{
+  "schema": "ds-msp-rig-accuracy-profile",
+  "schema_version": 1,
+  "name": "example-10mm-metric-roi-edit-before-use",
+  "length_unit": "m",
+  "roi": {
+    "frame": "pair_source_camera",
+    "min": [-2.0, -1.0, 1.0],
+    "max": [2.0, 1.0, 10.0],
+    "grid_shape": [5, 3, 10]
+  },
+  "required_pairs": [],
+  "limits": {
+    "rotation_error_deg_max": null,
+    "camera_center_error_max": null,
+    "relative_translation_error_max": null,
+    "relative_translation_error_pct_max": null,
+    "translation_direction_error_deg_max": null,
+    "baseline_length_error_pct_max": null,
+    "task_space_p95_max": 0.01,
+    "task_space_max": null
+  }
+}

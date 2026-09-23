@@ -5,7 +5,7 @@
 # Drop-in with MC-Calib: run `ds-msp-calibrate-rig --config <this file>` (pip install ds-msp)
 # or `python scripts/calibrate_rig.py --config <this file>` (git clone -- same CLI either way).
 # Every key below is MC-Calib's own (so an existing MC-Calib config works unchanged),
-# EXCEPT the two clearly-marked DS-MSP extensions: `camera_models` and `object_path`.
+# EXCEPT the clearly-marked DS-MSP extensions.
 # Generate a fresh copy any time with: `ds-msp-calibrate-rig --init-config calib_param.yml`
 #
 # Relative paths resolve against THIS file's directory. Override any value on the CLI:
@@ -83,6 +83,10 @@ camera_params_file_name: ""         # output cameras filename; "" => calibrated_
 # verbose: "true"           # print per-stage progress as calibration runs (default true) // false => silent
 # webviewer: "true"         # launch the live browser 3D view (default true); independent of `verbose`,
                              # e.g. a headless/CI run wants webviewer: false but often still wants verbose: true
+# Accuracy is evaluated only against an independent GroundTruth.yml when one is available.
+# This profile declares the physical unit, operating-volume ROI, required pairs, and limits.
+# Generate one with: ds-msp-calibrate-rig --init-accuracy-profile accuracy_profile.json
+# accuracy_profile_path: "accuracy_profile.json"
 
 ######################################## Accepted-but-ignored MC-Calib keys (for drop-in compatibility) ######
 # These newer MC-Calib keys parse without error but DS-MSP does not act on them yet:

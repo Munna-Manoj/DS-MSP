@@ -1,6 +1,6 @@
 # DS-MSP[rig] evaluation vs MC-Calib Blender datasets
 
-Per-camera accuracy of DS-MSP's multi-camera rig calibration, checked against the
+Historical per-camera fit and baseline-length diagnostics for DS-MSP's rig calibration on the
 [MC-Calib](https://github.com/rameau-fr/MC-Calib) Blender ground-truth datasets.
 
 /// note | How this table is produced
@@ -67,8 +67,8 @@ error columns compare it — and the principal point — against two references:
 | Scenario_5 | 2 | radtan | intrOFF | 1635 | 1635 | 1635 | 0.59 | 0.00 | 0.00 | 0.011 | 0.093 |
 | Scenario_5 | 3 | radtan | intrOFF | 1635 | 1635 | 1635 | 0.59 | 0.00 | 0.00 | 0.001 | 0.150 |
 
-/// tip | Pass criteria
-**Worst extrinsic baseline error vs GT: 0.152%** (pass, threshold <1%).
+/// note | Legacy diagnostic criteria
+**Worst baseline-length error vs GT: 0.152%** (legacy threshold <1%; not full-pose accuracy).
 **Worst intrinsic focal error vs MC-Calib, intrinsics-ON: 0.212%** (pass, threshold <1%).
 ///
 
@@ -79,7 +79,9 @@ matches MC-Calib there to under 0.01% — exactly as close to ground truth as MC
 
 Where the focal *is* observable, DS-MSP recovers it to under 0.6% of ground truth.
 
-/// tip | Overall: PASS
-Extrinsics land within 1% of ground truth and intrinsics within 1% of MC-Calib, for any random
-per-camera model choice — both with and without intrinsic optimization.
+/// note | Interpretation
+The runs show sub-pixel training fit, close baseline lengths, and intrinsics within 1% of MC-Calib
+for the stated cases. They do not by themselves prove full extrinsic accuracy: rotation,
+translation direction, all camera pairs, and deployment-ROI displacement were not in this legacy
+table. Use the schema-versioned accuracy section in a current `calibration_report.json`.
 ///

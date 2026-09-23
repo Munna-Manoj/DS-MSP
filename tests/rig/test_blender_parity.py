@@ -1,5 +1,7 @@
-"""Parity against MC-Calib's Blender benchmark: recovered extrinsics within 2% of the
-synthetic ground truth. Skipped when the dataset isn't present locally.
+"""Legacy baseline-length parity against MC-Calib's Blender benchmark.
+
+This does not establish full extrinsic accuracy; FR-RIG-024 covers all-pair SE(3) and ROI
+displacement. Skipped when the dataset isn't present locally.
 """
 
 import os

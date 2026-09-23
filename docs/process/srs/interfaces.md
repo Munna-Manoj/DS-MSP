@@ -18,6 +18,7 @@
 | IFC-09 | Model-agnostic pose operations | Python API | `solve_pnp`, recommended `solve_pnp_robust`, compatibility `solve_pnp_ransac` over any central `CameraModel` | `ds_msp/ops/pose.py`, `ds_msp/model.py` | FR-OPS-003 |
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
+| IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
 
 ## Stability & conventions
 
@@ -26,7 +27,7 @@
   CI-checked (`tests/contract/test_camera_model_contract.py`).
 - **The contract seam (IFC-01)** is the central interface: every capability and pipeline depends on
   the protocol, never on a concrete model class ([ADR-0002](../architecture/decisions/ADR-0002-protocol-camera-models.md)).
-- **File formats (IFC-06, IFC-08, IFC-10, IFC-11)** are external contracts with third-party tools; their round-trip
+- **File formats (IFC-06, IFC-08, IFC-10, IFC-11, IFC-12)** are external contracts with third-party tools; their round-trip
   fidelity is verified by the `io` test suite. Treat any change as potentially breaking.
 - **Versioning:** the public surface follows SemVer via Conventional Commits + release-please; a
   breaking change to any interface above requires a major bump and a note in `CHANGELOG.md`.

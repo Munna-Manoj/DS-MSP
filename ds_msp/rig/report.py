@@ -558,11 +558,11 @@ def render_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overal
             f"note: {overall.n_gross} corner(s) reproject > {GROSS_PX:.0f}px ({detail}) — "
             f"likely mis-detections (e.g. a ChArUco board a different OpenCV build mis-decodes).")
         lines.append(
-            f"      they are DOWN-WEIGHTED in the solve, not fitted; judge accuracy by median / "
+            f"      they are DOWN-WEIGHTED in the solve, not fitted; judge training fit by median / "
             f"inl_rms ({overall.inlier_rms:.3f}px), not max / rms.")
         lines.append("")
     badge = _c(_COLOR.get(level, "0"), f" {level} ", enabled=color)
-    lines.append(f"verdict:{badge} {message}")
+    lines.append(f"training-fit verdict:{badge} {message}")
     return "\n".join(lines)
 
 
@@ -683,7 +683,7 @@ def full_report_data(rig: RigState, scn, models: Dict[int, str],
                      covariance: Optional[Dict] = None,
                      provenance: Optional[Dict] = None,
                      output_files: Optional[Dict] = None) -> Dict:
-    """Assemble the complete, JSON-safe calibration deliverable: capture summary, verdict,
+    """Assemble the complete, JSON-safe calibration deliverable: capture summary, fit verdict,
     per-camera error distributions, calibrated intrinsics/extrinsics (with 1-sigma
     uncertainties when ``covariance`` is given), trust layer (audit + certificate),
     reference comparisons, and the list of written output files. This dict is the single
@@ -697,7 +697,12 @@ def full_report_data(rig: RigState, scn, models: Dict[int, str],
     return _jsonify({
         "report": "DS-MSP rig calibration",
         "scenario": getattr(scn, "name", ""),
-        "verdict": {"level": level, "message": message},
+        # ``verdict`` is retained for one compatibility cycle. It is a training-reprojection
+        # fit verdict, never an independent claim about intrinsic/extrinsic accuracy.
+        "fit": {"level": level, "message": message,
+                "basis": "training reprojection error distribution"},
+        "verdict": {"level": level, "message": message,
+                    "deprecated_alias_for": "fit"},
         "capture": {"n_cameras": len(rig.cameras), "ref_cam_id": rig.ref_cam_id,
                     "n_objects": len(rig.objects), "n_frames": len(rig.object_poses),
                     "n_observations": len(obs),
@@ -725,6 +730,13 @@ def _fmt(v: Optional[float], nd: int = 3) -> str:
 
 def _pct(v: Optional[float]) -> str:
     return _fmt(100 * v, 2) if v is not None else "--"
+
+
+def _sig(v: Optional[float], digits: int = 6) -> str:
+    """Precision-preserving compact formatter for physical accuracy quantities."""
+    if v is None or (isinstance(v, float) and not math.isfinite(v)):
+        return "--"
+    return f"{v:.{digits}g}"
 
 
 def _fmt_pm(value: Optional[float], sigma: Optional[float]) -> str:
@@ -799,10 +811,10 @@ def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
         gp = data.get("gross_outlier_px", GROSS_PX)
         L.append(f"note: {o['n_gross']} corner(s) reproject > {gp:.0f}px ({detail}) — likely "
                  f"mis-detections; they are DOWN-WEIGHTED in the solve, not fitted. Judge "
-                 f"accuracy by median / inl_rms, not max / rms.")
-    v = data["verdict"]
+                 f"training fit by median / inl_rms, not max / rms.")
+    v = data.get("fit") or data.get("verdict", {"level": "FAIL", "message": "missing fit"})
     badge = _c(_COLOR.get(v["level"], "0"), f" {v['level']} ", enabled=color)
-    L.append(f"verdict:{badge} {v['message']}")
+    L.append(f"training-fit verdict:{badge} {v['message']}")
     L.append("")
 
     # --- calibrated intrinsics ---------------------------------------------------------
@@ -858,11 +870,55 @@ def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
     # --- reference comparisons ---------------------------------------------------------
     m = data.get("metrics") or {}
     ref_lines = []
+    accuracy = m.get("accuracy") or {}
+    for key, label in (("ground_truth", "independent ground truth"),
+                       ("mccalib_reference", "MC-Calib reference")):
+        comparison = accuracy.get(key) or {}
+        if not comparison:
+            continue
+        status = comparison.get("status")
+        if status == "NOT_EVALUATED":
+            ref_lines.append(f"{label}: NOT_EVALUATED — "
+                             f"{comparison.get('reason', 'reference unavailable')}")
+            continue
+        ref_lines.append(f"{label}: {status}")
+        summary = comparison.get("summary") or {}
+        unit = comparison.get("length_unit", "scene_unit")
+        ref_lines.append(
+            f"  evaluated-pair maxima: rotation={_sig(summary.get('rotation_error_deg_max'))} deg, "
+            f"camera-center={_sig(summary.get('camera_center_error_max'))} {unit}, "
+            f"translation={_sig(summary.get('relative_translation_error_max'))} {unit}, "
+            f"translation-direction={_sig(summary.get('translation_direction_error_deg_max'))} deg")
+        ref_lines.append(
+            f"  auxiliary baseline-length error: "
+            f"{_sig(summary.get('baseline_length_error_pct_max'))}%")
+        task = summary.get("task_space") or {}
+        if task.get("status") == "EVALUATED":
+            ref_lines.append(
+                f"  exact ROI displacement ({unit}): p50={_sig(task.get('p50'))}, "
+                f"p95={_sig(task.get('p95'))}, max={_sig(task.get('max'))}; "
+                f"worst pair={task.get('worst_pair') or '--'} "
+                f"(p95={_sig(task.get('worst_pair_p95'))})")
+            checks = comparison.get("limit_checks") or {}
+            if checks.get("status") == "EVALUATED":
+                ref_lines.append(f"  declared profile limits: "
+                                 f"{'PASS' if checks.get('all_pass') else 'FAIL'}")
+        else:
+            ref_lines.append("  exact ROI displacement: NOT_EVALUATED "
+                             "(supply an accuracy profile)")
+        for pair in comparison.get("pairs") or []:
+            ref_lines.append(
+                f"  pair {pair['pair_id']}: rot={_sig(pair.get('rotation_error_deg'))} deg, "
+                f"center={_sig(pair.get('camera_center_error'))} {unit}, "
+                f"translation={_sig(pair.get('relative_translation_error'))} {unit} "
+                f"({_sig(pair.get('relative_translation_error_pct'))}%), "
+                f"direction={_sig(pair.get('translation_direction_error_deg'))} deg, "
+                f"baseline(aux)={_sig(pair.get('baseline_length_error_pct'))}%")
     if m.get("worst_baseline_pct_vs_gt") is not None:
-        ref_lines.append(f"worst baseline error vs GroundTruth : "
+        ref_lines.append(f"deprecated baseline-only field vs GroundTruth: "
                          f"{m['worst_baseline_pct_vs_gt']:.3f}%")
     if m.get("worst_baseline_pct_vs_mccalib") is not None:
-        ref_lines.append(f"worst baseline error vs MC-Calib    : "
+        ref_lines.append(f"deprecated baseline-only field vs MC-Calib: "
                          f"{m['worst_baseline_pct_vs_mccalib']:.3f}%")
     if ref_lines:
         L.append("-- reference comparison --")
@@ -989,7 +1045,8 @@ def _frame_payload(rig: RigState, object_obs, max_frames: int) -> List[Dict]:
 
 def build_report_data(rig: RigState, scn, models: Dict[int, str],
                       per_cam: Dict[int, ErrorStats], overall: ErrorStats,
-                      level: str, message: str, *, max_frames: int = 60) -> Dict:
+                      level: str, message: str, *, max_frames: int = 60,
+                      metrics: Optional[Dict] = None) -> Dict:
     """Assemble the JSON payload embedded in the HTML report — everything the browser-side
     viewer needs, no server, no network fetch."""
     return {
@@ -999,7 +1056,11 @@ def build_report_data(rig: RigState, scn, models: Dict[int, str],
         "cameras": [_camera_payload(rig, c, per_cam[c]) for c in sorted(rig.cameras)
                    if c in per_cam],
         "overall": overall.to_dict(),
-        "verdict": {"level": level, "message": message},
+        "fit": {"level": level, "message": message,
+                "basis": "training reprojection error distribution"},
+        "verdict": {"level": level, "message": message,
+                    "deprecated_alias_for": "fit"},
+        "accuracy": (metrics or {}).get("accuracy"),
         "frames": _frame_payload(rig, scn.object_obs, max_frames),
     }
 
@@ -1046,6 +1107,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <header>
   <h1>DS-MSP calibration report</h1>
   <span>__SCENARIO__</span>
+  <span>training fit:</span>
   <span class="badge __LEVEL__">__LEVEL__</span>
   <span>__MESSAGE__</span>
 </header>
@@ -1070,6 +1132,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
     <table id="camtable"></table>
     <h3>Overall</h3>
     <table id="overalltable"></table>
+    <h3>Truth-referenced accuracy</h3>
+    <div id="accuracy" class="hint">NOT_EVALUATED</div>
     <p class="hint">Cameras are drawn as frustums at their calibrated extrinsics
       (<code>T_c_g</code>, reference camera = identity). Points are the fused board's 3D
       corners in the rig frame at each solved frame pose, colored by the worst reprojection
@@ -1252,6 +1316,7 @@ document.getElementById('play').addEventListener('click', e => {
 
 // ---- side tables ----
 function fmt(v) { return (v === null || v === undefined || Number.isNaN(v)) ? '--' : v.toFixed(3); }
+function sig(v) { return (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toPrecision(6); }
 (function buildTables() {
   const ct = document.getElementById('camtable');
   ct.innerHTML = '<tr><th>cam</th><th>model</th><th>n</th><th>mean</th><th>median</th>' +
@@ -1264,6 +1329,19 @@ function fmt(v) { return (v === null || v === undefined || Number.isNaN(v)) ? '-
   ot.innerHTML = '<tr><th>n</th><th>mean</th><th>median</th><th>p95</th><th>max</th><th>rms</th></tr>' +
     `<tr><td>${o.n}</td><td>${fmt(o.mean)}</td><td>${fmt(o.median)}</td><td>${fmt(o.p95)}</td>` +
     `<td>${fmt(o.max)}</td><td>${fmt(o.rms)}</td></tr>`;
+  const box = document.getElementById('accuracy');
+  const a = DATA.accuracy && DATA.accuracy.ground_truth;
+  if (a && a.status !== 'NOT_EVALUATED') {
+    const s = a.summary || {}, t = s.task_space || {}, u = a.length_unit || 'scene_unit';
+    box.innerHTML = `<b>independent ground truth: ${a.status}</b><br>` +
+      `rotation max: ${sig(s.rotation_error_deg_max)} deg<br>` +
+      `camera-center max: ${sig(s.camera_center_error_max)} ${u}<br>` +
+      `translation max: ${sig(s.relative_translation_error_max)} ${u}<br>` +
+      `translation-direction max: ${sig(s.translation_direction_error_deg_max)} deg<br>` +
+      `ROI p95 / max: ${sig(t.p95)} / ${sig(t.max)} ${u}<br>` +
+      `worst pair: ${t.worst_pair || '--'}<br>` +
+      `baseline-length max (auxiliary): ${sig(s.baseline_length_error_pct_max)}%`;
+  }
 })();
 </script>
 </body>
@@ -1273,12 +1351,13 @@ function fmt(v) { return (v === null || v === undefined || Number.isNaN(v)) ? '-
 
 def write_html_report(path: str, rig: RigState, scn, models: Dict[int, str],
                       per_cam: Dict[int, ErrorStats], overall: ErrorStats,
-                      level: str, message: str, *, max_frames: int = 60) -> str:
+                      level: str, message: str, *, max_frames: int = 60,
+                      metrics: Optional[Dict] = None) -> str:
     """Write a single self-contained ``.html`` file: embedded JSON data + a vanilla-JS
     canvas viewer (no external script/style/font references, works offline from ``file://``).
     Returns ``path``."""
     data = build_report_data(rig, scn, models, per_cam, overall, level, message,
-                             max_frames=max_frames)
+                             max_frames=max_frames, metrics=metrics)
     html = (_HTML_TEMPLATE
            .replace("__SCENARIO__", str(data["scenario"]))
            .replace("__LEVEL__", level)

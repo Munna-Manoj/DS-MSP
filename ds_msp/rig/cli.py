@@ -44,8 +44,9 @@ import importlib.resources
 import os
 
 from ..io.mccalib import load_scenario, radtan_from_cameragt
-from . import report as rpt
 from . import provenance as prov
+from . import report as rpt
+from .accuracy import load_accuracy_profile
 from .pipeline import calibrate_scenario, random_model_assignment
 
 
@@ -54,12 +55,14 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
                           output_paths=None, manifest=None):
     """Shared tail for both entry points: assemble the full calibration deliverable ONCE
     (:func:`ds_msp.rig.report.full_report_data` — capture summary, error distributions +
-    verdict, calibrated intrinsics/extrinsics with 1σ when covariance is on, trust layer,
+    training-fit verdict, calibrated intrinsics/extrinsics with 1σ when covariance is on,
+    trust layer,
     reference comparisons, output listing), print it to the terminal, and persist the
     identical content as ``calibration_report.txt`` + ``calibration_report.json`` beside
     the MC-Calib output (plus the interactive HTML digital twin). Returns the process exit
-    code (0 PASS/WARN, 1 FAIL) so a CI/cron caller can tell success from failure without
-    parsing text. The audit never changes the exit code — ``audit_gate: refuse`` (the hard
+    code (0 PASS/WARN, 1 FAIL) for the training-fit gate. Accuracy-profile limit checks are
+    reported separately and do not yet alter process exit semantics. The audit never changes
+    the exit code — ``audit_gate: refuse`` (the hard
     form) raises upstream instead; likewise a NOT-CERTIFIED certificate is inconclusive by
     construction and never fails the run."""
     per_cam, overall = rpt.camera_and_overall_stats(rig, scn.object_obs)
@@ -81,7 +84,8 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
     print()
     print(rpt.render_full_report(data))
     if html_path:
-        rpt.write_html_report(html_path, rig, scn, models, per_cam, overall, level, message)
+        rpt.write_html_report(html_path, rig, scn, models, per_cam, overall, level, message,
+                              metrics=metrics)
         print(f"\ninteractive report: {html_path}  (open in any browser, no server needed)")
     if save_dir:
         paths = rpt.write_report_files(save_dir, data)
@@ -108,7 +112,7 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
     html_path = report_path or (os.path.join(cfg.save_path, "report.html") if cfg.save_path
                                 else None)
     source_paths = [os.path.abspath(config_path), cfg.keypoints_path, cfg.cam_params_path,
-                    cfg.object_path]
+                    cfg.object_path, cfg.accuracy_profile_path]
     source_paths.extend(prov.image_files_under(cfg.root_path, exclude=cfg.save_path))
     source_paths.extend(o.image_path for o in res["scenario"].object_obs
                         if getattr(o, "image_path", None))
@@ -168,6 +172,8 @@ def main():
                     help="write a base MC-Calib-compatible calib_param.yml template to PATH and exit")
     ap.add_argument("--init-intrinsics", metavar="PATH", dest="init_intrinsics",
                     help="write a camera_intrinsics.yml template (all models documented) to PATH and exit")
+    ap.add_argument("--init-accuracy-profile", metavar="PATH", dest="init_accuracy_profile",
+                    help="write a task-space accuracy profile JSON template to PATH and exit")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE",
                     help="override a config value (repeatable), e.g. --set save_path=/abs/out")
     g = ap.add_mutually_exclusive_group()
@@ -182,6 +188,8 @@ def main():
                     help="output dir (default <scenario>/Results_dsmsp)")
     ap.add_argument("--save-reprojection", action="store_true",
                     help="also write MC-Calib-style reprojection overlay images (needs Images/)")
+    ap.add_argument("--accuracy-profile", metavar="PATH",
+                    help="JSON operating-volume ROI, units, required camera pairs, and limits")
     ap.add_argument("--quiet", action="store_true",
                     help="suppress live per-stage progress (only the final report prints)")
     ap.add_argument("--no-webviewer", action="store_true",
@@ -195,7 +203,7 @@ def main():
                     help=f"median-px bar for a WARN (above this is FAIL) (default {rpt.DEFAULT_WARN_PX})")
     args = ap.parse_args()
 
-    if args.init_config or args.init_intrinsics:
+    if args.init_config or args.init_intrinsics or args.init_accuracy_profile:
         import shutil
         cfgdir = importlib.resources.files("ds_msp.rig") / "configs"
         if args.init_config:
@@ -206,6 +214,10 @@ def main():
             with importlib.resources.as_file(cfgdir / "camera_intrinsics.template.yml") as src:
                 shutil.copyfile(src, args.init_intrinsics)
             print(f"wrote camera intrinsics template to: {args.init_intrinsics}")
+        if args.init_accuracy_profile:
+            with importlib.resources.as_file(cfgdir / "accuracy_profile.template.json") as src:
+                shutil.copyfile(src, args.init_accuracy_profile)
+            print(f"wrote accuracy profile template to: {args.init_accuracy_profile}")
         return
 
     if args.config:
@@ -228,6 +240,8 @@ def main():
     animator = WebLive3DAnimator(verbose=not (args.quiet or args.no_webviewer))
 
     scn = load_scenario(args.scenario)
+    accuracy_profile = (load_accuracy_profile(args.accuracy_profile)
+                        if args.accuracy_profile else None)
     animator.bind_scene(scn.object, scn.object_obs)
     spec = _resolve_spec(args, scn.cam_ids)
     save_dir = args.save_dir or os.path.join(args.scenario, "Results_dsmsp")
@@ -245,7 +259,7 @@ def main():
         res = calibrate_scenario(scn, spec, fix_intrinsics=args.fix_intrinsics,
                                  init_cameras=init_cameras, save_dir=save_dir,
                                  image_root=image_root, verbose=not args.quiet,
-                                 on_iter=animator)
+                                 on_iter=animator, accuracy_profile=accuracy_profile)
     m = res["metrics"]
     animator.finish(res["rig"], rms=m["max_rms_px"])
 
@@ -266,11 +280,16 @@ def main():
         replay_argv.extend(["--model", args.model])
     if args.fix_intrinsics:
         replay_argv.append("--fix-intrinsics")
+    if args.accuracy_profile:
+        replay_argv.extend(["--accuracy-profile", os.path.abspath(args.accuracy_profile)])
+        source_paths.append(os.path.abspath(args.accuracy_profile))
     replay_argv.extend(["--pass-px", str(args.pass_px), "--warn-px", str(args.warn_px)])
     configuration = {
         "entrypoint": "scenario", "scenario": os.path.abspath(args.scenario),
         "model_spec": {str(k): str(v) for k, v in spec.items()} if isinstance(spec, dict)
         else str(spec), "fix_intrinsics": bool(args.fix_intrinsics), "seed": int(args.seed),
+        "accuracy_profile_path": (os.path.abspath(args.accuracy_profile)
+                                  if args.accuracy_profile else None),
     }
     manifest = prov.build_manifest(scn, configuration=configuration,
                                    source_paths=source_paths, replay_argv=replay_argv,

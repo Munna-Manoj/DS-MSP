@@ -49,7 +49,7 @@ These map onto the architecture decisions: CON-01/02/04 ↔ ADR-0004/ADR-0003; C
 ## 4. External interfaces `[IFC]`
 
 The public API surface and external file formats are specified in
-[`interfaces.md`](interfaces.md) (IFC-01 … IFC-09): the `CameraModel` protocol, calibration and rig
+[`interfaces.md`](interfaces.md) (IFC-01 … IFC-12): the `CameraModel` protocol, calibration and rig
 APIs, data containers, conversion and camera-agnostic pose operations, IO formats, the
 OpenCV-compatible API, and TI LDC export.
 

@@ -231,10 +231,10 @@ def main(root="Blender_Images", modes=None):
                   f"worst_foc%GT={srow['worst_foc']:.3f}")
     _print_table(summary)
     _write_markdown(summary, detail, mc_ref, mc_rms, root)
-    # verdict: extrinsics must track GT to <1%; reprojection sub-pixel.
+    # Legacy table checks only: baseline length <1%; training reprojection sub-pixel.
     base_ok = all(np.isfinite(s["worst_base"]) and s["worst_base"] < 1.0 for s in summary)
     rms_ok = all(np.isfinite(s["max_rms"]) and s["max_rms"] < 1.0 for s in summary)
-    print(f"\nworst extrinsic baseline error vs GT (all rows): "
+    print(f"\nworst baseline-length error vs GT (all rows; legacy diagnostic): "
           f"{max(s['worst_base'] for s in summary if np.isfinite(s['worst_base'])):.3f}%  "
           f"({'PASS <1%' if base_ok else 'FAIL'})")
     print(f"worst reprojection RMS (all rows): "
@@ -272,7 +272,7 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
          "intrinsics + extrinsics estimated jointly.", "",
          "Both reuse the pre-detected 2D keypoints (`keypoints_path`) so the rig reconstruction "
          "+ bundle-adjustment math is what is exercised. `base%GT` = worst inter-camera baseline "
-         "error vs ground-truth extrinsics; `foc%GT` = paraxial-focal error vs ground-truth "
+              "length error vs ground truth (not full-pose accuracy); `foc%GT` = paraxial-focal error vs ground-truth "
          "intrinsics (model-independent).", "",
          "## Summary (one row per scenario × mode)", "",
          "| dataset | ncam | mode | model | fix | max rms px | mean rms px | worst base%GT | "
@@ -308,7 +308,7 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
                 ratio = o / rms if rms > 1e-9 else float("nan")
                 L.append(f"| {scn} | {c} | {o:.3f} | {rms:.3f} | {ratio:.2f}× | {med:.3f} |")
     # Focused comparison: does choosing DS+ and *optimizing* intrinsics
-    # (seeded from the authors' original intrinsics via convert()) change extrinsics accuracy
+    # (seeded from the authors' original intrinsics via convert()) change baseline length
     # vs holding those original intrinsics fixed (the `given` run)?
     by = {(s["scn"], s["mode"]): s for s in summary}
     scns = [s for s in SCENARIOS if (s, "given") in by and (s, "dsplus_seeded") in by]
@@ -319,7 +319,7 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
               "fixed (radtan, `fix_intrinsic: true`) and solves extrinsics only; `dsplus_seeded` "
               "selects DS+ with `fix_intrinsic: false`, so `convert()` seeds DS+ from that original "
               "lens and the bundle adjustment then refines intrinsics **and** extrinsics. "
-              "`base%GT` = worst inter-camera baseline error vs ground-truth extrinsics "
+              "`base%GT` = worst inter-camera baseline-length error vs ground truth "
               "(lower = better).", "",
               "| dataset | given base%GT (fixed) | dsplus_seeded base%GT (optimized) | Δ base%GT "
               "| given max rms | dsplus_seeded max rms |",
@@ -331,10 +331,10 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
                      f"{delta:+.3f} | {g['max_rms']:.3f} | {d['max_rms']:.3f} |")
         gmax = max(by[(s, "given")]["worst_base"] for s in scns)
         dmax = max(by[(s, "dsplus_seeded")]["worst_base"] for s in scns)
-        L += ["", f"Worst extrinsic baseline error vs GT — original-fixed: **{gmax:.3f}%**, "
+        L += ["", f"Worst baseline-length error vs GT — original-fixed: **{gmax:.3f}%**, "
               f"DS+-seeded-optimized: **{dmax:.3f}%**. Both stay far below the 1% bar; optimizing "
-              f"intrinsics in DS+ (seeded from the original lens) keeps extrinsics at essentially "
-              f"the same ground-truth accuracy as trusting the original intrinsics outright."]
+              f"intrinsics in DS+ (seeded from the original lens) keeps this scalar diagnostic "
+              f"similar. It does not establish equal full-pose accuracy."]
     base_ok = all(np.isfinite(s["worst_base"]) and s["worst_base"] < 1.0 for s in summary)
     rms_ok = all(np.isfinite(s["max_rms"]) and s["max_rms"] < 1.0 for s in summary)
     worst_b = max(s["worst_base"] for s in summary if np.isfinite(s["worst_base"]))
@@ -350,14 +350,14 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
           "lands at the same ~4% gap as the given MC-Calib intrinsics** (per-camera `foc%GT` "
           "agrees to <0.1%), i.e. DS+ is exactly as close to ground truth as the established "
           "reference. Where the focal *is* observable, every camera recovers it to <0.7%.", "",
-          f"**Worst extrinsic baseline error vs GT: {worst_b:.3f}%** "
+          f"**Worst baseline-length error vs GT: {worst_b:.3f}%** "
           f"({'PASS &lt;1%' if base_ok else 'FAIL'}).",
           f"**Worst reprojection RMS: {worst_r:.3f} px** "
           f"({'PASS &lt;1px' if rms_ok else 'FAIL'}).", "",
-          f"**OVERALL: {'PASS' if base_ok and rms_ok else 'FAIL'}** — across every Blender "
+          f"**LEGACY TABLE CHECK: {'PASS' if base_ok and rms_ok else 'FAIL'}** — across every Blender "
           f"scenario, with the default given intrinsics held fixed *and* with DS+ estimated "
-          f"from scratch, DS-MSP[rig] recovers extrinsics to within 1% of ground truth at "
-          f"sub-pixel reprojection, and the two modes agree to within "
+          f"from scratch, baseline length stays within 1% at sub-pixel training reprojection. "
+          f"This is not a full-pose accuracy verdict. The two modes agree to within "
           f"{max(abs(a['mean_rms']-b['mean_rms']) for a in summary for b in summary if a['scn']==b['scn']):.3f}"
           f" px mean RMS.", ""]
     with open(out, "w") as f:
