@@ -65,9 +65,73 @@ The run writes MC-Calib's exact result set into `save_path/`:
 | `calibration_manifest.json` | code/data/config/environment provenance, effective-input digests, and output hashes |
 | `Detection/`, `Reprojection/` | (optional) overlay images per camera/frame |
 
-The console prints per-camera reprojection <abbr title="Root Mean Square">RMS</abbr> and, if a
-`GroundTruth.yml` / MC-Calib `Results/` is found next to the data, the worst baseline error vs
-those references.
+The console labels reprojection PASS/WARN/FAIL as a **training-fit verdict**. When an independent
+`GroundTruth.yml` is available it also reports full all-pair pose accuracy. MC-Calib `Results/` is
+shown separately as an implementation comparison, not as physical truth.
+
+### Evaluate physical accuracy over your operating volume
+
+Generate the shipped profile template:
+
+```bash
+ds-msp-calibrate-rig --init-accuracy-profile accuracy_profile.json
+```
+
+Before using it, edit all three deployment assumptions:
+
+```json
+{
+  "schema": "ds-msp-rig-accuracy-profile",
+  "schema_version": 1,
+  "name": "warehouse-10mm-zone",
+  "length_unit": "m",
+  "roi": {
+    "frame": "pair_source_camera",
+    "min": [-2.0, -1.0, 1.0],
+    "max": [2.0, 1.0, 10.0],
+    "grid_shape": [5, 3, 10]
+  },
+  "required_pairs": [[0, 1], [0, 2], [1, 2]],
+  "limits": {"task_space_p95_max": 0.01}
+}
+```
+
+- `length_unit` must match `square_size`, the reference poses, and every ROI coordinate. With
+  metres, `0.01` means 10 mm.
+- ROI points live in each pair's **source-camera frame**. The box above samples 150 known 3D
+  positions from 1–10 m range. You can use an explicit `"points": [[x,y,z], ...]` array instead.
+- List every pair required by the application as `[source_camera, target_camera]`; order matters
+  because the ROI is expressed in the source frame. `[]` evaluates all common unordered pairs in
+  ascending camera order. A named pair that is missing makes the result `INCOMPLETE`; it never
+  silently passes.
+- Limits are optional. Other supported limits include rotation, camera-center, relative-translation,
+  translation-direction, auxiliary baseline-length, and task-space maximum.
+
+Reference the profile from `calib_param.yml`:
+
+```yaml
+accuracy_profile_path: "accuracy_profile.json"
+```
+
+The profile declares *how* to evaluate; it is not truth itself. DS-MSP discovers
+`GroundTruth.yml` from the scenario hierarchy anchored by `root_path` (or `keypoints_path`). If
+you reuse keypoints from a separate results directory, keep `root_path` pointing at the original
+scenario's `Images/` directory; keypoint reuse still wins, while ground truth remains discoverable.
+Otherwise the report correctly says `NOT_EVALUATED`.
+
+For scenario-style CLI runs, pass `--accuracy-profile accuracy_profile.json` instead. The report's
+`metrics.accuracy` section is schema-versioned and contains, for every comparable pair:
+
+- geodesic rotation error in degrees;
+- full camera-center vector error and relative translation percentage;
+- translation-direction error in degrees;
+- baseline-length error, explicitly labeled **auxiliary**;
+- exact p50/p95/max 3D displacement across the declared ROI, plus the worst point/pair.
+
+Interpret statuses literally: `EVALUATED` means a reference comparison ran; `INCOMPLETE` means a
+required pair was absent; `NOT_EVALUATED` means truth or an ROI was unavailable. A low training-fit
+residual does not replace independent truth, and the MC-Calib comparison does not become ground
+truth merely because both tools agree.
 
 ### Reproduce an attributed run
 
@@ -257,6 +321,7 @@ Behaviour (verified on real data, [§7](#7-worked-example-robustness-real-8-came
 | `save_detection` / `save_reprojection` | `true` to write overlay images (needs raw images present) |
 | `camera_params_file_name` | output cameras filename (`""` ⇒ `calibrated_cameras_data.yml`) |
 | `webviewer` | `true` (default) to launch the live browser 3D view during the run; `false` to skip it. Independent of `verbose` (terminal progress). Needs the optional `ds-msp[webviewer]` extra. |
+| `accuracy_profile_path` *(DS-MSP extension)* | strict JSON deployment profile declaring physical unit, task-space ROI, required camera pairs, and optional accuracy limits. Relative paths resolve beside the config. |
 
 /// note
 Relative paths resolve against the **config file's** directory.
@@ -298,7 +363,9 @@ What happens internally:
 5. **Write** the MC-Calib result set to `save_path`.
 
 The extrinsics you want are the `camera_pose_matrix` per camera in
-`calibrated_cameras_data.yml` (camera-from-world 4×4, MC-Calib convention).
+`calibrated_cameras_data.yml` (**camera-to-world/group-reference** 4×4, MC-Calib convention).
+DS-MSP's internal `RigState.T_c_g` uses the inverse world-to-camera convention; the accuracy module
+normalizes this explicitly before comparison.
 
 ---
 

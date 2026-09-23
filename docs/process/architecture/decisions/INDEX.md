@@ -30,6 +30,7 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0020](ADR-0020-bearing-native-irls-refine.md) | Fully bearing-native pose refinement with a chordal residual | Accepted | Closes the refine-stage gap, removes antipodal ambiguity, and centralizes one full-sphere bearing primitive |
 | [ADR-0021](ADR-0021-bearing-gnc-tls-pnp.md) | Deterministic bearing-space GNC-TLS PnP with guarded compatibility refinement | Accepted | Replaces random minimal-set sampling in the recommended and rig robust front end while preserving guarded RANSAC compatibility |
 | [ADR-0022](ADR-0022-rig-run-provenance.md) | Attributable rig runs and a locked reference environment | Accepted | Every persisted calibration is tied to exact code, data, configuration, runtime, and hashed outputs and can be replayed without overwriting the original |
+| [ADR-0023](ADR-0023-truthful-rig-accuracy-metrics.md) | Full-pose and operating-volume rig accuracy | Accepted | Accuracy uses all-pair relative SE(3) plus exact displacement over a declared physical ROI; reprojection remains a training-fit measure |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the

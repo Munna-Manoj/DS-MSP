@@ -13,12 +13,16 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from ..io.mccalib import (Scenario, save_detection_images, save_mccalib_results,
-                          save_reprojection_images)
-from ..models.registry import (FISHEYE_MODELS, PINHOLE_MODELS)
+from ..io.mccalib import (
+    Scenario,
+    save_detection_images,
+    save_mccalib_results,
+    save_reprojection_images,
+)
+from ..models.registry import FISHEYE_MODELS, PINHOLE_MODELS
 from . import bundle
-from .calibrate import (_gated_pnp, calibrate_rig, make_bundle_front_end,
-                            paraxial_focal)
+from .accuracy import AccuracyProfile, accuracy_metrics
+from .calibrate import _gated_pnp, calibrate_rig, make_bundle_front_end, paraxial_focal
 from .types import RigState
 
 
@@ -73,7 +77,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        reproj_gate_px: Optional[float] = None,
                        report_covariance: bool = False,
                        audit_gate: str = "warn",
-                       certify: bool = False) -> Dict:
+                       certify: bool = False,
+                       accuracy_profile: Optional[AccuracyProfile] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -148,7 +153,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                                        cam_prefix=cam_prefix, progress_cb=save_cb)
             paths["reprojection_images"] = f"Reprojection/ ({nr} images)"
             paths["detection_images"] = f"Detection/ ({nd} images)"
-    metrics = _scenario_metrics(rig, scn)
+    metrics = _scenario_metrics(rig, scn, accuracy_profile=accuracy_profile)
     out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
           "paths": paths, "metrics": metrics}
     if report_covariance:
@@ -199,8 +204,12 @@ def _rel(Tref, Ti):
 
 
 def baseline_error_per_camera(rig: RigState, scn: Scenario) -> Dict[int, float]:
-    """Per-camera inter-camera baseline error (%) vs GT. GT poses are camera->world;
-    ``T_c_g`` is world->camera, so invert before forming the relative transform."""
+    """Deprecated baseline-length-only diagnostic vs GT, retained for compatibility.
+
+    It is not an extrinsic-accuracy metric: it cannot observe rotation or translation
+    direction.  New callers should use ``metrics["accuracy"]["ground_truth"]``.
+    Blender GT poses are world->camera, matching ``T_c_g``.
+    """
     ref = rig.ref_cam_id
     gt = scn.gt
     if ref not in gt:
@@ -210,18 +219,21 @@ def baseline_error_per_camera(rig: RigState, scn: Scenario) -> Dict[int, float]:
         if c == ref or c not in gt:
             continue
         mine = _rel(rig.T_c_g[ref], rig.T_c_g[c])
-        other = _rel(np.linalg.inv(gt[ref].pose), np.linalg.inv(gt[c].pose))
+        other = _rel(gt[ref].pose, gt[c].pose)
         b_other = np.linalg.norm(other[:3, 3])
         out[c] = 100.0 * abs(np.linalg.norm(mine[:3, 3]) - b_other) / b_other if b_other > 1e-9 \
             else float("nan")
     return out
 
 
-def _scenario_metrics(rig: RigState, scn: Scenario) -> Dict:
-    """Reprojection RMS per camera + worst inter-camera baseline error vs GT / MC-Calib.
+def _scenario_metrics(rig: RigState, scn: Scenario,
+                      accuracy_profile: Optional[AccuracyProfile] = None) -> Dict:
+    """Training-fit metrics plus full-pose accuracy vs available references.
 
-    GT/MC-Calib store camera->world poses; ``rig.T_c_g`` is world->camera, so invert before
-    comparing baselines."""
+    Blender GT stores world->camera while MC-Calib output stores camera->world. Legacy baseline
+    fields remain temporarily as deprecated compatibility output; they must not be interpreted
+    as pose accuracy.
+    """
     rms = bundle.reprojection_rms(rig, scn.object_obs)
     ref = rig.ref_cam_id
 
@@ -251,10 +263,26 @@ def _scenario_metrics(rig: RigState, scn: Scenario) -> Dict:
 
     gt_poses = {c: g.pose for c, g in scn.gt.items()} if scn.gt else {}
     mc_poses = {c: m.pose for c, m in scn.mccalib.items()} if scn.mccalib else {}
+    full_accuracy = accuracy_metrics(
+        rig.T_c_g,
+        ground_truth_world_to_camera=gt_poses,
+        mccalib_camera_to_world=mc_poses,
+        profile=accuracy_profile,
+    )
     return {
         "rms_px": {c: float(rms[c]) for c in rms},
         "max_rms_px": float(max(rms.values())) if rms else float("nan"),
-        # GT P_i is camera->world; T_c_g is world->camera -> invert to compare baselines.
-        "worst_baseline_pct_vs_gt": worst_baseline(gt_poses, invert=True),
+        # Blender GroundTruth.yml P_i is world->camera, matching T_c_g.
+        "worst_baseline_pct_vs_gt": worst_baseline(gt_poses, invert=False),
         "worst_baseline_pct_vs_mccalib": worst_baseline(mc_poses, invert=True),
+        "accuracy": full_accuracy,
+        "compatibility": {
+            "deprecated_fields": {
+                "worst_baseline_pct_vs_gt":
+                    "baseline length only; use accuracy.ground_truth",
+                "worst_baseline_pct_vs_mccalib":
+                    "baseline length only; use accuracy.mccalib_reference",
+            },
+            "removal": "next major release",
+        },
     }

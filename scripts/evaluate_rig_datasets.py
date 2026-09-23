@@ -9,11 +9,12 @@ their error against **ground truth** and against **MC-Calib's own calibration**:
 
   * paraxial focal `f_eff` (GT / MC-Calib / optimized) + focal % errors,
   * principal-point % error,
-  * inter-camera baseline (extrinsics) % error vs GT,
+  * inter-camera baseline-length % error vs GT (legacy diagnostic only),
   * reprojection RMS (px).
 
-Pass criteria: extrinsics within 1 % of GT, and intrinsics within 1 % of MC-Calib's
-calibration (the established reference DS-MSP matches; note that some cameras have a focal that
+Legacy table criteria: baseline length within 1 % of GT, and intrinsics within 1 % of MC-Calib's
+calibration. This does not establish full extrinsic accuracy; use ``metrics.accuracy`` with a
+deployment profile. Some cameras have a focal that
 is *inherently* unrecoverable from their views — MC-Calib's focal deviates from GT identically
 there, which the table makes visible by showing both references).
 
@@ -128,7 +129,7 @@ def _write_markdown(rows, worst_base, worst_foc_mc, base_ok, foc_ok, mc_vs_gt_ma
                  f"{r['foc_mc']:.2f} | {r['pp_mc']:.2f} | "
                  f"{'—' if np.isnan(r['base']) else format(r['base'], '.3f')} | {r['rms']:.3f} |")
     L += ["",
-          f"**Worst extrinsic baseline error vs GT: {worst_base:.3f}%** "
+          f"**Worst baseline-length error vs GT: {worst_base:.3f}%** "
           f"({'PASS &lt;1%' if base_ok else 'FAIL'}).",
           f"**Worst intrinsic focal error vs MC-Calib (intrinsics-ON): {worst_foc_mc:.3f}%** "
           f"({'PASS &lt;1%' if foc_ok else 'FAIL'}).",
@@ -139,9 +140,9 @@ def _write_markdown(rows, worst_base, worst_foc_mc, base_ok, foc_ok, mc_vs_gt_ma
           f"close to ground truth as MC-Calib is. Where the focal is observable, DS-MSP recovers "
           f"it to &lt;0.6% of GT.",
           "",
-          f"**OVERALL: {'PASS' if base_ok and foc_ok else 'FAIL'}** — extrinsics within 1% of GT "
-          f"and intrinsics within 1% of MC-Calib, for any random per-camera model choice, both "
-          f"with and without intrinsic optimization.",
+          f"**LEGACY TABLE CHECK: {'PASS' if base_ok and foc_ok else 'FAIL'}** — baseline length "
+          f"and intrinsics meet their historical thresholds. This is not a full-pose accuracy "
+          f"verdict.",
           ""]
     with open(out, "w") as f:
         f.write("\n".join(L))

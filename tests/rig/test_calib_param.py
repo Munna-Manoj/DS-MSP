@@ -1,6 +1,7 @@
 """MC-Calib calib_param.yml parsing + the single-file ``calibrate_from_config`` entry."""
 import importlib.resources
 import os
+import sys
 import textwrap
 
 import numpy as np
@@ -17,6 +18,7 @@ _CONFIGS_DIR = importlib.resources.files("ds_msp.rig") / "configs"
 _TEMPLATE = _CONFIGS_DIR / "calib_param.template.yml"
 _INTRINSICS_TEMPLATE = _CONFIGS_DIR / "camera_intrinsics.template.yml"
 _KEYPOINTS_TEMPLATE = _CONFIGS_DIR / "calib_param.keypoints.template.yml"
+_ACCURACY_TEMPLATE = _CONFIGS_DIR / "accuracy_profile.template.json"
 
 
 @pytest.mark.req("FR-RIG-004")
@@ -51,6 +53,31 @@ def _write_cfg(tmp_path, body):
     p = tmp_path / "calib_param.yml"
     p.write_text("%YAML:1.0\n" + textwrap.dedent(body))
     return str(p)
+
+
+@pytest.mark.req("FR-RIG-024")
+def test_accuracy_profile_template_ships_and_config_path_resolves(tmp_path):
+    from ds_msp.rig.accuracy import load_accuracy_profile
+
+    assert _ACCURACY_TEMPLATE.exists()
+    profile = load_accuracy_profile(_ACCURACY_TEMPLATE)
+    assert profile.length_unit == "m" and len(profile.roi_points) > 1
+    cfgp = _write_cfg(tmp_path, """
+        number_camera: 1
+        accuracy_profile_path: "profiles/deployment.json"
+    """)
+    assert load_config(cfgp).accuracy_profile_path == str(tmp_path / "profiles/deployment.json")
+
+
+@pytest.mark.req("FR-RIG-024")
+def test_cli_can_emit_accuracy_profile_template(tmp_path, monkeypatch):
+    from ds_msp.rig.accuracy import load_accuracy_profile
+    from ds_msp.rig.cli import main
+
+    out = tmp_path / "accuracy.json"
+    monkeypatch.setattr(sys, "argv", ["ds-msp-calibrate-rig", "--init-accuracy-profile", str(out)])
+    main()
+    assert load_accuracy_profile(out).sha256
 
 
 # --- true/false config booleans (replacing the old, confusing 0/1 numeric convention) ---
@@ -326,7 +353,7 @@ _S2 = "../MC-Calib/Blender_Images/Scenario_2"
 @pytest.mark.skipif(not os.path.isdir(os.path.join(_S2, "Images")),
                     reason="Blender Scenario_2 images not present")
 def test_calibrate_from_config_raw_images(tmp_path):
-    """One config file → detect from raw images → MC-Calib output, extrinsics within 1%."""
+    """One config file → raw images → output with the legacy baseline diagnostic under 1%."""
     cfgp = "../MC-Calib/configs/Blender_Images/calib_param_synth_Scenario2.yml"
     ov = {"root_path": os.path.abspath(os.path.join(_S2, "Images")),
           "keypoints_path": "None", "save_path": str(tmp_path),
@@ -458,6 +485,7 @@ def test_init_K_seeds_front_end_and_bypasses_heterogeneous_consensus():
     mixed-lens rig) is not collapsed onto the median focal."""
     from ds_msp.models.radtan import RadTanModel
     from ds_msp.rig.calibrate import make_bundle_front_end, paraxial_focal
+
     from ._synth import make_rig
 
     w, h = 1280, 960

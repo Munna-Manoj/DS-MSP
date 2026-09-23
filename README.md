@@ -204,7 +204,7 @@ print(report["rms_px"])            # sub-pixel agreement; no images, no recalibr
 ### Multi-camera rig extrinsics (any FOV)
 
 > **Note**
-> Shipped in `pip install ds-msp` (`ds_msp.rig`) — validated on a real 8-camera rig and the MC-Calib Blender datasets (extrinsics within ~0.16% of ground truth).
+> Shipped in `pip install ds-msp` (`ds_msp.rig`) — exercised on a real 8-camera rig and the MC-Calib Blender datasets. Historical ≤0.16% figures are baseline-length-only diagnostics, not full extrinsic accuracy.
 >
 > `pip install ds-msp` alone gives you the `ds-msp-calibrate-rig` command; no repo clone needed. A git clone can use `python scripts/calibrate_rig.py` instead — same CLI either way.
 
@@ -229,9 +229,15 @@ ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct �
 
 Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds.
 
-#### Measured accuracy
+#### Accuracy evidence
 
-On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
+The report separates training reprojection fit from truth-referenced accuracy. With independent
+ground truth and a deployment profile it evaluates all camera pairs using rotation, camera-center
+vector/direction, and exact p50/p95/max displacement over the declared physical ROI. The older
+Blender tables' **0.16%** number measured baseline length only and must not be read as full pose
+accuracy. A full-pose Scenario 1 rerun demonstrates why: DS+ from scratch showed only 0.0084%
+baseline-length error but 2.41° rotation error and 425 mm p95 displacement over a 1–10 m ROI.
+→ [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
 
 Every persisted rig run also writes `calibration_manifest.json`, tying the result to exact code,
 configuration, source-file and effective-input hashes, numerical environment, and output hashes.

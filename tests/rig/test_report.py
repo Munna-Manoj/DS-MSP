@@ -31,10 +31,12 @@ def _small_scenario(n_cam=2, n_frame=6, seed=0):
         return RadTanModel(fx, fx, W / 2, H / 2, -0.05, 0.01, 0.0, 0.0, 0.0)
     obj, obs, img, gt_ext, gtm = make_rig(n_cam=n_cam, n_frame=n_frame, noise_px=0.2,
                                           seed=seed, w=W, h=H, model_factory=fac)
-    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c]))
+    gt = {c: CameraGT(K=gtm[c].K, dist=None, pose=gt_ext[c])
+          for c in range(n_cam)}
+    mc = {c: CameraGT(K=gtm[c].K, dist=None, pose=np.linalg.inv(gt_ext[c]))
           for c in range(n_cam)}
     return Scenario(name="report_smoke", object=obj, object_obs=obs, cam_ids=sorted(img),
-                    img_size=img, gt=gt, mccalib=gt, mccalib_rms={})
+                    img_size=img, gt=gt, mccalib=mc, mccalib_rms={})
 
 
 # --------------------------------------------------------------------------- stats math
@@ -153,7 +155,7 @@ def test_write_html_report_is_self_contained_and_valid(tmp_path):
 
     out = tmp_path / "report.html"
     rpt.write_html_report(str(out), res["rig"], scn, res["models"], per_cam, overall,
-                          level, message)
+                          level, message, metrics=res["metrics"])
     html = out.read_text()
 
     # single self-contained file: no network-fetched script/style/font/image
@@ -163,6 +165,8 @@ def test_write_html_report_is_self_contained_and_valid(tmp_path):
     i = html.index("const DATA = ") + len("const DATA = ")
     data, _ = json.JSONDecoder().raw_decode(html[i:])
     assert data["verdict"]["level"] == level
+    assert data["fit"]["level"] == level
+    assert data["accuracy"]["ground_truth"]["status"] == "EVALUATED"
     assert {c["id"] for c in data["cameras"]} == {0, 1}
     for c in data["cameras"]:
         assert c["stats"]["n"] == per_cam[c["id"]].n
@@ -178,7 +182,7 @@ def test_write_html_report_caps_frame_count(tmp_path):
 
     out = tmp_path / "report.html"
     rpt.write_html_report(str(out), res["rig"], scn, res["models"], per_cam, overall,
-                          level, message, max_frames=5)
+                          level, message, max_frames=5, metrics=res["metrics"])
     html = out.read_text()
     i = html.index("const DATA = ") + len("const DATA = ")
     data, _ = json.JSONDecoder().raw_decode(html[i:])
