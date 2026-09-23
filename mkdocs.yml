@@ -150,6 +150,7 @@ nav:
       - Undistort images: how-to/undistort_images.md
       - Export an LDC mesh: how-to/export_ldc_mesh.md
       - Export an Isaac Sim camera LUT: how-to/export_isaac_sim_lut.md
+      - Reproduce and audit a rig calibration: how-to/reproduce_rig_calibration.md
   - Explanation:
       - explain/README.md
       - Two-view geometry (derivations): explain/two_view_geometry.md
