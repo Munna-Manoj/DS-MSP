@@ -7,7 +7,7 @@ finish, no theory. For the *why* behind a recipe, follow the links to
 
 ## Recipes
 
-Seven recipes are available now:
+Eight recipes are available now:
 
 - [Calibrate any model](calibrate_any_model.md) — recover intrinsics from a calibration board using any camera model.
 - [Convert between models](convert_between_models.md) — translate a calibration from one model to another without images.
@@ -16,6 +16,8 @@ Seven recipes are available now:
 - [Export a TI LDC mesh](export_ldc_mesh.md) — generate the displacement LUT for on-chip hardware undistortion on TI Jacinto SoCs, from any camera model.
 - [Export an Isaac Sim camera LUT](export_isaac_sim_lut.md) — reproduce any calibrated DS-MSP projection with `OmniLensDistortionLutAPI`.
 - [Read/write Kalibr YAML](read_write_kalibr.md) — load a Kalibr camchain into DS-MSP and write a model back out as Kalibr YAML.
+- [Reproduce and audit a rig calibration](reproduce_rig_calibration.md) — verify immutable inputs,
+  replay a calibration safely, interpret mismatches, and retain production evidence.
 
 /// note | More export targets
 COLMAP and nerfstudio export are already available via `ds_msp.io` (`export_colmap`,

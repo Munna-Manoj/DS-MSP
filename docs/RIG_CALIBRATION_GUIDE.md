@@ -85,6 +85,11 @@ that the effective 2D observations, target geometry, and deterministic MC-Calib 
 above are examples: the manifest is written inside the `save_path` of the original calibration run,
 and the replay output must be a new or empty directory.
 
+Follow [Reproduce and audit a rig calibration](how-to/reproduce_rig_calibration.md) for the complete
+operator and developer workflow: reference-environment setup, manifest interpretation, exit statuses,
+troubleshooting, golden baselines, retention, sharing/privacy, and the boundary between reproducibility
+and physical calibration accuracy.
+
 For release qualification and golden baselines, create a Python 3.10 environment and install the
 exact numerical runtime before installing DS-MSP:
 

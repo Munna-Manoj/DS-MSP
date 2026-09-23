@@ -47,6 +47,8 @@ Jacobians for bundle adjustment. Swap the camera, not the code.
   `ds-msp-calibrate`.
 - :material-camera-burst: **[Calibrate a rig](RIG_CALIBRATION_GUIDE.md)** — multi-camera,
   `ds-msp-calibrate-rig`.
+- :material-shield-check: **[Reproduce a rig result](how-to/reproduce_rig_calibration.md)** — verify
+  inputs, replay safely, and retain attributable calibration evidence.
 - :material-swap-horizontal: **[Multi-model library & conversion](MULTI_MODEL.md)** — calibrate
   in one model, convert to any other, no re-shooting.
 - :material-cube-scan: **[Interactive studio →](studio/)** — drive the Double Sphere model live

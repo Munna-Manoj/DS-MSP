@@ -233,6 +233,11 @@ Detected corners are saved to `detected_keypoints_data.yml` and reused via `keyp
 
 On the MC-Calib Blender datasets, extrinsics land within **0.16% of ground truth** at sub-pixel reprojection, matching MC-Calib's own published per-camera RMS (0.92–1.07×). → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
 
+Every persisted rig run also writes `calibration_manifest.json`, tying the result to exact code,
+configuration, source-file and effective-input hashes, numerical environment, and output hashes.
+Use the [reproducibility guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/reproduce_rig_calibration.md)
+to verify inputs or reproduce a run without overwriting the original.
+
 ### Stereo depth
 
 Estimate metric depth directly on raw fisheye with a sphere sweep — no rectification to pinhole, so the full wide FOV is kept.
