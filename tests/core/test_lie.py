@@ -6,6 +6,7 @@ import pytest
 
 from ds_msp.core.lie import (
     hat,
+    se3_adjoint,
     se3_exp,
     se3_log,
     so3_exp,
@@ -83,3 +84,31 @@ def test_se3_exp_log_roundtrip(seed):
     assert np.allclose(se3_log(T), xi, atol=1e-7)
     # exp is a valid rigid transform
     assert np.allclose(T[:3, :3] @ T[:3, :3].T, np.eye(3), atol=1e-10)
+
+
+def _random_se3(rng):
+    axis = rng.standard_normal(3)
+    axis /= np.linalg.norm(axis)
+    xi = np.concatenate([rng.standard_normal(3), axis * rng.uniform(0, 2.5)])
+    return se3_exp(xi)
+
+
+@pytest.mark.req("FR-CORE-002")
+@pytest.mark.parametrize("seed", range(5))
+def test_se3_adjoint_conjugation_identity(seed):
+    """T·Exp(ξ)·T⁻¹ = Exp(Ad_T·ξ) for random poses and tangents."""
+    rng = np.random.default_rng(100 + seed)
+    T = _random_se3(rng)
+    xi = np.concatenate([rng.standard_normal(3), rng.standard_normal(3) * 0.5])
+    lhs = T @ se3_exp(xi) @ np.linalg.inv(T)
+    rhs = se3_exp(se3_adjoint(T) @ xi)
+    assert np.allclose(lhs, rhs, atol=1e-10)
+
+
+@pytest.mark.req("FR-CORE-002")
+@pytest.mark.parametrize("seed", range(5))
+def test_se3_adjoint_is_a_homomorphism(seed):
+    """Ad_{AB} = Ad_A · Ad_B."""
+    rng = np.random.default_rng(200 + seed)
+    A, B = _random_se3(rng), _random_se3(rng)
+    assert np.allclose(se3_adjoint(A @ B), se3_adjoint(A) @ se3_adjoint(B), atol=1e-10)
