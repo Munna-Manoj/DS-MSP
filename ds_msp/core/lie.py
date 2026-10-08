@@ -5,7 +5,7 @@ breaks down near ``‖r‖ = π`` (the double-cover singularity). The fix is to 
 manifold: keep the pose as a matrix and update it by a **local perturbation** retracted through
 the exponential map, ``R ← R · exp([δω]_×)`` with ``δω`` small. This module provides the
 ``exp``/``log`` maps and the SO(3) right Jacobian that make that retraction (and its analytic
-derivative) exact. Used by `mvg.bundle.refine_two_view` and `calib.bundle` (manifold mode).
+derivative) exact, plus the SE(3) adjoint that moves a perturbation across a pose. Used by `mvg.bundle.refine_two_view` and `calib.bundle` (manifold mode).
 
 Numerically safe near ``θ = 0`` (Taylor series) and ``θ = π`` (`log` via the largest diagonal).
 """
@@ -71,8 +71,8 @@ def so3_log(R: np.ndarray) -> np.ndarray:
 
 
 def so3_right_jacobian(w: np.ndarray) -> np.ndarray:
-    """Right Jacobian ``J_r(w)`` of SO(3): ``∂/∂δ Log(Exp(w)·Exp(δ))⁻¹·… ``; relates a tangent
-    perturbation to the exp-map derivative. ``∂(Exp(w)v)/∂w = -Exp(w)[v]_× J_r(w)``."""
+    """Right Jacobian ``J_r(w)`` of SO(3): ``Exp(w + δ) ≈ Exp(w)·Exp(J_r(w)·δ)`` for small ``δ``;
+    relates a tangent perturbation to the exp-map derivative. ``∂(Exp(w)v)/∂w = -Exp(w)[v]_× J_r(w)``."""
     w = np.asarray(w, float)
     theta2 = float(w @ w)
     Wx = hat(w)
@@ -107,3 +107,15 @@ def se3_log(T: np.ndarray) -> np.ndarray:
     phi = so3_log(T[:3, :3])
     rho = np.linalg.solve(so3_left_jacobian(phi), T[:3, 3])
     return np.concatenate([rho, phi])
+
+
+def se3_adjoint(T: np.ndarray) -> np.ndarray:
+    """Adjoint ``Ad_T (6,6)`` of SE(3) for ``xi = [ρ, φ]``: ``T·se3_exp(ξ)·T⁻¹ = se3_exp(Ad_T·ξ)``.
+    Moves a perturbation across a pose: ``T·Exp(ξ) = Exp(Ad_T·ξ)·T`` (right ↔ left)."""
+    T = np.asarray(T, float)
+    R, t = T[:3, :3], T[:3, 3]
+    Ad = np.zeros((6, 6))
+    Ad[:3, :3] = R
+    Ad[:3, 3:] = hat(t) @ R
+    Ad[3:, 3:] = R
+    return Ad
