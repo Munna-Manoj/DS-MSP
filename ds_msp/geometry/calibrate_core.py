@@ -19,6 +19,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
+from ..core.covariance import pixel_whiteners
 from ..core.lie import hat_batch, so3_exp
 from ..core.optimize import OptResult, gnc_tls_schur_solve, schur_lm
 
@@ -33,7 +34,7 @@ def bundle_adjust(model_cls,
                   *, kernel: str = "none", scale: "float | str" = 1.0,
                   gnc_start: float = 0.0, gnc_iters: int = 0,
                   noise_bound: "float | None" = None,
-                  max_iter: int = 200) -> Tuple[np.ndarray, np.ndarray, np.ndarray, OptResult]:
+                  max_iter: int = 200, pixel_covariances=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, OptResult]:
     """Refine ``model_cls`` intrinsics + per-image poses from seeded extrinsics.
 
     Parameters
@@ -64,6 +65,11 @@ def bundle_adjust(model_cls,
     sizes = [len(X) for X in X_world_list]
     total = 2 * sum(sizes)
     masks = [np.asarray(v, bool) for v in visibility_list]
+    if pixel_covariances is None:
+        pixel_covariances = [None] * n_img
+    if len(pixel_covariances) != n_img:
+        raise ValueError("pixel_covariances must have one entry per image")
+    whiteners = [pixel_whiteners(c, n) for c, n in zip(pixel_covariances, sizes)]
     lb_i, ub_i = cls.param_bounds()
     state0 = (np.clip(np.asarray(params0, float), lb_i, ub_i).copy(),
               np.asarray(R0, float).copy(), np.asarray(t0, float).copy())
@@ -81,6 +87,8 @@ def bundle_adjust(model_cls,
             mask = masks[i] & valid
             diff = np.zeros_like(uv, dtype=np.float64)
             diff[mask] = uvp[mask] - uv[mask]
+            if whiteners[i] is not None:
+                diff = np.einsum('nij,nj->ni', whiteners[i], diff)
             out[row:row + 2 * N] = diff.ravel()
             row += 2 * N
         return out
@@ -107,8 +115,14 @@ def bundle_adjust(model_cls,
             dXc_dw = -np.einsum('ij,njk->nik', Rb[i], hat_batch(Xw))
             J_rvec = np.einsum('nij,njc->nic', J_point, dXc_dw)
             J_ext = np.concatenate([J_rvec, J_point], axis=-1) * mask3
+            J_intr = J_param * mask3
+            if whiteners[i] is not None:
+                W = whiteners[i]
+                r_i = np.einsum('nij,nj->ni', W, r_i)
+                J_intr = np.einsum('nij,njk->nik', W, J_intr)
+                J_ext = np.einsum('nij,njk->nik', W, J_ext)
             r_list.append(r_i.ravel())
-            A_list.append((J_param * mask3).reshape(2 * N, P))
+            A_list.append(J_intr.reshape(2 * N, P))
             B_list.append(J_ext.reshape(2 * N, 6))
         return r_list, A_list, B_list
 

@@ -347,3 +347,32 @@ repeatability trials, uncertainty analysis, and physical ground-truth comparison
     You have completed Stage 0 when the original result has a manifest, input verification exits
     `0`, a full replay exits `0` in the reference environment, and the run ID is retained with the
     result.
+
+**Capture identity and acceptance controls.** Image filenames must end with their frame number:
+`cam1_frame000007.png` and `cam2_frame000007.png` both identify frame 7. Numberless names,
+duplicate frame numbers within a camera, and mixed image sizes within a camera are rejected.
+This indexing contract does not establish exposure synchronization; prepare synchronized
+captures before calibration.
+
+Target point refinement is now disabled by default, including multi-board configurations.
+Set `refine_structure: "true"` explicitly to enable it. An optional `structure_prior_sigma`
+sets an isotropic Gaussian prior on target-point displacement in the target's length units;
+it remains tied to the original reconstructed geometry across refinement rounds. For a target
+specified in millimeters, `0.1` means 0.1 mm. Choose this from a justified geometry uncertainty;
+it is not a hard displacement bound. Unconstrained refinement emits a warning because target
+motion can absorb detector or camera-model bias. Reference anchors are selected to be
+noncollinear.
+
+`audit_gate: "refuse"` runs the observability check before any calibration parameters are
+exported. To require independent physical validation as well, supply `accuracy_profile_path`
+and set `accuracy_gate: "refuse"`. Missing truth, unavailable required pairs, absent configured
+limits, or failed limits refuse export. A reference comparison to MC-Calib does not substitute
+for independent ground truth. With the accuracy gate off, diagnostic exports remain available;
+`calibration_acceptance.json` records their acceptance status separately from fit quality.
+Existing parameter files are not overwritten by a refused run.
+
+`Observation`, `BoardObs` and `ObjectObs` accept optional per-corner `pixel_covariances`.
+Board fusion, object remapping, single-camera and rig bundle adjustment preserve these values.
+DS-MSP keypoint caches preserve them in an optional `pixel_covariances` sequence parallel to
+`pts_2d`; legacy caches without that field retain unit weights. Other MC-Calib consumers may
+ignore this extension. See the [calibration API](../reference/calib.md) for units and validation.

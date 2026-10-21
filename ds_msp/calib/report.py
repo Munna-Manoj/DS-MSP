@@ -180,7 +180,8 @@ def render_report(board_type: str, model_name: str, n_detected: int, n_total: in
                 f"{overall.p95:>7.3f} {overall.max:>7.3f} {overall.rms:>7.3f}")
     lines.append("")
     badge = _c(_COLOR.get(level, "0"), f" {level} ", enabled=color)
-    lines.append(f"verdict:{badge} {message}")
+    lines.append(f"training-fit verdict:{badge} {message}")
+    lines.append("Physical accuracy: NOT_EVALUATED (requires independent metric validation).")
     return "\n".join(lines)
 
 

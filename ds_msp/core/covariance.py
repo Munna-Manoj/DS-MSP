@@ -31,6 +31,25 @@ import numpy as np
 from .robust import VALID_KERNELS, _barron_bd, robust_weight
 
 
+def pixel_whiteners(covariances: np.ndarray | None, n: int) -> np.ndarray | None:
+    """Return L^-1 for per-point pixel covariance C=L L.T, or None for unit weights.
+
+    Covariances are (N,2,2), finite, symmetric positive definite, in squared pixels.
+    Apply the same matrices to residuals and Jacobians before robust weighting.
+    """
+    if covariances is None:
+        return None
+    cov = np.asarray(covariances, dtype=float)
+    if cov.shape != (n, 2, 2) or not np.isfinite(cov).all():
+        raise ValueError("pixel_covariances must be finite (N,2,2) matrices")
+    if not np.allclose(cov, cov.swapaxes(-1, -2), rtol=1e-10, atol=1e-12):
+        raise ValueError("pixel_covariances must be symmetric")
+    try:
+        return np.linalg.inv(np.linalg.cholesky(cov))
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("pixel_covariances must be positive definite") from exc
+
+
 def robust_weight_derivative(s: np.ndarray, kernel: str, scale: float,
                              alpha: float = -2.0) -> np.ndarray:
     r"""``ω′(s) = dω/ds`` of the IRLS weight in :func:`.robust.robust_weight`.

@@ -32,8 +32,7 @@ from ..detect.charuco import BoardSpec
 from ..detect.charuco import board_object_points as charuco_object_points
 from ..detect.charuco import detect_image, make_detectors
 from ..detect.checkerboard import CheckerboardSpec
-from ..detect.checkerboard import board_object_points as checkerboard_object_points
-from ..detect.checkerboard import detect_corners
+from ..detect.checkerboard import detect_correspondences
 from ..detect.detect import detect_aprilgrid
 from .targets import AprilGridTarget
 
@@ -94,9 +93,9 @@ class CheckerboardBoard:
         """Detect the checkerboard in every readable image.
 
         One :class:`~ds_msp.data.observations.Observation` per image the board was found
-        in, using the fixed board geometry from ``self.spec`` (see
-        :func:`ds_msp.detect.checkerboard.board_object_points`); all corners are marked
-        visible (``findChessboardCornersSB`` is all-or-nothing per image).
+        in, using matching metric geometry from SB metadata for oversized/marked boards.
+        All returned corners are marked visible. Unmarked partial boards have a
+        view-local origin and are suitable for independent single-camera poses.
 
         Parameters
         ----------
@@ -111,16 +110,16 @@ class CheckerboardBoard:
             One per image with a successful detection; unreadable images and images with
             no detected board are silently skipped.
         """
-        xyz = checkerboard_object_points(self.spec)
-        vis = np.ones(len(xyz), dtype=bool)
         n = len(image_paths)
         obs: List[Observation] = []
         for i, path in enumerate(image_paths):
             gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
             if gray is not None:
-                corners = detect_corners(gray, self.spec)
-                if corners is not None:
-                    obs.append(Observation(points_3d=xyz, pixels=corners, visibility=vis,
+                found = detect_correspondences(gray, self.spec)
+                if found is not None:
+                    xyz, corners = found
+                    obs.append(Observation(points_3d=xyz, pixels=corners,
+                                           visibility=np.ones(len(xyz), dtype=bool),
                                            frame_id=i))
             if progress_cb is not None:
                 progress_cb(i + 1, n, path)

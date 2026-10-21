@@ -62,14 +62,43 @@ def test_larger_and_marker_flags_pass_through_to_opencv(monkeypatch):
     def _fake(gray, pattern_size, flags=0):
         captured["pattern_size"] = pattern_size
         captured["flags"] = flags
-        return False, None
+        return False, None, None
 
-    monkeypatch.setattr(cv2, "findChessboardCornersSB", _fake)
+    monkeypatch.setattr(cv2, "findChessboardCornersSBWithMeta", _fake)
     spec = CheckerboardSpec(cols=6, rows=5, square_size=0.2, larger=True, marker=True)
     assert detect_corners(np.zeros((10, 10), np.uint8), spec) is None
     assert captured["pattern_size"] == (6, 5)
     assert captured["flags"] & cv2.CALIB_CB_LARGER
     assert captured["flags"] & cv2.CALIB_CB_MARKER
+
+
+def test_oversized_board_geometry_matches_real_sb_metadata(tmp_path):
+    from ds_msp.calib.board import CheckerboardBoard
+    from ds_msp.detect.checkerboard import detect_correspondences
+    image = _render_checkerboard(CheckerboardSpec(8, 7, 0.025))
+    spec = CheckerboardSpec(6, 5, 0.025, larger=True)
+    xyz, pixels = detect_correspondences(image, spec)
+    assert len(xyz) == len(pixels) == 56
+    # The geometry must explain the actual image, not just have the right length.
+    H, _ = cv2.findHomography(xyz[:, :2], pixels)
+    predicted = cv2.perspectiveTransform(xyz[:, :2][None], H)[0]
+    assert np.max(np.linalg.norm(predicted - pixels, axis=1)) < 0.2
+    path = str(tmp_path / "larger.png")
+    cv2.imwrite(path, image)
+    obs = CheckerboardBoard(spec).detect([path])
+    assert len(obs) == 1 and obs[0].pixels.shape == (56, 2)
+
+
+def test_marker_metadata_defines_metric_origin(monkeypatch):
+    from ds_msp.detect.checkerboard import detect_correspondences
+    meta = np.ones((5, 6), np.uint8)
+    meta[2, 3] = 4
+    monkeypatch.setattr(cv2, "findChessboardCornersSBWithMeta",
+                        lambda *a, **kw: (True, np.zeros((30, 1, 2)), meta))
+    xyz, _ = detect_correspondences(np.zeros((10, 10), np.uint8),
+                                    CheckerboardSpec(6, 5, 0.025, marker=True))
+    np.testing.assert_array_equal(xyz[15], [0, 0, 0])
+    np.testing.assert_allclose(xyz[16], [0.025, 0, 0])
 
 
 def test_robust_calibration_initialization():

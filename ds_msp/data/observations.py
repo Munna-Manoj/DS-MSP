@@ -26,6 +26,20 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from ..core.contracts import CameraModel
+from ..core.covariance import pixel_whiteners
+
+
+def _validate_pixels(pixels, indices, pixel_covariances):
+    pixels = np.asarray(pixels, dtype=float)
+    ids = np.asarray(indices)
+    if pixels.shape != (len(ids), 2) or not np.isfinite(pixels).all():
+        raise ValueError("pixels must be finite (N,2) coordinates")
+    if ids.ndim != 1 or not np.issubdtype(ids.dtype, np.integer) or np.any(ids < 0):
+        raise ValueError("point indices must be a nonnegative integer vector")
+    if len(np.unique(ids)) != len(ids):
+        raise ValueError("point indices must be unique within an observation")
+    pixel_whiteners(pixel_covariances, len(pixels))
+    return pixels, ids.astype(int)
 
 
 @dataclass
@@ -42,6 +56,7 @@ class Observation:
     visibility: np.ndarray       # (N,) bool
     cam_id: int = 0
     frame_id: int = 0
+    pixel_covariances: Optional[np.ndarray] = None  # (N,2,2), squared pixels; None = unit
 
     def __post_init__(self) -> None:
         self.points_3d = np.asarray(self.points_3d, dtype=np.float64)
@@ -57,6 +72,9 @@ class Observation:
             raise ValueError(f"pixels must be (N,2), got {self.pixels.shape}")
         if self.visibility.shape != (n,):
             raise ValueError(f"visibility must be (N,), got {self.visibility.shape}")
+        if not np.isfinite(self.points_3d).all() or not np.isfinite(self.pixels).all():
+            raise ValueError("observation points and pixels must be finite")
+        pixel_whiteners(self.pixel_covariances, n)
 
 
 @dataclass
@@ -71,6 +89,11 @@ class BoardObs:
     T_c_b: Optional[np.ndarray] = None   # (4,4) board->camera from robust PnP
     valid: bool = True          # False if PnP inliers < 4 (BoardObs.cpp:149)
     image_path: Optional[str] = None     # source image this was detected in (for overlays)
+    pixel_covariances: Optional[np.ndarray] = None
+
+    def __post_init__(self):
+        self.pts_2d, self.corner_ids = _validate_pixels(
+            self.pts_2d, self.corner_ids, self.pixel_covariances)
 
 
 @dataclass
@@ -119,6 +142,11 @@ class ObjectObs:
     pts_2d: np.ndarray          # (K, 2)
     T_c_o: Optional[np.ndarray] = None   # (4,4) object->camera from robust PnP
     image_path: Optional[str] = None     # source image this was detected in (for overlays)
+    pixel_covariances: Optional[np.ndarray] = None
+
+    def __post_init__(self):
+        self.pts_2d, self.point_rows = _validate_pixels(
+            self.pts_2d, self.point_rows, self.pixel_covariances)
 
 
 @dataclass

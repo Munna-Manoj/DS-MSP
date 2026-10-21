@@ -29,6 +29,7 @@ def calibrate_camera(board: Board, image_paths: Sequence[str], model_name: str,
     X_world_list, keypoints_list, visibility_list = to_correspondences(obs)
     K0, _ = intrinsics_seed(X_world_list, keypoints_list, width, height)
     init_model = seed_from_K(model_class(model_name), K0)
+    calib_kwargs.setdefault("pixel_covariances", [o.pixel_covariances for o in obs])
     result = calibrate(init_model, X_world_list, keypoints_list, visibility_list, **calib_kwargs)
     result["n_images_detected"] = len(obs)
     result["n_images_total"] = len(image_paths)

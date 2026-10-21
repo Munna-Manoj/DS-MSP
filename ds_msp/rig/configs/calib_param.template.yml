@@ -91,3 +91,10 @@ camera_params_file_name: ""         # output cameras filename; "" => calibrated_
 ######################################## Accepted-but-ignored MC-Calib keys (for drop-in compatibility) ######
 # These newer MC-Calib keys parse without error but DS-MSP does not act on them yet:
 #   board_poses_file_name, camera_board_poses_index, enable_rigidity_check, rigidity_threshold
+
+# DS-MSP target geometry and physical acceptance controls
+# Target deformation is opt-in; lower reprojection error alone does not validate its shape.
+refine_structure: "false"
+# structure_prior_sigma: 0.1  # target length units; use justified geometry uncertainty
+# accuracy_gate: "refuse"    # requires accuracy_profile_path and independent truth; default off
+# audit_gate: "refuse"       # refuse unobservable fits before writing calibration outputs

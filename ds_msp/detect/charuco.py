@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -144,10 +145,26 @@ def single_board_object(spec: BoardSpec, object_id: int = 0) -> Object3D:
 
 
 def _frame_id_from_name(path: str) -> int:
-    """MC-Calib indexes frames by the digits in the filename (``..._000007.png`` -> 7)."""
+    """Read the trailing frame number, excluding camera digits in an earlier prefix.
+
+    Numberless names are ambiguous and rejected. Capture filenames must end in a frame
+    index; timestamps/trigger association must be resolved by the caller beforehand.
+    """
     stem = os.path.splitext(os.path.basename(path))[0]
-    digits = "".join(ch for ch in stem if ch.isdigit())
-    return int(digits) if digits else 0
+    match = re.search(r"(\d+)$", stem)
+    if match is None:
+        raise ValueError(f"image filename must end in a frame number: {path!r}")
+    return int(match.group(1))
+
+
+def _validate_frame_names(paths):
+    """Fail before detection when two files in one camera map to the same frame."""
+    seen = {}
+    for path in paths:
+        frame = _frame_id_from_name(path)
+        if frame in seen:
+            raise ValueError(f"duplicate frame {frame}: {seen[frame]!r} and {path!r}")
+        seen[frame] = path
 
 
 def detect_image(detectors, gray: np.ndarray, *, min_corners: int = 4, subpix: bool = False
@@ -165,9 +182,23 @@ def detect_image(detectors, gray: np.ndarray, *, min_corners: int = 4, subpix: b
         if ch_ids is None or len(ch_ids) < min_corners:
             continue
         c = ch_corners.reshape(-1, 2).astype(np.float32)
+        ids = ch_ids.ravel().astype(int)
+        if (len(c) != len(ids) or not np.isfinite(c).all() or len(np.unique(ids)) != len(ids)
+                or np.any(ids < 0) or np.linalg.matrix_rank(c - c.mean(axis=0)) < 2):
+            continue
+        if hasattr(det, "getBoard"):
+            board = det.getBoard()
+            if (np.any(ids >= len(board.getChessboardCorners()))
+                    or board.checkCharucoCornersCollinear(ids)):
+                continue
         if subpix and len(c):
             c = cv2.cornerSubPix(gray, c, (5, 5), (-1, -1), _SUBPIX_CRITERIA)
         c = _canonical_charuco_corners(c)
+        h, w = gray.shape[:2]
+        if (not np.isfinite(c).all() or np.any(c < 0)
+                or np.any(c[:, 0] >= w) or np.any(c[:, 1] >= h)
+                or np.linalg.matrix_rank(c - c.mean(axis=0)) < 2):
+            continue
         out.append((b, ch_ids.ravel().astype(int), c.astype(float)))
     return out
 
@@ -234,6 +265,7 @@ def detect_folder(image_dir: str, specs: List[BoardSpec], obj: Object3D, cam_id:
     files = sorted(f for f in glob.glob(os.path.join(image_dir, pattern))
                    if f.lower().endswith(_IMG_EXT))
     n = len(files)
+    _validate_frame_names(files)
     obs: List[ObjectObs] = []
     for i, path in enumerate(files, 1):
         if progress_cb is not None:
@@ -284,6 +316,7 @@ def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: 
     for c, d in cam_dirs.items():
         files = sorted(f for f in glob.glob(os.path.join(d, "*")) if f.lower().endswith(_IMG_EXT))
         if files:
+            _validate_frame_names(files)
             files_by_cam[c] = files
     tasks: List[Tuple[int, str]] = []          # round-robin (cam_id, path) list, not camera-grouped
     i = 0
@@ -316,6 +349,8 @@ def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: 
     all_obs: List[ObjectObs] = []
     img_size: Dict[int, Tuple[int, int]] = {}
     for c, wh, obs in results:
+        if wh is not None and c in img_size and img_size[c] != wh:
+            raise ValueError(f"camera {c} has mixed image sizes: {img_size[c]} and {wh}")
         if wh is not None and c not in img_size:
             img_size[c] = wh
         all_obs.extend(obs)
