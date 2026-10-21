@@ -168,6 +168,6 @@ def remap_object_obs(object_obs: List[ObjectObs], remap: Dict[int, Tuple[int, in
         out.append(ObjectObs(
             cam_id=o.cam_id, frame_id=o.frame_id, object_id=new_oid,
             point_rows=np.asarray(o.point_rows, int) + offset,
-            pts_2d=o.pts_2d, T_c_o=o.T_c_o, image_path=o.image_path,
+            pts_2d=o.pts_2d, T_c_o=o.T_c_o, image_path=o.image_path, pixel_covariances=o.pixel_covariances,
         ))
     return out

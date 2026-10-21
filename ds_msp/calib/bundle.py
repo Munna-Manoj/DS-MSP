@@ -173,7 +173,7 @@ def _shape_seeds(cls, base: np.ndarray, n_restarts: int, seed: int, *, force: bo
 
 
 def _seed_and_fit(cls, params0, X_world_list, keypoints_list, visibility_list,
-                  *, kernel, scale, gnc_start, gnc_iters, max_iter):
+                  *, kernel, scale, gnc_start, gnc_iters, max_iter, pixel_covariances=None):
     """Seed per-view poses for ``params0`` then run the BA loop. Returns ``(params, Rb, t, out)``."""
     seed_model = cls.from_params(params0)
     rvecs, tvecs = _seed_poses(seed_model, X_world_list, keypoints_list, visibility_list)
@@ -182,7 +182,7 @@ def _seed_and_fit(cls, params0, X_world_list, keypoints_list, visibility_list,
     return bundle_adjust(cls, params0, R0, t0,
                          X_world_list, keypoints_list, visibility_list,
                          kernel=kernel, scale=scale, gnc_start=gnc_start,
-                         gnc_iters=gnc_iters, max_iter=max_iter)
+                         gnc_iters=gnc_iters, max_iter=max_iter, pixel_covariances=pixel_covariances)
 
 
 def calibrate(init_model: CameraModel,
@@ -193,7 +193,8 @@ def calibrate(init_model: CameraModel,
               robust: str = "cauchy", robust_scale: "float | str" = "auto",
               gnc: bool = False, multi_start: bool = True, n_restarts: int = 4,
               seed: int = 0, force_multistart: bool = True,
-              loss: str | None = None, f_scale: float | None = None) -> Dict:
+              loss: str | None = None, f_scale: float | None = None,
+              pixel_covariances=None) -> Dict:
     """Calibrate any model from checkerboard correspondences — robust by default.
 
     Parameters
@@ -236,6 +237,10 @@ def calibrate(init_model: CameraModel,
     f_scale : float, optional
         Fixed inlier scale (px) for the legacy ``loss``-based path, in place of the modern
         ``robust``/``robust_scale`` auto-scaling.
+    pixel_covariances : sequence, optional
+        One (N,2,2) SPD covariance array per view in squared pixels; None entries use unit
+        weights. Robust scales operate in whitened units; output error statistics stay in
+        pixels. No covariance is inferred automatically from image data.
 
     Returns
     -------
@@ -266,7 +271,8 @@ def calibrate(init_model: CameraModel,
         # ~20% of the iteration budget (a few annealing steps, then the sharp robust fit).
         gnc_start, gnc_iters = (3.0, max(8, max_nfev // 5)) if gnc else (0.0, 0)
 
-    fit_kw = dict(kernel=kernel, scale=scale_arg, gnc_start=gnc_start, gnc_iters=gnc_iters)
+    fit_kw = dict(kernel=kernel, scale=scale_arg, gnc_start=gnc_start, gnc_iters=gnc_iters,
+                  pixel_covariances=pixel_covariances)
 
     # Model-aware multi-start auto-init: cheaply screen the base seed + shape-dispersed seeds
     # (a short BA each), score by the *robust* (median) reprojection so a wrong shape basin is

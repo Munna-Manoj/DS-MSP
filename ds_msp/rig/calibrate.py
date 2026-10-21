@@ -10,6 +10,7 @@ present (``rig.handeye``).
 from __future__ import annotations
 
 import os
+import warnings
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
@@ -168,7 +169,7 @@ def _obs_points(objs, o) -> np.ndarray:
     return obj.pts_3d[o.point_rows]
 
 
-def _model_aware_seed(model_cls, Kp, ge6, objs) -> CameraModel:
+def _model_aware_seed(model_cls, Kp, ge6, objs, *, return_covariances=False):
     """Seed ``model_cls`` using each model's OWN intrinsic geometry.
 
     The pinhole pre-calibration gives the paraxial focal + principal point in ``Kp``. Each
@@ -188,7 +189,7 @@ def _model_aware_seed(model_cls, Kp, ge6, objs) -> CameraModel:
     (see :func:`_obs_points`)."""
     fx, fy, cx, cy = Kp[0, 0], Kp[1, 1], Kp[0, 2], Kp[1, 2]
     provisional_model = RadTanModel(fx, fy, cx, cy, 0.0, 0.0, 0.0, 0.0, 0.0)
-    rays, pix, Xcal, uvcal = [], [], [], []
+    rays, pix, Xcal, uvcal, covcal = [], [], [], [], []
     for o in ge6:
         X = _obs_points(objs, o).astype(np.float64)
         uv = o.pts_2d.astype(np.float64)
@@ -212,11 +213,12 @@ def _model_aware_seed(model_cls, Kp, ge6, objs) -> CameraModel:
         rays.append(Xc / np.linalg.norm(Xc, axis=1, keepdims=True))
         pix.append(uv[inlier_rows])
         Xcal.append(X[inlier_rows])
+        covcal.append(None if o.pixel_covariances is None else np.asarray(o.pixel_covariances)[inlier_rows])
         uvcal.append(uv[inlier_rows])         # inlier set for calibrate
     seed = _seed_from_K(model_cls, Kp)
     if rays and sum(len(r) for r in rays) >= 6:
         seed.initialize_from_correspondences(Kp, np.vstack(rays), np.vstack(pix))
-    return seed, Xcal, uvcal
+    return (seed, Xcal, uvcal, covcal) if return_covariances else (seed, Xcal, uvcal)
 
 
 def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
@@ -238,7 +240,8 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
         Kp, _distp = _robust_pinhole(objpts, imgpts, w, h)
     # Model-aware seed + GNC-TLS-inlier correspondences (so gross outliers neither
     # corrupt the per-model distortion solve nor wreck calibrate()'s pose seeding).
-    seed_ma, Xcal, uvcal = _model_aware_seed(model_cls, Kp, ge6, objs)
+    seed_ma, Xcal, uvcal, covcal = _model_aware_seed(
+        model_cls, Kp, ge6, objs, return_covariances=True)
     if len(Xcal) >= 3:
         vis = [np.ones(len(x), bool) for x in Xcal]
         # Two-start: the model-aware distortion solve helps low-order models (DS/
@@ -255,7 +258,7 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
         if not np.array_equal(seed_ma.params, seed_k.params):
             start_seeds.append(seed_k)
         cands = [_calibrate_single(s, Xcal, uvcal, vis, loss=loss, f_scale=f_scale,
-                                   max_nfev=max_nfev)
+                                   max_nfev=max_nfev, pixel_covariances=covcal)
                  for s in start_seeds]
         # Focal-collapse anchor: the robust pinhole pre-calibration (RANSAC DLT) gives
         # a reliable paraxial focal even under gross outliers, but the per-model robust
@@ -575,6 +578,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   *, fix_intrinsics: bool = False, verbose: bool = False,
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
+                  structure_prior_sigma: Optional[float] = None,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
                   noise_bound: Optional[float] = None, on_iter=None,
                   objects: Optional[List[Object3D]] = None,
@@ -729,9 +733,16 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        and physical-board error that no camera/pose update can absorb; freeing the
     #        structure removes it — the dominant reprojection win on a real multi-board target.
     if refine_structure and len(obj.board_ids) > 1:
+        if structure_prior_sigma is None:
+            warnings.warn("unconstrained structure refinement can absorb camera/detection bias; "
+                          "supply structure_prior_sigma in target units for a geometry prior",
+                          UserWarning, stacklevel=2)
+        prior_points = rig.objects[next(iter(rig.objects))].pts_3d.copy()
         prev = float("inf")
         for round_i in range(structure_rounds):
-            rig = bundle.refine_object_structure(rig, object_obs)
+            rig = bundle.refine_object_structure(rig, object_obs,
+                                                  prior_sigma=structure_prior_sigma,
+                                                  prior_points=prior_points)
             # a light joint polish each round (no GNC, capped iters): the structure step did
             # the heavy lifting, so the BA only has to absorb it — full-length GNC passes here
             # were ~80% of total runtime for <0.5% extra accuracy.

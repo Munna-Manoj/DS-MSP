@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..core.covariance import clustered_sandwich_covariance
+from ..core.covariance import clustered_sandwich_covariance, pixel_whiteners
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
 from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
@@ -70,7 +70,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
 
     ``fix_extrinsics=True`` holds all camera poses fixed and refines only the per-frame
     object poses (the per-object intermediate refinement); combined with
-    ``fix_intrinsics=True`` it is the pure object-pose stage."""
+    ``fix_intrinsics=True`` it is the pure object-pose stage. Optional observation pixel
+    covariances whiten residuals and Jacobians together; robust scales then use whitened
+    units. Angular residuals reject pixel covariance until bearing propagation is supported.
+    """
     ref_cam = rig.ref_cam_id
     cam_ids = [] if fix_extrinsics else [c for c in sorted(rig.cameras) if c != ref_cam]
     obj_keys = sorted(rig.object_poses)
@@ -96,6 +99,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
     if angular and not fix_intrinsics:
         raise ValueError("angular residual requires fix_intrinsics=True "
                          "(the observed bearing is intrinsics-dependent)")
+
+    if angular and any(o.pixel_covariances is not None for o in object_obs):
+        raise ValueError("pixel_covariances require pixel residuals; angular covariance propagation is unsupported")
+    whiteners = {id(o): pixel_whiteners(o.pixel_covariances, len(o.pts_2d)) for o in object_obs}
 
     # precompute per-observation object points (board poses baked into pts_3d). For the angular
     # (bearing) residual, also precompute each corner's observed unit bearing f = unproject(uv)
@@ -151,6 +158,9 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 uv, valid = m_cache[o.cam_id].project(Xc)
                 diff = np.zeros_like(o.pts_2d, float)
                 diff[valid] = uv[valid] - o.pts_2d[valid]
+            W = whiteners[id(o)]
+            if W is not None:
+                diff = np.einsum('nij,nj->ni', W, diff)
             rows = diff.size
             r[row:row + rows] = diff.ravel()
             row += rows
@@ -199,6 +209,10 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             if not fix_intrinsics:
                 ic = intr_col[cam]
                 J[row:row + 2 * N, ic:ic + Pn[cam]] = (J_param * mask).reshape(2 * N, Pn[cam])
+            W = whiteners[id(o)]
+            if W is not None:
+                block = J[row:row + 2 * N].reshape(N, 2, K)
+                J[row:row + 2 * N] = np.einsum('nij,njk->nik', W, block).reshape(2 * N, K)
             row += point_dim * N
         return J
 
@@ -395,6 +409,7 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         if o.cam_id in rig.cameras and k in rig.object_poses:
             gobs[k].append((o, rig.objects[o.object_id].pts_3d[o.point_rows]))
     n_groups = len(groups)
+    whiteners = {id(o): pixel_whiteners(o.pixel_covariances, len(o.pts_2d)) for o in object_obs}
 
     def _models(state):
         return {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
@@ -414,6 +429,9 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 uv, valid = mc[o.cam_id].project(Xc)
                 d = np.zeros_like(o.pts_2d)
                 d[valid] = uv[valid] - o.pts_2d[valid]
+                W = whiteners[id(o)]
+                if W is not None:
+                    d = np.einsum('nij,nj->ni', W, d)
                 out.append(d.ravel())
         return np.concatenate(out) if out else np.zeros(0)
 
@@ -448,6 +466,11 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 B = np.empty((m, 6))
                 B[:, :3] = Jw_o
                 B[:, 3:] = Jt_o
+                W = whiteners[id(o)]
+                if W is not None:
+                    r = np.einsum('nij,nj->ni', W, r.reshape(-1, 2)).ravel()
+                    A = np.einsum('nij,njk->nik', W, A.reshape(len(W), 2, shared_dim)).reshape(m, shared_dim)
+                    B = np.einsum('nij,njk->nik', W, B.reshape(len(W), 2, 6)).reshape(m, 6)
                 rs.append(r)
                 As.append(A)
                 Bs.append(B)
@@ -640,8 +663,24 @@ def _robust_w(r2: np.ndarray, scale: float) -> np.ndarray:
     return 1.0 / (1.0 + r2 / (scale * scale))
 
 
+def _structure_anchors(points: np.ndarray, rows) -> set:
+    """Choose a well-spread noncollinear triangle, independent of point ordering."""
+    rows = np.asarray(rows, int)
+    if len(rows) < 3:
+        raise ValueError("structure refinement needs three noncollinear reference points")
+    xyz = np.asarray(points)[rows]
+    b = int(np.argmax(np.linalg.norm(xyz - xyz[0], axis=1)))
+    edge = xyz[b] - xyz[0]
+    areas = np.linalg.norm(np.cross(xyz - xyz[0], edge), axis=1)
+    c = int(np.argmax(areas))
+    if areas[c] <= 1e-10 * max(float(edge @ edge), np.finfo(float).tiny):
+        raise ValueError("structure refinement reference points are collinear")
+    return {int(rows[0]), int(rows[b]), int(rows[c])}
+
+
 def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
-                            free_rows=None, iters: int = 10, robust_scale: float = 1.5
+                            free_rows=None, iters: int = 10, robust_scale: float = 1.5,
+                            prior_sigma: Optional[float] = None, prior_points=None
                             ) -> RigState:
     """Refine the fused object's 3-D point positions (MC-Calib's ``refineObject``).
 
@@ -655,17 +694,26 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     ``free_rows`` is the set of object-point rows to move; the rest are held to **anchor the
     gauge** (scale + frame). Default: every point except 3 spanning corners of the reference
     board, so the metric scale and object frame stay pinned while all real structure (both
-    boards) is free. Returns a refined copy of ``rig``."""
+    boards) is free. ``prior_sigma`` adds an isotropic Gaussian prior in target length units;
+    ``prior_points`` can retain the original geometry across repeated calls. Without a prior,
+    movement can absorb camera/detector bias and does not establish physical target shape.
+    Returns a refined copy of ``rig``."""
     obj = rig.objects[next(iter(rig.objects))] if rig.objects else None
     if obj is None:
         return rig
     if free_rows is None:
         ref_rows = [i for i, (b, _c) in enumerate(obj.pts_obj_2_board)
                     if int(b) == obj.ref_board_id]
-        anchor = {ref_rows[0], ref_rows[len(ref_rows) // 2], ref_rows[-1]} if ref_rows else set()
+        anchor = _structure_anchors(obj.pts_3d, ref_rows)
         free_rows = set(range(len(obj.pts_3d))) - anchor
     else:
         free_rows = set(int(r) for r in free_rows)
+        _structure_anchors(obj.pts_3d, sorted(set(range(len(obj.pts_3d))) - free_rows))
+    if prior_sigma is not None and (not np.isfinite(prior_sigma) or prior_sigma <= 0):
+        raise ValueError("structure prior_sigma must be positive in target length units")
+    prior = np.asarray(obj.pts_3d if prior_points is None else prior_points, float)
+    if prior.shape != obj.pts_3d.shape or not np.isfinite(prior).all():
+        raise ValueError("structure prior_points must match finite target geometry")
 
     # Index every free point to a dense 0..F-1 slot, and group observations by (camera, frame)
     # so each block's Jacobian is computed once per iteration for ALL its free points at once
@@ -678,7 +726,7 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     blocks = []                                    # (cam, key, slots(int[]), gidx(int[]), uv)
     for o in object_obs:
         key = (o.object_id, o.frame_id)
-        if o.cam_id not in rig.cameras or key not in rig.object_poses:
+        if o.object_id != obj.object_id or o.cam_id not in rig.cameras or key not in rig.object_poses:
             continue
         sel = [i for i, r in enumerate(o.point_rows) if int(r) in free_rows]
         if not sel:
@@ -686,7 +734,9 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
         sel = np.asarray(sel, int)
         gidx = o.point_rows[sel].astype(int)
         slots = np.array([slot[int(r)] for r in gidx], int)
-        blocks.append((o.cam_id, key, slots, gidx, o.pts_2d[sel].astype(float)))
+        cov = None if o.pixel_covariances is None else np.asarray(o.pixel_covariances)[sel]
+        blocks.append((o.cam_id, key, slots, gidx, o.pts_2d[sel].astype(float),
+                       pixel_whiteners(cov, len(sel))))
 
     out = copy.copy(rig)
     pts = obj.pts_3d.copy()
@@ -696,7 +746,7 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     for _ in range(iters):
         H = np.zeros((F, 3, 3))
         g = np.zeros((F, 3))
-        for cam, key, slots, gidx, uv in blocks:
+        for cam, key, slots, gidx, uv, W in blocks:
             Tcg, Tgo = rig.T_c_g[cam], rig.object_poses[key]
             M = Tcg[:3, :3] @ Tgo[:3, :3]
             t = Tcg[:3, :3] @ Tgo[:3, 3] + Tcg[:3, 3]
@@ -704,9 +754,15 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
             uvp, J_point, _Jp, valid = rig.cameras[cam].project_jacobian(Xc)
             J = np.einsum('nij,jk->nik', J_point, M)            # (n,2,3) ∂uv/∂X
             r = uvp - uv                                        # (n,2)
+            if W is not None:
+                r = np.einsum('nij,nj->ni', W, r)
+                J = np.einsum('nij,njk->nik', W, J)
             w = _robust_w(np.einsum('ni,ni->n', r, r), robust_scale) * valid.astype(float)
             np.add.at(H, slots, w[:, None, None] * np.einsum('nij,nik->njk', J, J))
             np.add.at(g, slots, w[:, None] * np.einsum('nij,ni->nj', J, r))
+        if prior_sigma is not None:
+            H += np.eye(3)[None] / prior_sigma ** 2
+            g += (X - prior[free_sorted]) / prior_sigma ** 2
         H += 1e-9 * np.eye(3)[None]
         try:
             dX = np.linalg.solve(H, -g[..., None])[..., 0]      # (F,3) all points at once

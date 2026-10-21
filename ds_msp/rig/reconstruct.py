@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from ..detect.charuco import (BoardSpec, _frame_id_from_name, board_object_points,
+from ..detect.charuco import (BoardSpec, _frame_id_from_name, _validate_frame_names, board_object_points,
                              detect_image, make_detectors)
 from .object3d import build_objects
 from .pose_init import robust_pose_irls
@@ -111,6 +111,7 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
         files = sorted(f for f in glob.glob(os.path.join(cam_dir, "*"))
                        if f.lower().endswith(_IMG_EXT))
         if files:
+            _validate_frame_names(files)
             files_by_cam[c] = files
     # round-robin (image-index-major, not camera-major) so parallel progress is visibly
     # interleaved across cameras instead of draining one camera's directory before the next.
@@ -145,6 +146,8 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
     all_obs: List[BoardObs] = []
     img_size: Dict[int, Tuple[int, int]] = {}
     for c, wh, obs in results:
+        if wh is not None and c in img_size and img_size[c] != wh:
+            raise ValueError(f"camera {c} has mixed image sizes: {img_size[c]} and {wh}")
         if wh is not None and c not in img_size:
             img_size[c] = wh
         all_obs.extend(obs)
@@ -173,6 +176,7 @@ def detect_board_obs_keypoints(keypoints_path: str
         bidx = cn.getNode("board_idxs")
         pts_node = cn.getNode("pts_2d")
         cid_node = cn.getNode("charuco_idxs")
+        cov_node = cn.getNode("pixel_covariances")
         n = fidx.size()
         for k in range(n):
             f = int(fidx.at(k).real())
@@ -181,8 +185,13 @@ def detect_board_obs_keypoints(keypoints_path: str
             cset = cid_node.at(k)
             pts = np.array([p.at(i).real() for i in range(p.size())], float).reshape(-1, 2)
             cids = np.array([cset.at(i).real() for i in range(cset.size())], int).ravel()
+            cov = None
+            if not cov_node.empty():
+                node = cov_node.at(k)
+                if node.size():
+                    cov = np.array([node.at(j).real() for j in range(node.size())]).reshape(-1, 2, 2)
             all_obs.append(BoardObs(cam_id=ci, frame_id=f, board_id=b,
-                                    corner_ids=cids, pts_2d=pts))
+                                    corner_ids=cids, pts_2d=pts, pixel_covariances=cov))
     fs.release()
     return all_obs, img_size
 
@@ -322,16 +331,21 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
     boards' corners pooled — the most-constrained PnP). Mirrors what the keypoint reader
     produces, so the rest of the pipeline is untouched."""
     by_image: Dict[Tuple[int, int], Tuple[list, list]] = defaultdict(lambda: ([], []))
+    covs = defaultdict(list)
+    has_cov = defaultdict(bool)
     paths: Dict[Tuple[int, int], str] = {}
     for o in board_obs:
         rows, uvs = by_image[(o.cam_id, o.frame_id)]
         if getattr(o, "image_path", None):
             paths.setdefault((o.cam_id, o.frame_id), o.image_path)
-        for cid, uv in zip(o.corner_ids, o.pts_2d):
+        for i, (cid, uv) in enumerate(zip(o.corner_ids, o.pts_2d)):
             key = (int(o.board_id), int(cid))
             row = obj.pts_board_2_obj.get(key)
             if row is not None:
                 rows.append(row)
+                group = (o.cam_id, o.frame_id)
+                covs[group].append(np.eye(2) if o.pixel_covariances is None else o.pixel_covariances[i])
+                has_cov[group] |= o.pixel_covariances is not None
                 uvs.append(uv)
     obs: List[ObjectObs] = []
     for (cam, fr), (rows, uvs) in by_image.items():
@@ -339,7 +353,8 @@ def object_obs_from_board_obs(board_obs: List[BoardObs], obj: Object3D, *,
             obs.append(ObjectObs(cam_id=cam, frame_id=fr, object_id=obj.object_id,
                                  point_rows=np.array(rows, int),
                                  pts_2d=np.array(uvs, float),
-                                 image_path=paths.get((cam, fr))))
+                                 image_path=paths.get((cam, fr)),
+                                 pixel_covariances=np.asarray(covs[(cam, fr)]) if has_cov[(cam, fr)] else None))
     return obs
 
 
@@ -356,6 +371,8 @@ def object_obs_from_board_obs_multi(board_obs: List[BoardObs], objects: List[Obj
             board_2_obj[int(bid)] = obj
 
     by_key: Dict[Tuple[int, int, int], Tuple[list, list]] = defaultdict(lambda: ([], []))
+    covs = defaultdict(list)
+    has_cov = defaultdict(bool)
     paths: Dict[Tuple[int, int, int], str] = {}
     for o in board_obs:
         obj = board_2_obj.get(int(o.board_id))
@@ -365,10 +382,12 @@ def object_obs_from_board_obs_multi(board_obs: List[BoardObs], objects: List[Obj
         rows, uvs = by_key[key]
         if getattr(o, "image_path", None):
             paths.setdefault(key, o.image_path)
-        for cid, uv in zip(o.corner_ids, o.pts_2d):
+        for i, (cid, uv) in enumerate(zip(o.corner_ids, o.pts_2d)):
             row = obj.pts_board_2_obj.get((int(o.board_id), int(cid)))
             if row is not None:
                 rows.append(row)
+                covs[key].append(np.eye(2) if o.pixel_covariances is None else o.pixel_covariances[i])
+                has_cov[key] |= o.pixel_covariances is not None
                 uvs.append(uv)
     obs: List[ObjectObs] = []
     for (cam, fr, oid), (rows, uvs) in by_key.items():
@@ -376,7 +395,8 @@ def object_obs_from_board_obs_multi(board_obs: List[BoardObs], objects: List[Obj
             obs.append(ObjectObs(cam_id=cam, frame_id=fr, object_id=oid,
                                  point_rows=np.array(rows, int),
                                  pts_2d=np.array(uvs, float),
-                                 image_path=paths.get((cam, fr, oid))))
+                                 image_path=paths.get((cam, fr, oid)),
+                                 pixel_covariances=np.asarray(covs[(cam, fr, oid)]) if has_cov[(cam, fr, oid)] else None))
     return obs
 
 

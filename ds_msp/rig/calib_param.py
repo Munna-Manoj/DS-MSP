@@ -328,6 +328,9 @@ class RigConfig:
     audit_gate: str = "warn"                     # observability audit: off|warn|refuse (FR-RIG-021)
     certify: bool = False                        # rotation-backbone certificate (FR-RIG-022)
     accuracy_profile_path: Optional[str] = None  # task-space ROI, units, pairs, limits (FR-RIG-024)
+    refine_structure: bool = False              # explicit opt-in; can absorb measurement bias
+    structure_prior_sigma: Optional[float] = None
+    accuracy_gate: str = "off"
     raw: Dict = field(default_factory=dict)
 
     @property
@@ -414,9 +417,18 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         audit_gate=_audit_gate_field(ov, fs),
         certify=_bool_field(ov, fs, "certify", 0),
         accuracy_profile_path=path_key("accuracy_profile_path", "None"),
+        refine_structure=_bool_field(ov, fs, "refine_structure", 0),
+        structure_prior_sigma=ov.get("structure_prior_sigma", _scalar(fs, "structure_prior_sigma", None)),
+        accuracy_gate=str(ov.get("accuracy_gate", _scalar(fs, "accuracy_gate", "off"))),
         raw={"path": config_path},
     )
     fs.release()
+    if cfg.structure_prior_sigma is not None:
+        cfg.structure_prior_sigma = float(cfg.structure_prior_sigma)
+        if not np.isfinite(cfg.structure_prior_sigma) or cfg.structure_prior_sigma <= 0:
+            raise ValueError("structure_prior_sigma must be positive in target length units")
+    if cfg.accuracy_gate not in ("off", "refuse"):
+        raise ValueError("accuracy_gate must be off or refuse")
     return cfg
 
 
@@ -523,14 +535,14 @@ def _reconstruct(cfg: RigConfig, *, animator=None):
 
 
 def _obs_from_keypoints(cfg: RigConfig, obj):
-    per_cam, img_size = _load_detections(cfg.keypoints_path, obj)
+    per_cam, img_size = _load_detections(cfg.keypoints_path, obj, include_covariances=True)
     obs: List[ObjectObs] = []
     for cam_id, frames in per_cam.items():
-        for frame_id, (rows, uvs) in frames.items():
+        for frame_id, (rows, uvs, cov) in frames.items():
             if rows:
                 obs.append(ObjectObs(cam_id=cam_id, frame_id=frame_id, object_id=0,
                                      point_rows=np.array(rows, int),
-                                     pts_2d=np.array(uvs, float)))
+                                     pts_2d=np.array(uvs, float), pixel_covariances=cov))
     return obs, img_size
 
 
@@ -665,11 +677,12 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              camera_params_file_name=cfg.camera_params_file_name,
                              image_root=image_root, cam_prefix=cfg.cam_prefix,
                              he_approach=cfg.he_approach,
-                             refine_structure=(cfg.number_board > 1),
+                             refine_structure=cfg.refine_structure,
+                             structure_prior_sigma=cfg.structure_prior_sigma,
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
                              on_iter=animator, objects=objects,
                              report_covariance=cfg.report_covariance,
-                             audit_gate=cfg.audit_gate, certify=cfg.certify,
+                             audit_gate=cfg.audit_gate, accuracy_gate=cfg.accuracy_gate, certify=cfg.certify,
                              accuracy_profile=accuracy_profile)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the

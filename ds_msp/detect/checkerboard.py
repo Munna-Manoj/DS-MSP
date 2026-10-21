@@ -69,11 +69,45 @@ def board_object_points(spec: CheckerboardSpec) -> np.ndarray:
 
 
 def detect_corners(gray: np.ndarray, spec: CheckerboardSpec) -> Optional[np.ndarray]:
-    """Detect one checkerboard in one grayscale image. Returns ``(rows*cols, 2)`` pixel
-    corners in the same row-major, ``cols``-fastest order as :func:`board_object_points`, or
-    ``None`` on failure. ``findChessboardCornersSB`` is all-or-nothing per image (no partial
-    detection) -- the same contract as ChArUco's ``detectBoard`` per board."""
-    ok, corners = cv2.findChessboardCornersSB(gray, (spec.cols, spec.rows), flags=_flags(spec))
+    """Return detected pixels, or None. Oversized boards may return more than rows*cols.
+
+    Use :func:`detect_correspondences` to obtain matching metric geometry, particularly
+    for oversized or marked boards. Unmarked partial grids have only a view-local origin.
+    """
+    found = detect_correspondences(gray, spec)
+    return None if found is None else found[1]
+
+
+def detect_correspondences(gray: np.ndarray, spec: CheckerboardSpec):
+    """Return matching (object points, pixels), using SB metadata for extended grids.
+
+    Without a marker the origin is local to each observation, suitable for independent
+    single-camera poses, not persistent multi-camera target identity. With a marker the
+    metadata's type-4 corner defines the physical origin.
+    """
+    if spec.larger or spec.marker:
+        ok, corners, meta = cv2.findChessboardCornersSBWithMeta(
+            gray, (spec.cols, spec.rows), flags=_flags(spec))
+    else:
+        ok, corners = cv2.findChessboardCornersSB(
+            gray, (spec.cols, spec.rows), flags=_flags(spec))
+        meta = None
     if not ok:
         return None
-    return corners.reshape(-1, 2).astype(float)
+    pixels = corners.reshape(-1, 2).astype(float)
+    if spec.larger or spec.marker:
+        if meta is None or meta.ndim != 2 or meta.size != len(pixels):
+            raise ValueError("SB metadata does not match the detected checkerboard corners")
+        yy, xx = np.indices(meta.shape)
+        xy = np.column_stack((xx.ravel(), yy.ravel())).astype(float)
+        if spec.marker:
+            origin = np.flatnonzero(meta.ravel() == 4)
+            if len(origin) != 1:
+                raise ValueError("marked checkerboard must have exactly one SB origin")
+            xy -= xy[origin[0]].copy()
+        xyz = np.column_stack((xy * spec.square_size, np.zeros(len(xy))))
+    else:
+        xyz = board_object_points(spec)
+    if len(xyz) != len(pixels):
+        raise ValueError("checkerboard geometry does not match the detected corner count")
+    return xyz, pixels

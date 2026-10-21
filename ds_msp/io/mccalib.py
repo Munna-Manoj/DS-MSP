@@ -133,7 +133,7 @@ def _load_object(path: str) -> Object3D:
     )
 
 
-def _load_detections(path: str, obj: Object3D):
+def _load_detections(path: str, obj: Object3D, *, include_covariances: bool = False):
     """Return ``{cam_id: {frame_id: (point_rows, pts_2d)}}`` and per-cam image size."""
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
     nb = int(fs.getNode("nb_camera").real())
@@ -147,6 +147,8 @@ def _load_detections(path: str, obj: Object3D):
         board_idxs = _flat(cn.getNode("board_idxs")).astype(int)
         pts_seq = _seq(cn.getNode("pts_2d"))
         cid_seq = _seq(cn.getNode("charuco_idxs"))
+        cov_seq = _seq(cn.getNode("pixel_covariances"))
+        frame_cov, has_cov = {}, {}
         frames: Dict[int, Tuple[list, list]] = {}
         for k in range(len(frame_idxs)):
             f = int(frame_idxs[k])
@@ -154,11 +156,20 @@ def _load_detections(path: str, obj: Object3D):
             pts = _flat(pts_seq[k]).reshape(-1, 2)
             cids = _flat(cid_seq[k]).astype(int).ravel()
             rows, uvs = frames.setdefault(f, ([], []))
-            for cid, uv in zip(cids, pts):
+            cov = _flat(cov_seq[k]).reshape(-1, 2, 2) if cov_seq else np.empty((0, 2, 2))
+            if len(cov) not in (0, len(pts)):
+                raise ValueError("cached pixel_covariances do not match corners")
+            frame_cov.setdefault(f, [])
+            has_cov[f] = has_cov.get(f, False) or len(cov) > 0
+            for i, (cid, uv) in enumerate(zip(cids, pts)):
                 key = (b, int(cid))
                 if key in obj.pts_board_2_obj:
                     rows.append(obj.pts_board_2_obj[key])
                     uvs.append(uv)
+                    frame_cov[f].append(cov[i] if len(cov) else np.eye(2))
+        if include_covariances:
+            frames = {f: (rows, uv, np.asarray(frame_cov[f]) if has_cov[f] else None)
+                      for f, (rows, uv) in frames.items()}
         per_cam[ci] = frames
     fs.release()
     return per_cam, img_size
@@ -220,19 +231,19 @@ def load_scenario(scn_dir: str) -> Scenario:
     results = os.path.join(scn_dir, "Results")
     obj = _load_object(os.path.join(results, "calibrated_objects_data.yml"))
     per_cam, img_size = _load_detections(
-        os.path.join(results, "detected_keypoints_data.yml"), obj)
+        os.path.join(results, "detected_keypoints_data.yml"), obj, include_covariances=True)
     mccalib, _ = _load_cameras(os.path.join(results, "calibrated_cameras_data.yml"))
     gt_path = os.path.join(scn_dir, "GroundTruth.yml")
     gt = _load_groundtruth(gt_path) if os.path.exists(gt_path) else {}
 
     object_obs: List[ObjectObs] = []
     for cam_id, frames in per_cam.items():
-        for frame_id, (rows, uvs) in frames.items():
+        for frame_id, (rows, uvs, cov) in frames.items():
             if not rows:
                 continue
             object_obs.append(ObjectObs(
                 cam_id=cam_id, frame_id=frame_id, object_id=0,
-                point_rows=np.array(rows, int), pts_2d=np.array(uvs, float),
+                point_rows=np.array(rows, int), pts_2d=np.array(uvs, float), pixel_covariances=cov,
             ))
     return Scenario(
         name=name, object=obj, object_obs=object_obs,
@@ -543,6 +554,7 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
     for cam in sorted(by_cam):
         w, h = img_size.get(cam, (0, 0))
         frame_idxs, board_idxs, pts_2d, charuco, frame_paths = [], [], [], [], []
+        covariances = []
         for o in sorted(by_cam[cam], key=lambda x: x.frame_id):
             bc = b2[o.point_rows]                            # (n,2)
             fp = getattr(o, "image_path", None) or (
@@ -552,6 +564,8 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
                 frame_idxs.append(o.frame_id)
                 board_idxs.append(int(bid))
                 pts_2d.append(np.asarray(o.pts_2d, float)[m].ravel())
+                covariances.append([] if o.pixel_covariances is None
+                                   else np.asarray(o.pixel_covariances)[m].ravel())
                 charuco.append(bc[m, 1])
                 frame_paths.append(fp)
         fs.startWriteStruct(f"camera_{cam}", cv2.FileNode_MAP)
@@ -563,6 +577,8 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
         _write_int_seq(fs, "board_idxs", board_idxs)
         _write_seq_of_seqs(fs, "pts_2d", pts_2d, cast=float)
         _write_seq_of_seqs(fs, "charuco_idxs", charuco, cast=int)
+        if any(len(c) for c in covariances):
+            _write_seq_of_seqs(fs, "pixel_covariances", covariances, cast=float)
         fs.endWriteStruct()
     fs.release()
 

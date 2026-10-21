@@ -9,6 +9,8 @@ cross-dataset validation.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -71,12 +73,13 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        image_root: Optional[str] = None,
                        cam_prefix: str = "Cam_", he_approach: int = 0,
                        refine_structure: bool = False,
+                       structure_prior_sigma: Optional[float] = None,
                        noise_bound: Optional[float] = None,
                        verbose: bool = False, on_iter=None,
                        objects: Optional[list] = None,
                        reproj_gate_px: Optional[float] = None,
                        report_covariance: bool = False,
-                       audit_gate: str = "warn",
+                       audit_gate: str = "warn", accuracy_gate: str = "off",
                        certify: bool = False,
                        accuracy_profile: Optional[AccuracyProfile] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
@@ -106,11 +109,22 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     (:func:`ds_msp.rig.certify.certify_rotations`): the a-posteriori global-optimality
     certificate of the extrinsic-rotation backbone against the per-view PnP measurement
     graph — opt-in like ``report_covariance``.
+    ``accuracy_gate="refuse"`` requires a profile with limits and independent truth;
+    incomplete or failing comparisons refuse export. Both refusal gates run before saving.
+    ``refine_structure`` is explicit opt-in; ``structure_prior_sigma`` specifies target
+    geometry uncertainty in scene length units, fixed across alternating refinement rounds.
     Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
     ``"certificate"`` when enabled).
     """
     if audit_gate not in ("off", "warn", "refuse"):
         raise ValueError(f"audit_gate must be 'off', 'warn' or 'refuse', got {audit_gate!r}")
+    if accuracy_gate not in ("off", "refuse"):
+        raise ValueError("accuracy_gate must be off or refuse")
+    if structure_prior_sigma is not None and (
+            not np.isfinite(structure_prior_sigma) or structure_prior_sigma <= 0):
+        raise ValueError("structure_prior_sigma must be positive in target length units")
+    if accuracy_gate == "refuse" and accuracy_profile is None:
+        raise ValueError("accuracy_gate='refuse' requires an accuracy profile and independent truth")
     if init_cameras is not None:
         # Start from the provided per-camera models (MC-Calib's cam_params_path init): the
         # front-end uses them directly instead of a from-scratch re-fit — essential for a
@@ -124,11 +138,47 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
                         fix_intrinsics=fix_intrinsics, front_end=front_end,
                         he_approach=he_approach, refine_structure=refine_structure,
+                        structure_prior_sigma=structure_prior_sigma,
                         noise_bound=noise_bound, verbose=verbose, on_iter=on_iter,
                         objects=objects, reproj_gate_px=reproj_gate_px)
     # keep the (possibly structure-refined) object the rig actually solved with
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
 
+    metrics = _scenario_metrics(rig, scn, accuracy_profile=accuracy_profile)
+    out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
+          "paths": {}, "metrics": metrics}
+    if report_covariance:
+        out["covariance"] = bundle.parameter_covariance(
+            rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
+    if certify:
+        from .certify import certify_rotations
+        out["certificate"] = certify_rotations(rig, scn.object_obs)
+    if audit_gate != "off":
+        from .audit import audit_rig
+        audit = audit_rig(rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
+        out["audit"] = audit
+        if audit_gate == "refuse" and (audit["n_weak"] > 0 or not audit["gauge_ok"]):
+            details = "; ".join(f["message"] for f in audit["findings"]) or \
+                f"{audit['n_weak']} unnamed weak direction(s)"
+            raise RuntimeError(
+                f"observability audit refused this calibration (audit_gate='refuse'): "
+                f"{details}")
+    truth = metrics["accuracy"]["ground_truth"]
+    physical_pass = (truth.get("status") == "EVALUATED"
+                     and truth.get("limit_checks", {}).get("all_pass") is True)
+    out["acceptance"] = {
+        "accuracy_status": "PASS" if physical_pass else "NOT_ACCEPTED",
+        "accuracy_gate": accuracy_gate, "observability_gate": audit_gate,
+        "fit_scope": "training reprojection only; not physical accuracy",
+        "structure_refined": refine_structure,
+        "structure_prior_sigma": structure_prior_sigma,
+        "accuracy_evaluation_status": truth.get("status"),
+        "limit_checks": truth.get("limit_checks"),
+        "accuracy_profile": accuracy_profile.to_dict() if accuracy_profile is not None else None,
+    }
+    if accuracy_gate == "refuse" and not physical_pass:
+        raise RuntimeError("accuracy gate refused calibration: independent truth must cover "
+                           "required pairs and pass every configured physical limit")
     paths = {}
     if save_dir is not None:
         if on_iter is not None and hasattr(on_iter, "set_stage"):
@@ -153,25 +203,11 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                                        cam_prefix=cam_prefix, progress_cb=save_cb)
             paths["reprojection_images"] = f"Reprojection/ ({nr} images)"
             paths["detection_images"] = f"Detection/ ({nd} images)"
-    metrics = _scenario_metrics(rig, scn, accuracy_profile=accuracy_profile)
-    out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
-          "paths": paths, "metrics": metrics}
-    if report_covariance:
-        out["covariance"] = bundle.parameter_covariance(
-            rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
-    if certify:
-        from .certify import certify_rotations
-        out["certificate"] = certify_rotations(rig, scn.object_obs)
-    if audit_gate != "off":
-        from .audit import audit_rig
-        audit = audit_rig(rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
-        out["audit"] = audit
-        if audit_gate == "refuse" and (audit["n_weak"] > 0 or not audit["gauge_ok"]):
-            details = "; ".join(f["message"] for f in audit["findings"]) or \
-                f"{audit['n_weak']} unnamed weak direction(s)"
-            raise RuntimeError(
-                f"observability audit refused this calibration (audit_gate='refuse'): "
-                f"{details}")
+    if save_dir is not None:
+        acceptance_path = Path(save_dir) / "calibration_acceptance.json"
+        acceptance_path.write_text(json.dumps(out["acceptance"], indent=2, allow_nan=False) + "\n")
+        paths["acceptance"] = str(acceptance_path)
+    out["paths"] = paths
     return out
 
 
