@@ -8,6 +8,14 @@ The RTX generalized camera contract uses two 32-bit floating-point EXR textures:
 DS-MSP models use the OpenCV camera frame (+X right, +Y down, +Z forward), while
 RTX uses +X right, +Y up, -Z forward.  :class:`IsaacProjectionAdapter` owns that
 coordinate conversion so model implementations remain renderer-independent.
+
+Pixel convention: DS-MSP pixels have integer coordinates at pixel centres (ADR-0024), while
+image NDC spans pixel edges, so pixel ``i``'s centre sits at NDC ``(i + 0.5) / width``.
+Format v1 omitted the half pixel and rendered every camera shifted by (-0.5, -0.5) px.
+
+RTX also culls every ray outside the camera's ``fthetaMaxFov`` cone (default 200 deg), so
+a LUT camera seeing more than 100 deg off-axis lost its outer field. The exporter sets it
+from the widest valid ray in the ray-enter map.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from ..core.contracts import CameraModel
 from .exr import read_rgb32_exr, write_rgb32_exr
 
 
-FORMAT_VERSION = "ds-msp.isaac-sim-lut/v1"
+FORMAT_VERSION = "ds-msp.isaac-sim-lut/v2"
 INVALID_NDC = -1.0
 
 
@@ -70,7 +78,8 @@ class IsaacProjectionAdapter:
         ndc_u, ndc_v = np.broadcast_arrays(
             np.asarray(ndc_u, dtype=np.float64), np.asarray(ndc_v, dtype=np.float64)
         )
-        pixels = np.stack((ndc_u * self.width, ndc_v * self.height), axis=-1)
+        # NDC spans pixel edges; DS-MSP pixel coordinates are pixel centres.
+        pixels = np.stack((ndc_u * self.width - 0.5, ndc_v * self.height - 0.5), axis=-1)
         cv_rays, valid = self.model.unproject(pixels)
         cv_rays = np.asarray(cv_rays, dtype=np.float64)
         valid = np.asarray(valid, dtype=bool) & np.all(np.isfinite(cv_rays), axis=-1)
@@ -104,8 +113,8 @@ class IsaacProjectionAdapter:
         pixels = np.asarray(pixels, dtype=np.float64)
         valid = np.asarray(valid, dtype=bool) & np.all(np.isfinite(pixels), axis=-1)
         ndc = np.empty_like(pixels)
-        ndc[..., 0] = pixels[..., 0] / self.width
-        ndc[..., 1] = pixels[..., 1] / self.height
+        ndc[..., 0] = (pixels[..., 0] + 0.5) / self.width
+        ndc[..., 1] = (pixels[..., 1] + 0.5) / self.height
         ndc[~valid] = INVALID_NDC
         return ndc, valid
 
@@ -234,6 +243,14 @@ def _write_json(path: Path, value: Dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def max_fov_deg(min_cos_forward: float, margin_deg: float = 2.0) -> float:
+    """``fthetaMaxFov`` covering every valid ray: twice the widest off-axis angle plus a
+    margin, capped at a full sphere. ``min_cos_forward`` is the smallest cosine between a
+    valid ray and camera-forward."""
+    widest = float(np.degrees(np.arccos(np.clip(min_cos_forward, -1.0, 1.0))))
+    return float(min(360.0, 2.0 * widest + margin_deg))
+
+
 def _write_camera_usda(path: Path, manifest: Dict[str, Any]) -> None:
     attributes = manifest["isaac_sim"]["attributes"]
     enter = attributes["omni:lensdistortion:lut:rayEnterDirectionTexture"]
@@ -249,6 +266,7 @@ def Camera "Camera" (
 )
 {{
     token omni:lensdistortion:model = "lut"
+    float fthetaMaxFov = {float(attributes['fthetaMaxFov'])}
     float omni:lensdistortion:lut:nominalWidth = {float(attributes['omni:lensdistortion:lut:nominalWidth'])}
     float omni:lensdistortion:lut:nominalHeight = {float(attributes['omni:lensdistortion:lut:nominalHeight'])}
     float2 omni:lensdistortion:lut:opticalCenter = ({float(center_x)}, {float(center_y)})
@@ -268,7 +286,8 @@ def load_manifest(path: str | Path) -> Dict[str, Any]:
     if value.get("format") != FORMAT_VERSION:
         raise ValueError(
             f"unsupported Isaac LUT manifest format {value.get('format')!r}; "
-            f"expected {FORMAT_VERSION!r}"
+            f"expected {FORMAT_VERSION!r}. Bundles written before v2 render shifted by half a "
+            "pixel and lose the field beyond 100 deg; regenerate them (overwrite=True / --overwrite)"
         )
     return value
 
@@ -333,11 +352,14 @@ def export_lut(
 
     enter_rgb = np.empty((texture_height, texture_width, 3), dtype=np.float32)
     u = texel_centers(texture_width)
+    min_cos = 1.0                                  # widest valid ray: RTX's culling cone
     for start in range(0, texture_height, chunk_rows):
         stop = min(start + chunk_rows, texture_height)
         v = (np.arange(start, stop, dtype=np.float64) + 0.5) / texture_height
         grid_u, grid_v = np.meshgrid(u, v)
-        rays, _ = adapter.unproject(grid_u, grid_v)
+        rays, ray_valid = adapter.unproject(grid_u, grid_v)
+        if np.any(ray_valid):
+            min_cos = min(min_cos, float(np.min(-rays[..., 2][ray_valid])))
         enter_rgb[start:stop] = rays.astype(np.float32)
     _write_rgb32_exr(paths.ray_enter, enter_rgb)
     del enter_rgb
@@ -367,6 +389,7 @@ def export_lut(
     # the calibrated offset would be applied a second time.
     attributes: Dict[str, Any] = {
         "omni:lensdistortion:model": "lut",
+        "fthetaMaxFov": max_fov_deg(min_cos),
         "omni:lensdistortion:lut:nominalWidth": float(width),
         "omni:lensdistortion:lut:nominalHeight": float(height),
         "omni:lensdistortion:lut:opticalCenter": [width / 2.0, height / 2.0],

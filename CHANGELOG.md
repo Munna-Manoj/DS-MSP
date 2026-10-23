@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.17.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.17.0...v0.17.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **isaac-sim:** pixel-centre LUT maps and a full-field culling cone ([b5f68b2](https://github.com/Munna-Manoj/DS-MSP/commit/b5f68b27e8bd364e933bf2d9049f167c7637ecd5))
+
 ## [0.17.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.16.0...v0.17.0) (2026-10-08)
 
 
