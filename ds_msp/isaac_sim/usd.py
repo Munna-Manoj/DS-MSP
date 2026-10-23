@@ -31,6 +31,9 @@ def apply_lut_manifest(stage, camera_path: str, manifest_path: str | Path):
 
     attrs = manifest["isaac_sim"]["attributes"]
     prim.CreateAttribute("omni:lensdistortion:model", Sdf.ValueTypeNames.Token).Set("lut")
+    # RTX culls rays outside this cone (default 200 deg) for every non-pinhole camera.
+    prim.CreateAttribute("fthetaMaxFov", Sdf.ValueTypeNames.Float).Set(
+        float(attrs["fthetaMaxFov"]))
     prim.CreateAttribute(
         "omni:lensdistortion:lut:nominalWidth", Sdf.ValueTypeNames.Float
     ).Set(float(attrs["omni:lensdistortion:lut:nominalWidth"]))
