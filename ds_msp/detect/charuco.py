@@ -43,6 +43,7 @@ class BoardSpec:
     length_square: float          # marker-generation square length (e.g. 0.04)
     length_marker: float          # marker-generation marker length (e.g. 0.03)
     square_size: float            # metric spacing used for the 3-D points (e.g. 0.192)
+    id_offset: Optional[int] = None  # first marker id; None = cumulative over earlier specs
 
     @property
     def n_corners(self) -> int:
@@ -75,21 +76,25 @@ _SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01
 def _canonical_charuco_corners(
     corners: np.ndarray, *, opencv_version: str = cv2.__version__
 ) -> np.ndarray:
-    """Convert detector output to DS-MSP's OpenCV-4/MC-Calib pixel convention.
+    """Convert raw ``CharucoDetector`` output to DS-MSP's pixel-centre convention.
 
-    OpenCV 5.0.x reports ChArUco corners half a pixel lower in both coordinates than
-    OpenCV 4.x for the same image.  DS-MSP supports 5.0.x but stores one canonical
-    convention so detections remain interoperable across supported versions.  The
-    dependency ceiling excludes later 5.x releases until their convention is measured.
+    Integer pixel coordinates are pixel centres -- the convention of every camera model,
+    ``findChessboardCornersSB`` and ``cornerSubPix``. Measured against rendered truth
+    (5,699 corners, perspective + radial distortion + noise), OpenCV 4.x ChArUco corners sit
+    (+0.491, +0.490) px off it; OpenCV 5.0.x reports them half a pixel lower, i.e. centred.
+    So 4.x output is shifted by -0.5 and 5.0.x is kept. Later 5.x releases are excluded by
+    the dependency ceiling until their convention is measured; unknown versions raise.
     """
     try:
         major, minor = (int(part) for part in opencv_version.split(".", 2)[:2])
-    except (TypeError, ValueError):
-        return np.asarray(corners)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"cannot parse OpenCV version {opencv_version!r}") from exc
     out = np.asarray(corners)
+    if major == 4:
+        return out - np.asarray(0.5, dtype=out.dtype)
     if (major, minor) == (5, 0):
-        out = out + np.asarray(0.5, dtype=out.dtype)
-    return out
+        return out
+    raise ValueError(f"ChArUco pixel convention not measured for OpenCV {opencv_version}")
 
 
 def make_detectors(specs: List[BoardSpec], *, legacy: bool = True, tuned: bool = False):
@@ -108,6 +113,8 @@ def make_detectors(specs: List[BoardSpec], *, legacy: bool = True, tuned: bool =
     dictionary = cv2.aruco.getPredefinedDictionary(_DICT)
     detectors, offset = [], 0
     for spec in specs:
+        if spec.id_offset is not None:          # MC-Calib boards_index: physical board ids
+            offset = spec.id_offset
         board = _make_board(spec, dictionary, offset, legacy)
         if tuned:
             cp = cv2.aruco.CharucoParameters()
@@ -144,27 +151,67 @@ def single_board_object(spec: BoardSpec, object_id: int = 0) -> Object3D:
         pts_3d=xyz, pts_obj_2_board=np.c_[board_ids, corner_ids], pts_board_2_obj=b2o)
 
 
-def _frame_id_from_name(path: str) -> int:
-    """Read the trailing frame number, excluding camera digits in an earlier prefix.
+_TIMESTAMP_STEM = re.compile(r"\d{9,}[._]\d+$")          # e.g. ROS sec.nsec / sec_nsec
+_CAMERA_SUFFIX = re.compile(r"(?i)(?:cam|camera)[_-]?\d+$")
 
-    Numberless names are ambiguous and rejected. Capture filenames must end in a frame
-    index; timestamps/trigger association must be resolved by the caller beforehand.
+
+def _frame_id_from_name(path: str, pattern: Optional[str] = None) -> int:
+    """Read an image's frame number from its filename.
+
+    ``pattern`` (config ``frame_pattern``) is a regex searched in the file stem; its named
+    group ``frame`` (else its first group) must capture an integer. Without one, the trailing
+    number is used, and names where that is ambiguous are rejected rather than guessed: no
+    number, a ``sec.nsec`` timestamp (only the fraction would be read, so frames collide or
+    mis-associate), or a trailing camera token (``img_7_cam1`` would read the camera id).
+    Timestamp/trigger association beyond exact frame numbers must be resolved beforehand.
     """
     stem = os.path.splitext(os.path.basename(path))[0]
+    if pattern:
+        match = re.search(pattern, stem)
+        if match is None:
+            raise ValueError(f"image filename {path!r} does not match frame_pattern {pattern!r}")
+        token = match.group("frame") if "frame" in match.re.groupindex else match.group(1)
+        if token is None or not token.isdigit():
+            raise ValueError(f"frame_pattern {pattern!r} must capture an integer frame number; "
+                             f"got {token!r} from {path!r}")
+        return int(token)
+    if _TIMESTAMP_STEM.search(stem):
+        raise ValueError(f"image filename {path!r} looks like a timestamp; set frame_pattern "
+                         f"(or rename to frame numbers) so frames associate across cameras")
+    if _CAMERA_SUFFIX.search(stem):
+        raise ValueError(f"image filename {path!r} ends in a camera id, not a frame number; "
+                         f"set frame_pattern, e.g. '(?P<frame>\\d+)_cam'")
     match = re.search(r"(\d+)$", stem)
     if match is None:
         raise ValueError(f"image filename must end in a frame number: {path!r}")
     return int(match.group(1))
 
 
-def _validate_frame_names(paths):
-    """Fail before detection when two files in one camera map to the same frame."""
+def _validate_frame_names(paths, pattern: Optional[str] = None):
+    """Fail before detection when two files in one camera map to the same frame. Returns the
+    set of frame ids."""
     seen = {}
     for path in paths:
-        frame = _frame_id_from_name(path)
+        frame = _frame_id_from_name(path, pattern)
         if frame in seen:
             raise ValueError(f"duplicate frame {frame}: {seen[frame]!r} and {path!r}")
         seen[frame] = path
+    return set(seen)
+
+
+def _validate_frame_association(frames_by_cam: Dict[int, set]) -> None:
+    """A multi-camera capture must share frame ids between cameras -- rig extrinsics (and
+    hand-eye linking) only come from simultaneous views. None shared means the names do not
+    encode a common frame index; fail instead of calibrating cameras that never co-occur."""
+    cams = [c for c, f in frames_by_cam.items() if f]
+    if len(cams) < 2:
+        return
+    for i, a in enumerate(cams):
+        for b in cams[i + 1:]:
+            if frames_by_cam[a] & frames_by_cam[b]:
+                return
+    raise ValueError("no frame index is shared between any two cameras; check the image "
+                     "naming or set frame_pattern so simultaneous images get the same frame id")
 
 
 def detect_image(detectors, gray: np.ndarray, *, min_corners: int = 4, subpix: bool = False
@@ -191,9 +238,9 @@ def detect_image(detectors, gray: np.ndarray, *, min_corners: int = 4, subpix: b
             if (np.any(ids >= len(board.getChessboardCorners()))
                     or board.checkCharucoCornersCollinear(ids)):
                 continue
-        if subpix and len(c):
-            c = cv2.cornerSubPix(gray, c, (5, 5), (-1, -1), _SUBPIX_CRITERIA)
         c = _canonical_charuco_corners(c)
+        if subpix and len(c):                  # refines from the pixel-centre estimate
+            c = cv2.cornerSubPix(gray, c, (5, 5), (-1, -1), _SUBPIX_CRITERIA)
         h, w = gray.shape[:2]
         if (not np.isfinite(c).all() or np.any(c < 0)
                 or np.any(c[:, 0] >= w) or np.any(c[:, 1] >= h)
@@ -221,7 +268,8 @@ def _thread_detectors(specs: List[BoardSpec], legacy: bool):
     return d
 
 
-def _detect_one_image(cam_id: int, path: str, obj: Object3D, min_corners: int, detectors
+def _detect_one_image(cam_id: int, path: str, obj: Object3D, min_corners: int, detectors,
+                      frame_pattern: Optional[str] = None
                       ) -> Tuple[Optional[Tuple[int, int]], List[ObjectObs]]:
     """Detect every board in one image and map corners onto ``obj`` — the unit of work for
     both :func:`detect_folder` (sequential) and :func:`detect_rig` (thread-pooled, image-level
@@ -229,7 +277,7 @@ def _detect_one_image(cam_id: int, path: str, obj: Object3D, min_corners: int, d
     gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if gray is None:
         return None, []
-    frame_id = _frame_id_from_name(path)
+    frame_id = _frame_id_from_name(path, frame_pattern)
     out: List[ObjectObs] = []
     for board_id, corner_ids, pts in detect_image(detectors, gray, min_corners=min_corners):
         rows, uvs = [], []
@@ -247,8 +295,8 @@ def _detect_one_image(cam_id: int, path: str, obj: Object3D, min_corners: int, d
 
 def detect_folder(image_dir: str, specs: List[BoardSpec], obj: Object3D, cam_id: int, *,
                   legacy: bool = True, min_corners: int = 4, pattern: str = "*",
-                  progress_cb: Optional[Callable[[int, int, int, str], None]] = None
-                  ) -> List[ObjectObs]:
+                  progress_cb: Optional[Callable[[int, int, int, str], None]] = None,
+                  frame_pattern: Optional[str] = None) -> List[ObjectObs]:
     """Detect ChArUco corners over every image in ``image_dir`` for one camera, sequentially.
 
     Returns one :class:`ObjectObs` per (frame, board), with ``point_rows`` indexing
@@ -265,12 +313,12 @@ def detect_folder(image_dir: str, specs: List[BoardSpec], obj: Object3D, cam_id:
     files = sorted(f for f in glob.glob(os.path.join(image_dir, pattern))
                    if f.lower().endswith(_IMG_EXT))
     n = len(files)
-    _validate_frame_names(files)
+    _validate_frame_names(files, frame_pattern)
     obs: List[ObjectObs] = []
     for i, path in enumerate(files, 1):
         if progress_cb is not None:
             progress_cb(cam_id, i, n, path)
-        _, o = _detect_one_image(cam_id, path, obj, min_corners, detectors)
+        _, o = _detect_one_image(cam_id, path, obj, min_corners, detectors, frame_pattern)
         obs.extend(o)
     return obs
 
@@ -278,7 +326,7 @@ def detect_folder(image_dir: str, specs: List[BoardSpec], obj: Object3D, cam_id:
 def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: Object3D, *,
                cam_prefix: str = "Cam_", legacy: bool = True, min_corners: int = 4,
                progress_cb: Optional[Callable[[int, int, int, str], None]] = None,
-               workers: Optional[int] = None
+               workers: Optional[int] = None, frame_pattern: Optional[str] = None
                ) -> Tuple[List[ObjectObs], Dict[int, Tuple[int, int]]]:
     """Detect over ``<root_path>/<cam_prefix><cam+1:03d>/`` for every camera (MC-Calib's
     1-indexed layout). Returns ``(object_obs, img_size_per_cam)``.
@@ -313,11 +361,13 @@ def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: 
             cam_dirs[c] = d
 
     files_by_cam: Dict[int, List[str]] = {}
+    frames_by_cam: Dict[int, set] = {}
     for c, d in cam_dirs.items():
         files = sorted(f for f in glob.glob(os.path.join(d, "*")) if f.lower().endswith(_IMG_EXT))
         if files:
-            _validate_frame_names(files)
+            frames_by_cam[c] = _validate_frame_names(files, frame_pattern)
             files_by_cam[c] = files
+    _validate_frame_association(frames_by_cam)
     tasks: List[Tuple[int, str]] = []          # round-robin (cam_id, path) list, not camera-grouped
     i = 0
     while True:
@@ -337,7 +387,7 @@ def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: 
                 seen[c] += 1
                 progress_cb(c, seen[c], counts[c], path)
         detectors = _thread_detectors(specs, legacy)
-        return (c, *_detect_one_image(c, path, obj, min_corners, detectors))
+        return (c, *_detect_one_image(c, path, obj, min_corners, detectors, frame_pattern))
 
     n_workers = (os.cpu_count() or 4) if workers is None else workers
     if n_workers and n_workers > 1 and len(tasks) > 1:

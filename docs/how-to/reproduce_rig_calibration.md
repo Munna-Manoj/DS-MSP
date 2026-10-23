@@ -349,10 +349,13 @@ repeatability trials, uncertainty analysis, and physical ground-truth comparison
     result.
 
 **Capture identity and acceptance controls.** Image filenames must end with their frame number:
-`cam1_frame000007.png` and `cam2_frame000007.png` both identify frame 7. Numberless names,
-duplicate frame numbers within a camera, and mixed image sizes within a camera are rejected.
-This indexing contract does not establish exposure synchronization; prepare synchronized
-captures before calibration.
+`cam1_frame000007.png` and `cam2_frame000007.png` both identify frame 7. Otherwise set
+`frame_pattern`, a regex whose `frame` group captures the number, e.g.
+`frame_pattern: "img_(?P<frame>\\d+)_cam"` for `img_7_cam1.png`. Numberless names,
+timestamp-like names (`1697551234.123456.png`), names ending in a camera id, duplicate frame
+numbers within a camera, cameras that share no frame number, and mixed image sizes within a
+camera are rejected. This indexing contract does not establish exposure synchronization;
+prepare synchronized captures before calibration.
 
 Target point refinement is now disabled by default, including multi-board configurations.
 Set `refine_structure: "true"` explicitly to enable it. An optional `structure_prior_sigma`
@@ -362,6 +365,11 @@ specified in millimeters, `0.1` means 0.1 mm. Choose this from a justified geome
 it is not a hard displacement bound. Unconstrained refinement emits a warning because target
 motion can absorb detector or camera-model bias. Reference anchors are selected to be
 noncollinear.
+
+**Pixel convention.** Corners are stored with integer coordinates at pixel centres. OpenCV 4.x
+ChArUco corners are shifted by −0.5 px to match (5.0 already matches), so principal points are
+0.5 px lower than in earlier releases. Keypoint caches written by earlier DS-MSP on OpenCV 4.x
+need `keypoints_pixel_convention: "opencv4_charuco"`, or re-detect.
 
 `audit_gate: "refuse"` runs the observability check before any calibration parameters are
 exported. To require independent physical validation as well, supply `accuracy_profile_path`
