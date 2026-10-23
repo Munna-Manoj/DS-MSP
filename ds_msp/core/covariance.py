@@ -83,6 +83,22 @@ def robust_weight_derivative(s: np.ndarray, kernel: str, scale: float,
     raise ValueError(f"kernel must be one of {VALID_KERNELS!r}, got {kernel!r}")
 
 
+def psd_curvature_derivative(s: np.ndarray, om: np.ndarray, omp: np.ndarray) -> np.ndarray:
+    r"""``ω′`` clamped so every block's bread ``J_iᵀ(ω_i I + 2ω′_i r_i r_iᵀ)J_i`` stays PSD.
+
+    Along ``r_i`` that block's curvature is ``ω + 2ω′s``. A redescending kernel makes it
+    negative for residuals beyond the kernel scale (Cauchy: ``(1 − s/c²)/(1 + s/c²)²``), and
+    frames dominated by such outliers make the bread indefinite -- on MC-Calib Seq03 75 of
+    1207 frame blocks were, which broke the Schur inverse. Negative curvature is clamped to
+    zero (``ω′ ≥ −ω/(2s)``), as in Triggs et al. (2000) §4.3: outliers then carry no
+    curvature along their residual, inliers keep the exact term. (Ceres' loss corrector
+    goes further and drops the term whenever ``ρ″ ≤ 0``.)
+    """
+    s = np.asarray(s, float)
+    floor = -np.asarray(om, float) / (2.0 * np.maximum(s, np.finfo(float).tiny))
+    return np.maximum(np.asarray(omp, float), floor)
+
+
 def _blocks(J: np.ndarray, r: np.ndarray, weights: np.ndarray | None, kernel: str, scale: float,
             alpha: float, block: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
                                                 np.ndarray]:
@@ -126,6 +142,8 @@ def sandwich_covariance(J: np.ndarray, r: np.ndarray,
 
         G_i = w_i [ ω_i·J_iᵀJ_i + 2ω′_i·(J_iᵀr_i)(J_iᵀr_i)ᵀ ]
 
+    with ``ω′`` clamped by :func:`psd_curvature_derivative` so no block is indefinite.
+
     Meat (empirical score covariance, MacKinnon–White HC1 dof correction)::
 
         M_i = (w_i ω_i)²·(J_iᵀr_i)(J_iᵀr_i)ᵀ,   M ← M · m/(m − p)
@@ -134,7 +152,7 @@ def sandwich_covariance(J: np.ndarray, r: np.ndarray,
     """
     Jp, rp, s, w, om = _blocks(J, r, weights, kernel, scale, alpha, block)
     p = J.shape[1]
-    omp = robust_weight_derivative(s, kernel, scale, alpha)
+    omp = psd_curvature_derivative(s, om, robust_weight_derivative(s, kernel, scale, alpha))
     a = np.einsum("nkp,nk->np", Jp, rp)                    # J_iᵀ r_i  (n, p)
     JtJ = np.einsum("nki,nkj->nij", Jp, Jp)                # (n, p, p)
     G = (np.einsum("n,nij->ij", w * om, JtJ)
@@ -210,7 +228,7 @@ def clustered_sandwich_covariance(J: np.ndarray, r: np.ndarray, cluster_id: np.n
     Jp, rp, s, w, om = _blocks(J, r, weights, kernel, scale, alpha, block)
     p = J.shape[1]
     n = Jp.shape[0]
-    omp = robust_weight_derivative(s, kernel, scale, alpha)
+    omp = psd_curvature_derivative(s, om, robust_weight_derivative(s, kernel, scale, alpha))
     a = np.einsum("nkp,nk->np", Jp, rp)                    # J_iᵀ r_i  (n, p)
     JtJ = np.einsum("nki,nkj->nij", Jp, Jp)
     G = (np.einsum("n,nij->ij", w * om, JtJ)

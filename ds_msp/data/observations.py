@@ -159,3 +159,4 @@ class RigState:
     object_poses: Dict[Tuple[int, int], np.ndarray]     # (object_id, frame_id) -> T_g_o
     objects: Dict[int, Object3D]                        # holds T_co_b board poses
     img_size: Dict[int, Tuple[int, int]] = field(default_factory=dict)  # cam_id -> (w, h)
+    rejected: List[dict] = field(default_factory=list)  # observations hard-dropped, with reason

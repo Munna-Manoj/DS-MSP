@@ -20,11 +20,16 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..core.covariance import clustered_sandwich_covariance, pixel_whiteners
+from ..core.covariance import (
+    clustered_sandwich_covariance,
+    pixel_whiteners,
+    psd_curvature_derivative,
+    robust_weight_derivative,
+)
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
 from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
-from ..core.robust import auto_kernel_scale
+from ..core.robust import auto_kernel_scale, robust_weight
 from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .types import ObjectObs, RigState
 
@@ -56,7 +61,70 @@ def _rig_from_state(rig: RigState, state: dict) -> RigState:
         T[:3, 3] = state["obj_t"][k]
         out.object_poses[k] = T
     out.cameras = {c: type(rig.cameras[c]).from_params(state["intr"][c]) for c in rig.cameras}
+    if state.get("board_base"):
+        out.objects = dict(rig.objects)
+        for oid, base in state["board_base"].items():
+            obj = copy.copy(rig.objects[oid])
+            obj.pts_3d = _board_points(base, state, oid)
+            obj.T_co_b = dict(rig.objects[oid].T_co_b)
+            for b in base["movable"]:
+                R, t = state["board_R"][(oid, b)], state["board_t"][(oid, b)]
+                if b in obj.T_co_b:
+                    D = np.eye(4)
+                    D[:3, :3] = R
+                    D[:3, 3] = base["cent"][b] + t - R @ base["cent"][b]
+                    obj.T_co_b[b] = D @ rig.objects[oid].T_co_b[b]
+            out.objects[oid] = obj
     return out
+
+
+def _board_bases(rig: RigState, bend: bool = False) -> dict:
+    """Per fused object: starting points plus, per board, its rows, centroid and in-plane
+    frame. Each non-reference board moves rigidly about its centroid,
+    ``X = R_b (X0 - c_b + n_b w_b) + c_b + t_b``; the reference board holds the gauge. With
+    ``bend``, every board also gets an out-of-plane quadratic bow
+    ``w_b = k_b · [u², v², uv]`` (``u, v`` in-plane, normalised to the board half-extent, each
+    term mean-centred so a bow cannot shift the board along its normal)."""
+    bases = {}
+    for oid, obj in rig.objects.items():
+        rows_of: Dict[int, List[int]] = {}
+        for i, (b, _c) in enumerate(obj.pts_obj_2_board):
+            rows_of.setdefault(int(b), []).append(i)
+        movable = [b for b in sorted(rows_of) if b != int(obj.ref_board_id)]
+        bent = sorted(rows_of) if bend else []
+        if not movable and not bent:
+            continue
+        P0 = np.asarray(obj.pts_3d, float).copy()
+        base = {"P0": P0, "movable": movable, "bent": bent, "boards": sorted(rows_of),
+                "rows": {b: np.asarray(r) for b, r in rows_of.items()},
+                "cent": {b: P0[r].mean(0) for b, r in rows_of.items()},
+                "normal": {}, "basis": np.zeros((len(P0), 3)),
+                "board_of_row": np.asarray(obj.pts_obj_2_board, int)[:, 0]}
+        for b in bent:
+            r = base["rows"][b]
+            q = P0[r] - base["cent"][b]
+            _u, _s, Vt = np.linalg.svd(q, full_matrices=False)
+            uv = q @ Vt[:2].T
+            uv /= max(float(np.abs(uv).max()), 1e-12)
+            F = np.c_[uv[:, 0] ** 2, uv[:, 1] ** 2, uv[:, 0] * uv[:, 1]]
+            base["basis"][r] = F - F.mean(0)
+            base["normal"][b] = Vt[2]
+        bases[oid] = base
+    return bases
+
+
+def _board_points(base: dict, state: dict, oid: int) -> np.ndarray:
+    P = base["P0"].copy()
+    for b in base["boards"]:
+        r, c = base["rows"][b], base["cent"][b]
+        q = base["P0"][r] - c
+        if b in base["normal"]:
+            q = q + np.outer(base["basis"][r] @ state["board_k"][(oid, b)], base["normal"][b])
+        if (oid, b) in state.get("board_R", {}):
+            P[r] = q @ state["board_R"][(oid, b)].T + c + state["board_t"][(oid, b)]
+        else:
+            P[r] = q + c
+    return P
 
 
 def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
@@ -305,7 +373,36 @@ def parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
 
     Not yet wired into the HTML report (``report.py``) — that is tracked as a fast-follow;
     this function is the complete, tested computation a report layer can call.
+
+    Unless ``fix_extrinsics``, this is computed by :func:`shared_covariance` -- the same
+    estimator marginalised through the Schur structure, exact, without the dense
+    Jacobian over every frame pose and with a well-conditioned (Jacobi-scaled) inverse.
     """
+    if not fix_extrinsics:
+        unc = shared_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics, kernel=kernel,
+                                scale=scale, small_cluster_correction=small_cluster_correction)
+        std = np.sqrt(np.maximum(np.diag(unc["cov"]), 0.0))
+        Pn = {c: len(type(rig.cameras[c]).param_names) for c in rig.cameras}
+        cams = {}
+        for c in sorted(rig.cameras):
+            col, icol = unc["cam_col"].get(c), unc["intr_col"].get(c)
+            cams[c] = {"extrinsic_std": None if col is None else std[col:col + 6],
+                       "intrinsic_std": None if icol is None else std[icol:icol + Pn[c]]}
+        K = len(std) + 6 * len(rig.object_poses)
+        return {"n_clusters": unc["n_clusters"], "n_blocks": unc["n_blocks"], "K": K,
+                "kernel": kernel, "scale": unc["scale"], "clustered": cams}
+    return _dense_parameter_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                                       fix_extrinsics=fix_extrinsics, kernel=kernel,
+                                       scale=scale,
+                                       small_cluster_correction=small_cluster_correction)
+
+
+def _dense_parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
+                                fix_intrinsics: bool, fix_extrinsics: bool, kernel: str,
+                                scale: Optional[float], small_cluster_correction: bool) -> Dict:
+    """Dense-Jacobian form of :func:`parameter_covariance` (every frame pose as a column);
+    used for ``fix_extrinsics`` and as the reference :func:`shared_covariance` is tested
+    against."""
     state0, residual, jacobian, _retract, K = build_problem(
         rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
     r = np.asarray(residual(state0), float)
@@ -349,6 +446,175 @@ def parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
            "clustered": _cameras(cov_clu)}
 
 
+def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
+                      fix_intrinsics: bool = True, refine_boards: bool = False,
+                      bend_boards: bool = False, kernel: str = "cauchy",
+                      scale: Optional[float] = None,
+                      small_cluster_correction: bool = True) -> Dict:
+    r"""Frame-clustered M-estimator sandwich covariance of the **shared** rig parameters
+    (camera extrinsics, intrinsics, board poses/bows), computed through the Schur structure.
+
+    Exactly :func:`ds_msp.core.covariance.clustered_sandwich_covariance` (same bread with the
+    Triggs curvature term, same cluster = frame pooled across cameras, same small-cluster
+    correction) marginalised onto the shared block -- without forming the dense Jacobian over
+    every frame pose, which :func:`parameter_covariance` does and which does not fit real rigs.
+    With bread ``G`` partitioned into shared ``s`` and per-frame-pose ``k`` blocks
+    (``G_kk`` 6x6, block diagonal) and per-cluster score ``Ψ_g``:
+
+    ``S = G_ss − Σ_k G_sk G_kk⁻¹ G_ks``,  ``v_g = Ψ_g,s − Σ_{k∈g} G_sk G_kk⁻¹ Ψ_g,k``,
+    ``Cov_ss = c · S⁻¹ (Σ_g v_g v_gᵀ) S⁻¹``.
+
+    Frame poses (and, with ``refine_boards``/``bend_boards``, board poses/bows) are nuisance
+    parameters marginalised in. Free per-point structure is not modelled. Returns
+    ``{"cov", "cam_col", "intr_col", "n_clusters", "n_blocks", "scale", "kernel"}`` with the
+    shared column layout of :func:`build_schur_problem` (extrinsic tangent ``[δω rad, δt]``,
+    right-multiplied, reference camera gauge-fixed)."""
+    state, _residual, linearize, _retract, shared_dim, n_groups = build_schur_problem(
+        rig, object_obs, fix_intrinsics=fix_intrinsics, refine_boards=refine_boards,
+        bend_boards=bend_boards)
+    groups = sorted(rig.object_poses)
+    r_list, A_list, B_list = linearize(state)
+    if scale is None:
+        norms = np.concatenate([np.linalg.norm(r.reshape(-1, 2), axis=1) for r in r_list])
+        scale = auto_kernel_scale(norms, kernel) if kernel != "none" else 1.0
+
+    p_s = shared_dim
+    G_ss = np.zeros((p_s, p_s))
+    S = np.zeros((p_s, p_s))
+    v_by_cluster: Dict[int, np.ndarray] = {}
+    n_blocks = 0
+    for k, r, A, B in zip(groups, r_list, A_list, B_list):
+        n = len(r) // 2
+        n_blocks += n
+        rp = r.reshape(n, 2)
+        Ap = A.reshape(n, 2, p_s)
+        Bp = B.reshape(n, 2, 6)
+        sq = np.einsum("nk,nk->n", rp, rp)
+        om = robust_weight(sq, kernel, scale)
+        omp = psd_curvature_derivative(sq, om, robust_weight_derivative(sq, kernel, scale))
+        a_s = np.einsum("nkp,nk->np", Ap, rp)                  # J_iᵀ r_i, shared part
+        a_l = np.einsum("nkp,nk->np", Bp, rp)                  # J_iᵀ r_i, local part
+        Gss = (np.einsum("n,nki,nkj->ij", om, Ap, Ap)
+               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_s))
+        Gsl = (np.einsum("n,nki,nkj->ij", om, Ap, Bp)
+               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_l))
+        Gll = (np.einsum("n,nki,nkj->ij", om, Bp, Bp)
+               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_l, a_l))
+        Gll = 0.5 * (Gll + Gll.T) + 1e-12 * np.eye(6)
+        try:
+            Gll_inv = np.linalg.inv(Gll)
+        except np.linalg.LinAlgError:                      # a frame pose with a null direction
+            Gll_inv = np.linalg.pinv(Gll, hermitian=True)
+        G_ss += Gss
+        S += Gss - Gsl @ Gll_inv @ Gsl.T
+        psi_s = om @ a_s                                       # Σ_i ω_i J_iᵀ r_i
+        psi_l = om @ a_l
+        v = psi_s - Gsl @ (Gll_inv @ psi_l)
+        frame = k[1]
+        v_by_cluster[frame] = v_by_cluster.get(frame, 0.0) + v
+    V = np.array(list(v_by_cluster.values())) if v_by_cluster else np.zeros((0, p_s))
+    M = V.T @ V
+    n_clusters = len(v_by_cluster)
+    if small_cluster_correction and n_clusters > 1:
+        p_total = p_s + 6 * n_groups
+        M *= (n_clusters / (n_clusters - 1.0)) * ((n_blocks - 1.0) / max(n_blocks - p_total, 1.0))
+    S = 0.5 * (S + S.T)
+    cov, identifiable = _sandwich_from_schur(S, M)
+    cam_col, intr_col, _Pn = _report_column_layout(rig, fix_intrinsics=fix_intrinsics,
+                                                   fix_extrinsics=False)
+    # _report_column_layout interleaves frame-pose columns before intrinsics; the shared
+    # Schur layout has them removed, so intrinsic columns shift down by 6 per frame pose.
+    intr_col = {c: col - 6 * len(rig.object_poses) for c, col in intr_col.items()}
+    return {"cov": cov, "identifiable": identifiable, "cam_col": cam_col,
+            "intr_col": intr_col, "n_clusters": n_clusters, "n_blocks": n_blocks,
+            "scale": float(scale), "kernel": kernel}
+
+
+def _sandwich_from_schur(S: np.ndarray, M: np.ndarray) -> Tuple[np.ndarray, bool]:
+    """``S⁻¹ M S⁻¹`` through a Jacobi-scaled inverse, failing closed.
+
+    No jitter: ``S`` mixes pixel-scale focal columns with radian and distortion columns
+    (cond ~1e11 on a real rig), where even a 1e-12 trace-relative Tikhonov term perturbs the
+    small-eigenvalue directions by percents. ``S`` that is non-finite, not positive definite
+    after equilibration, or numerically singular leaves the shared parameters unidentified:
+    every entry is returned as ``inf`` with ``identifiable=False`` instead of overflowing
+    into NaN."""
+    p = S.shape[0]
+    unidentified = np.full((p, p), np.inf)
+    d = np.diag(S)
+    if not (np.isfinite(S).all() and np.isfinite(M).all()) or np.any(d <= 0.0):
+        return unidentified, False
+    D = 1.0 / np.sqrt(d)
+    Se = D[:, None] * S * D[None, :]
+    ev = np.linalg.eigvalsh(Se)
+    if ev[0] <= p * np.finfo(float).eps * ev[-1]:
+        return unidentified, False
+    S_inv = D[:, None] * np.linalg.inv(Se) * D[None, :]
+    cov = S_inv @ M @ S_inv.T
+    cov = 0.5 * (cov + cov.T)
+    if not np.isfinite(cov).all():
+        return unidentified, False
+    return cov, True
+
+
+def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str, float]]:
+    """Propagate :func:`shared_covariance` to every camera pair ``(a, b)``: 1-sigma relative
+    rotation (deg) and camera-``b``-centre-in-``a`` (scene length units), each the square
+    root of the largest eigenvalue of its 3x3 covariance (worst direction), plus the RMS
+    over directions. Propagation is a central-difference Jacobian of the relative pose in
+    the extrinsic tangents (cross-covariance between the two cameras included)."""
+    cov, cam_col = unc["cov"], unc["cam_col"]
+    cams = sorted(rig.T_c_g)
+
+    def rel(Ta, Tb):
+        T = Tb @ np.linalg.inv(Ta)                      # a -> b
+        return T[:3, :3], -T[:3, :3].T @ T[:3, 3]       # rotation, centre of b in a
+
+    def perturb(T, d):
+        out = T.copy()
+        out[:3, :3] = T[:3, :3] @ so3_exp(d[:3])
+        out[:3, 3] = T[:3, 3] + d[3:]
+        return out
+
+    out = {}
+    eps = 1e-6
+    for i, a in enumerate(cams):
+        for b in cams[i + 1:]:
+            cols = [cam_col[c] + j for c in (a, b) if c in cam_col for j in range(6)]
+            if not cols:
+                continue
+            R0, C0 = rel(rig.T_c_g[a], rig.T_c_g[b])
+            Jf = np.zeros((6, len(cols)))
+            for m, col in enumerate(cols):
+                for sign in (1.0, -1.0):
+                    d = {c: np.zeros(6) for c in (a, b)}
+                    for c in (a, b):
+                        if c in cam_col and cam_col[c] <= col < cam_col[c] + 6:
+                            d[c][col - cam_col[c]] = sign * eps
+                    R, C = rel(perturb(rig.T_c_g[a], d[a]), perturb(rig.T_c_g[b], d[b]))
+                    w = R0.T @ R
+                    dw = 0.5 * np.array([w[2, 1] - w[1, 2], w[0, 2] - w[2, 0], w[1, 0] - w[0, 1]])
+                    Jf[:, m] += sign * np.r_[dw, C - C0] / (2 * eps)
+            block = cov[np.ix_(cols, cols)]
+            P = Jf @ block @ Jf.T if np.isfinite(block).all() else None
+            if P is None or not np.isfinite(P).all():
+                out[(a, b)] = {"rotation_sigma_deg": np.inf, "rotation_sigma_rms_deg": np.inf,
+                               "centre_sigma": np.inf, "centre_sigma_rms": np.inf,
+                               "covariance": None, "identifiable": False}
+                continue
+            ev_r = np.linalg.eigvalsh(P[:3, :3])
+            ev_c = np.linalg.eigvalsh(P[3:, 3:])
+            out[(a, b)] = {
+                "rotation_sigma_deg": float(np.degrees(np.sqrt(max(ev_r[-1], 0.0)))),
+                "rotation_sigma_rms_deg": float(np.degrees(np.sqrt(max(ev_r.sum(), 0.0) / 3))),
+                "centre_sigma": float(np.sqrt(max(ev_c[-1], 0.0))),
+                "centre_sigma_rms": float(np.sqrt(max(ev_c.sum(), 0.0) / 3)),
+                "covariance": P.tolist(),
+                "identifiable": True,
+            }
+    return out
+
+
 def _obs_blocks(model, R_cam, R_obj, Xo, Xg, Xc, pts_2d, want_intr):
     """Per-observation residual + Jacobian blocks, the single source of the BA chain
     (board baked into Xo): returns ``(r (2N,), Jw_o, Jt_o (2N,3), Jw_c, Jt_c (2N,3),
@@ -371,7 +637,8 @@ def _obs_blocks(model, R_cam, R_obj, Xo, Xg, Xc, pts_2d, want_intr):
 
 
 def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
-                        fix_intrinsics: bool = True, fix_extrinsics: bool = False):
+                        fix_intrinsics: bool = True, fix_extrinsics: bool = False,
+                        refine_boards: bool = False, bend_boards: bool = False):
     """Assemble the rig BA for :func:`core.optimize.schur_lm`, mapping the **per-frame
     object poses to the eliminated block-diagonal ``local`` blocks** and
     ``{camera extrinsics, intrinsics}`` to the ``shared`` block.
@@ -381,6 +648,13 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     eliminate every 6-DoF object pose with a 6×6 inverse, solve the small shared system,
     back-substitute. This is the sparse analogue of the dense :func:`build_problem` and
     the source of the speed-up on rigs with many frames (v-slam Ch.8 / lio-slam SMW).
+
+    ``refine_boards=True`` adds each non-reference board's rigid 6-DOF pose inside its fused
+    object to the shared block (tangent ``[δω, δt]`` about the board centroid, left-multiplied:
+    ``∂X_o/∂ω = -[R_b(X0 - c_b)]_×``, ``∂X_o/∂t = I``). Board shape is held; this refines the
+    inter-board poses :func:`~.object3d.build_objects` seeds from averaged PnP jointly with the
+    rig instead of freezing them. ``bend_boards=True`` adds a 3-parameter out-of-plane quadratic
+    bow per board (``∂X_o/∂k = R_b n_b [u², v², uv]``) for physically warped targets.
 
     Returns ``(state0, residual, linearize, retract, shared_dim, n_groups)``.
     """
@@ -399,6 +673,15 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         for c in sorted(rig.cameras):
             intr_col[c] = col
             col += Pn[c]
+    bases = _board_bases(rig, bend=bend_boards) if (refine_boards or bend_boards) else {}
+    board_col, bend_col = {}, {}
+    for oid in sorted(bases):
+        for b in (bases[oid]["movable"] if refine_boards else []):
+            board_col[(oid, b)] = col
+            col += 6
+        for b in bases[oid]["bent"]:
+            bend_col[(oid, b)] = col
+            col += 3
     shared_dim = col
 
     # groups = object poses; gather each group's observations once
@@ -414,6 +697,12 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     def _models(state):
         return {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
 
+    def _object_points(state):
+        return {oid: _board_points(base, state, oid) for oid, base in bases.items()}
+
+    def _xo(pts, o, Xo):
+        return pts[o.object_id][o.point_rows] if o.object_id in pts else Xo
+
     def _xc(state, o, Xo, key):
         Xg = (state["obj_R"][key] @ Xo.T).T + state["obj_t"][key]
         Xc = (state["cam_R"][o.cam_id] @ Xg.T).T + state["cam_t"][o.cam_id]
@@ -422,10 +711,11 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     def residual(state):
         """Stacked reprojection residual, grouped by object pose (frame), for :func:`core.optimize.schur_lm`."""
         mc = _models(state)
+        pts = _object_points(state)
         out = []
         for k in groups:
             for o, Xo in gobs[k]:
-                _, Xc = _xc(state, o, Xo, k)
+                _, Xc = _xc(state, o, _xo(pts, o, Xo), k)
                 uv, valid = mc[o.cam_id].project(Xc)
                 d = np.zeros_like(o.pts_2d)
                 d[valid] = uv[valid] - o.pts_2d[valid]
@@ -444,12 +734,14 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         group's own 6-DoF local (object-pose) block.
         """
         mc = _models(state)
+        pts = _object_points(state)
         r_list, A_list, B_list = [], [], []
         for k in groups:
             R_obj = state["obj_R"][k]
             rs, As, Bs = [], [], []
             for o, Xo in gobs[k]:
                 cam = o.cam_id
+                Xo = _xo(pts, o, Xo)
                 Xg, Xc = _xc(state, o, Xo, k)
                 r, Jw_o, Jt_o, Jw_c, Jt_c, Jpar = _obs_blocks(
                     mc[cam], state["cam_R"][cam], R_obj, Xo, Xg, Xc, o.pts_2d,
@@ -463,6 +755,8 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 if not fix_intrinsics:
                     ic = intr_col[cam]
                     A[:, ic:ic + Pn[cam]] = Jpar
+                if o.object_id in bases:
+                    _add_board_columns(A, mc[cam], state, o, Xo, Xc, R_obj)
                 B = np.empty((m, 6))
                 B[:, :3] = Jw_o
                 B[:, 3:] = Jt_o
@@ -500,9 +794,52 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         for i, k in enumerate(groups):
             s["obj_R"][k] = state["obj_R"][k] @ so3_exp(d_local[i, :3])
             s["obj_t"][k] = state["obj_t"][k] + d_local[i, 3:]
+        if board_col:
+            s["board_R"], s["board_t"] = dict(state["board_R"]), dict(state["board_t"])
+            for key, o in board_col.items():
+                s["board_R"][key] = so3_exp(d_shared[o:o + 3]) @ state["board_R"][key]
+                s["board_t"][key] = state["board_t"][key] + d_shared[o + 3:o + 6]
+        if bend_col:
+            s["board_k"] = dict(state["board_k"])
+            for key, o in bend_col.items():
+                s["board_k"][key] = state["board_k"][key] + d_shared[o:o + 3]
         return s
 
-    return _state_from_rig(rig), residual, linearize, retract, shared_dim, n_groups
+    def _add_board_columns(A, model, state, o, Xo, Xc, R_obj):
+        """Board-pose columns of one observation: ``∂uv/∂X_o · R_cam R_obj · [-[q]_× | I]``
+        with ``q = X_o - c_b - t_b`` the board-centred, already-rotated point."""
+        base = bases[o.object_id]
+        _uv, J_point, _Jp, valid = model.project_jacobian(Xc)
+        M = state["cam_R"][o.cam_id] @ R_obj
+        Jx = np.einsum('nij,jk->nik', J_point * valid[:, None, None], M)    # (n,2,3)
+        bids = base["board_of_row"][o.point_rows]
+        for b in base["boards"]:
+            key = (o.object_id, b)
+            if key not in board_col and key not in bend_col:
+                continue
+            m = np.where(bids == b)[0]
+            if not len(m):
+                continue
+            rows2 = (2 * m[:, None] + np.arange(2)).ravel()
+            R = state["board_R"][key] if key in board_col else np.eye(3)
+            if key in board_col:
+                q = Xo[m] - base["cent"][b] - state["board_t"][key]
+                cb = board_col[key]
+                A[rows2, cb:cb + 3] = -np.einsum('nij,njk->nik', Jx[m], _skew_batch(q)).reshape(-1, 3)
+                A[rows2, cb + 3:cb + 6] = Jx[m].reshape(-1, 3)
+            if key in bend_col:
+                ck = bend_col[key]
+                F = base["basis"][o.point_rows[m]]
+                A[rows2, ck:ck + 3] = np.einsum('nij,j,nk->nik', Jx[m], R @ base["normal"][b],
+                                                F).reshape(-1, 3)
+
+    state0 = _state_from_rig(rig)
+    if bases:
+        state0["board_R"] = {key: np.eye(3) for key in board_col}
+        state0["board_t"] = {key: np.zeros(3) for key in board_col}
+        state0["board_k"] = {key: np.zeros(3) for key in bend_col}
+        state0["board_base"] = bases
+    return state0, residual, linearize, retract, shared_dim, n_groups
 
 
 def refine(rig: RigState, object_obs: List[ObjectObs], *,
@@ -510,8 +847,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
            robust_kernel: str = "huber", robust_scale="auto", gnc_iters: int = 0,
            gnc_start: float = 0.0, noise_bound: Optional[float] = None,
            verbose: bool = False, sparse: bool = True,
-           residual_mode: str = "pixel",
-           on_iter=None) -> RigState:
+           residual_mode: str = "pixel", refine_boards: bool = False,
+           bend_boards: bool = False, on_iter=None) -> RigState:
     """One BA pass. Returns a refined copy of ``rig``.
 
     ``fix_intrinsics=True`` reproduces ``refineCameraGroupAndObjects`` (poses only);
@@ -534,6 +871,10 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     recovers **past 50%** gross-outlier contamination, and returns a hard inlier set. When set,
     ``robust_kernel``/``robust_scale``/``gnc_*`` are ignored.
 
+    ``refine_boards=True`` also refines each non-reference board's rigid pose inside every
+    fused multi-board object, and ``bend_boards=True`` a quadratic out-of-plane bow per board
+    (see :func:`build_schur_problem`); sparse pixel path only.
+
     ``sparse=True`` (default) Schur-eliminates the per-frame object poses
     (:func:`build_schur_problem` + :func:`core.optimize.schur_lm`); ``sparse=False`` uses
     the dense solver (kept for tests).
@@ -551,6 +892,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
          on_iter(it, max_iter, rms, cost, _rig_from_state(rig, state)))
         if on_iter is not None else None)
     barc = None if noise_bound is None else 3.03 * float(noise_bound)   # 2-DoF 99% χ² band
+    if (refine_boards or bend_boards) and (residual_mode != "pixel" or not sparse):
+        raise ValueError("refine_boards/bend_boards require the sparse pixel-residual solver")
     if residual_mode == "angular":
         # The bearing (angular) residual is the model-agnostic, pinhole/fisheye-uniform error:
         # compare predicted and observed unit rays with a full-sphere chordal residual.
@@ -570,7 +913,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         return _rig_from_state(rig, res.state)
     if sparse:
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
-            rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
+            rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics,
+            refine_boards=refine_boards, bend_boards=bend_boards)
         if shared_dim == 0 or n_groups == 0:           # nothing shared to solve -> dense
             return refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                           fix_extrinsics=fix_extrinsics, max_iter=max_iter,
@@ -680,8 +1024,8 @@ def _structure_anchors(points: np.ndarray, rows) -> set:
 
 def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
                             free_rows=None, iters: int = 10, robust_scale: float = 1.5,
-                            prior_sigma: Optional[float] = None, prior_points=None
-                            ) -> RigState:
+                            prior_sigma: Optional[float] = None, prior_points=None,
+                            pixel_sigma: Optional[float] = None) -> RigState:
     """Refine the fused object's 3-D point positions (MC-Calib's ``refineObject``).
 
     With the camera intrinsics, extrinsics and per-frame object poses held fixed, each free
@@ -697,6 +1041,10 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     boards) is free. ``prior_sigma`` adds an isotropic Gaussian prior in target length units;
     ``prior_points`` can retain the original geometry across repeated calls. Without a prior,
     movement can absorb camera/detector bias and does not establish physical target shape.
+    The prior is weighted against the reprojection term at the corner noise ``pixel_sigma``
+    (whitened units when observations carry covariances; default: a MAD estimate from the
+    current residuals), i.e. the MAP weight ``σ_px² / σ_target²`` -- so ``prior_sigma`` means
+    the same length whatever the detector noise.
     Returns a refined copy of ``rig``."""
     obj = rig.objects[next(iter(rig.objects))] if rig.objects else None
     if obj is None:
@@ -743,6 +1091,11 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     if F == 0 or not blocks:
         return out
     X = pts[free_sorted].astype(float).copy()       # (F,3) free points, working copy
+    prior_w = 0.0
+    if prior_sigma is not None:
+        if pixel_sigma is None:
+            pixel_sigma = _residual_sigma(rig, blocks, X)
+        prior_w = (float(pixel_sigma) / float(prior_sigma)) ** 2
     for _ in range(iters):
         H = np.zeros((F, 3, 3))
         g = np.zeros((F, 3))
@@ -760,9 +1113,9 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
             w = _robust_w(np.einsum('ni,ni->n', r, r), robust_scale) * valid.astype(float)
             np.add.at(H, slots, w[:, None, None] * np.einsum('nij,nik->njk', J, J))
             np.add.at(g, slots, w[:, None] * np.einsum('nij,ni->nj', J, r))
-        if prior_sigma is not None:
-            H += np.eye(3)[None] / prior_sigma ** 2
-            g += (X - prior[free_sorted]) / prior_sigma ** 2
+        if prior_w:
+            H += prior_w * np.eye(3)[None]
+            g += prior_w * (X - prior[free_sorted])
         H += 1e-9 * np.eye(3)[None]
         try:
             dX = np.linalg.solve(H, -g[..., None])[..., 0]      # (F,3) all points at once
@@ -777,6 +1130,25 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
     out.objects = dict(rig.objects)
     out.objects[obj.object_id] = new_obj
     return out
+
+
+def _residual_sigma(rig: RigState, blocks, X: np.ndarray) -> float:
+    """Robust per-coordinate corner-noise σ (MAD) of the whitened residuals of the free points."""
+    comps = []
+    for cam, key, slots, _gidx, uv, W in blocks:
+        Tcg, Tgo = rig.T_c_g[cam], rig.object_poses[key]
+        M = Tcg[:3, :3] @ Tgo[:3, :3]
+        t = Tcg[:3, :3] @ Tgo[:3, 3] + Tcg[:3, 3]
+        uvp, valid = rig.cameras[cam].project(X[slots] @ M.T + t)
+        r = uvp - uv
+        if W is not None:
+            r = np.einsum('nij,nj->ni', W, r)
+        comps.append(r[valid].ravel())
+    r = np.concatenate(comps) if comps else np.zeros(0)
+    r = r[np.isfinite(r)]
+    if not len(r):
+        return 1.0
+    return max(float(1.4826 * np.median(np.abs(r - np.median(r)))), 1e-6)
 
 
 def _per_obs_errors(rig: RigState, object_obs: List[ObjectObs]) -> Dict[int, np.ndarray]:

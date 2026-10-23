@@ -357,19 +357,28 @@ numbers within a camera, cameras that share no frame number, and mixed image siz
 camera are rejected. This indexing contract does not establish exposure synchronization;
 prepare synchronized captures before calibration.
 
-Target point refinement is now disabled by default, including multi-board configurations.
-Set `refine_structure: "true"` explicitly to enable it. An optional `structure_prior_sigma`
-sets an isotropic Gaussian prior on target-point displacement in the target's length units;
-it remains tied to the original reconstructed geometry across refinement rounds. For a target
-specified in millimeters, `0.1` means 0.1 mm. Choose this from a justified geometry uncertainty;
-it is not a hard displacement bound. Unconstrained refinement emits a warning because target
-motion can absorb detector or camera-model bias. Reference anchors are selected to be
-noncollinear.
+**Multi-board targets.** `structure_mode: "rigid"` (default) refines every board's pose inside
+the target jointly with the cameras, keeping each board's printed shape. Use `"bend"` for a
+target that may bow (foam or double-sided boards): it adds a three-parameter bow per board.
+`"bend"` is experimental: on MC-Calib Seq00/Seq04 it lowers the median held-out error, but
+pose fitting against the bowed target fails on about 2% of held-out frames.
+`"free"` moves every target point and can absorb detector bias; with it, `structure_prior_sigma`
+sets a Gaussian prior in the target's length units (for millimetres, `0.1` means 0.1 mm),
+weighted at the measured corner noise. `"off"` keeps the averaged PnP inter-board poses.
 
 **Pixel convention.** Corners are stored with integer coordinates at pixel centres. OpenCV 4.x
 ChArUco corners are shifted by −0.5 px to match (5.0 already matches), so principal points are
 0.5 px lower than in earlier releases. Keypoint caches written by earlier DS-MSP on OpenCV 4.x
 need `keypoints_pixel_convention: "opencv4_charuco"`, or re-detect.
+
+**Uncertainty and the production profile.** Every run records each camera pair's 1σ relative
+rotation (degrees) and camera-centre (scene units) in `calibration_acceptance.json`. Set
+`uncertainty_gate: "refuse"` with `max_rotation_sigma_deg` and `max_centre_sigma` to block export
+of a capture that does not constrain the extrinsics; the gate uses the small-sample widened
+`*_sigma_t` values (Student-t with frames − 1 degrees of freedom), which matter below ~20
+frames. The σ covers random error only, not systematic detector bias. `profile: "production"` turns on the observability and uncertainty
+refusals (limits required), hard rejection of board observations above `ransac_threshold`
+(recorded one by one in the acceptance file), and refuses unknown config keys.
 
 `audit_gate: "refuse"` runs the observability check before any calibration parameters are
 exported. To require independent physical validation as well, supply `accuracy_profile_path`

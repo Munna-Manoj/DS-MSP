@@ -563,13 +563,18 @@ def _reject_outlier_observations(rig: RigState, object_obs: List[ObjectObs], gat
     the correct rig even with gross mis-detections present (it down-weights them), but they
     then stay in the object set and inflate every reported metric (max / RMS / the BA readout);
     a mis-decoded board is a real blunder, not noise, so it is removed, not merely muted.
-    Returns ``(kept_obs, n_dropped)``."""
-    kept, dropped = [], 0
+    Returns ``(kept_obs, dropped)`` with one ledger record per dropped observation."""
+    kept, dropped = [], []
     for o in object_obs:
-        if _observation_reproj_rms(rig, o) <= gate_px:
+        rms = _observation_reproj_rms(rig, o)
+        if rms <= gate_px:
             kept.append(o)
         else:
-            dropped += 1
+            dropped.append({"cam_id": int(o.cam_id), "frame_id": int(o.frame_id),
+                            "object_id": int(o.object_id), "corners": int(len(o.pts_2d)),
+                            "reprojection_rms_px": float(rms), "gate_px": float(gate_px),
+                            "image_path": getattr(o, "image_path", None),
+                            "reason": "rig reprojection above ransac_threshold"})
     return kept, dropped
 
 
@@ -579,6 +584,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                   front_end: Optional[Callable] = None, he_approach: int = 0,
                   refine_structure: bool = False, structure_rounds: int = 6,
                   structure_prior_sigma: Optional[float] = None,
+                  structure_mode: Optional[str] = None,
                   gnc_iters: int = 5, gnc_start: float = 4.0,
                   noise_bound: Optional[float] = None, on_iter=None,
                   objects: Optional[List[Object3D]] = None,
@@ -598,10 +604,19 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     :func:`~ds_msp.rig.calib_param.calibrate_from_config` supplies a ``noise_bound`` (config
     default ``1.0`` px) so a real calibration is robust by default.
 
+    ``structure_mode`` selects the multi-board target refinement (stage d): ``"rigid"``
+    (default) refines each non-reference board's 6-DOF pose in the fused object with its
+    printed shape held; ``"bend"`` adds a 3-parameter quadratic out-of-plane bow per board for
+    physically warped targets; ``"free"`` moves every object point (MC-Calib ``refineObject``; can
+    absorb detector bias — pair it with ``structure_prior_sigma``); ``"off"`` freezes the
+    PnP-averaged inter-board poses from :func:`~.object3d.build_objects`. The legacy
+    ``refine_structure=True`` means ``"free"`` when ``structure_mode`` is not given.
+
     ``on_iter(it, max_iter, rms, cost, rig_snapshot)`` — optional live-progress callback,
     forwarded to every stage's underlying solver (:func:`bundle.refine` / ``core.optimize.lm_solve`` /
     ``schur_lm``); fires once per solver iteration across every stage in sequence.
     """
+    structure_mode = resolve_structure_mode(structure_mode, refine_structure)
     obs_by_cam: Dict[int, List[ObjectObs]] = defaultdict(list)
     for o in object_obs:
         obs_by_cam[o.cam_id].append(o)
@@ -714,7 +729,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        (an API caller may pass ``reproj_gate_px`` explicitly; the inherited config field
     #        ``ransac_threshold`` is parsed for compatibility but is deliberately not auto-wired).
     if reproj_gate_px and reproj_gate_px > 0:
-        kept, ndrop = _reject_outlier_observations(rig, object_obs, reproj_gate_px)
+        kept, dropped = _reject_outlier_observations(rig, object_obs, reproj_gate_px)
+        ndrop = len(dropped)
         if ndrop:
             object_obs[:] = kept                         # clean the caller's set (metrics/save)
             live = {(o.object_id, o.frame_id) for o in object_obs}
@@ -726,13 +742,25 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                             robust_kernel="cauchy", robust_scale="auto", gnc_iters=gnc_iters,
                             gnc_start=gnc_start, noise_bound=noise_bound, verbose=verbose,
                             on_iter=on_iter)
+            rig.rejected = list(dropped)
 
-    #    (d) object-structure refinement (MC-Calib's refineObject), multi-board only: alternate
-    #        re-triangulating the fused object's 3-D points (gauge anchored on the reference
-    #        board) with the joint BA. A reconstructed nominal object carries inter-board pose
-    #        and physical-board error that no camera/pose update can absorb; freeing the
-    #        structure removes it — the dominant reprojection win on a real multi-board target.
-    if refine_structure and len(obj.board_ids) > 1:
+    #    (d) multi-board target refinement. build_objects fixes inter-board poses from
+    #        averaged single-view PnP and no BA stage above touches them, so their error is
+    #        frozen into the object unless refined here. "rigid" adds each non-reference
+    #        board's 6-DOF pose to one joint BA (printed shape held, so it cannot absorb
+    #        per-corner detector bias; alternating it with the BA zig-zags and stalls). "free"
+    #        re-triangulates every point (MC-Calib's refineObject; gauge anchored on the
+    #        reference board), alternating with a light joint polish.
+    multi_board = (any(len(o.board_ids) > 1 for o in rig.objects.values())
+                   if structure_mode in ("rigid", "bend") else len(obj.board_ids) > 1)
+    if structure_mode in ("rigid", "bend") and multi_board:
+        if on_iter is not None and hasattr(on_iter, "set_stage"):
+            on_iter.set_stage(f"(d) {structure_mode} board-pose refinement")
+        rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                            robust_kernel="cauchy", robust_scale="auto", refine_boards=True,
+                            bend_boards=structure_mode == "bend", verbose=verbose,
+                            on_iter=on_iter)
+    elif structure_mode == "free" and multi_board:
         if structure_prior_sigma is None:
             warnings.warn("unconstrained structure refinement can absorb camera/detection bias; "
                           "supply structure_prior_sigma in target units for a geometry prior",
@@ -756,3 +784,17 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                 break
             prev = cur
     return rig
+
+
+STRUCTURE_MODES = ("rigid", "bend", "free", "off")
+
+
+def resolve_structure_mode(structure_mode: Optional[str], refine_structure: bool = False) -> str:
+    """Normalize the multi-board target-refinement mode; legacy ``refine_structure=True``
+    selects ``"free"`` when no explicit mode is given, otherwise the default is ``"rigid"``."""
+    if structure_mode is None:
+        return "free" if refine_structure else "rigid"
+    mode = str(structure_mode).strip().lower()
+    if mode not in STRUCTURE_MODES:
+        raise ValueError(f"structure_mode must be one of {STRUCTURE_MODES}, got {structure_mode!r}")
+    return mode
