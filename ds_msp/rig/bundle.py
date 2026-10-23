@@ -719,27 +719,6 @@ def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str
     return out
 
 
-def _obs_blocks(model, R_cam, R_obj, Xo, Xg, Xc, pts_2d, want_intr):
-    """Per-observation residual + Jacobian blocks, the single source of the BA chain
-    (board baked into Xo): returns ``(r (2N,), Jw_o, Jt_o (2N,3), Jw_c, Jt_c (2N,3),
-    J_param (2N,P) or None)``. Object pose: ∂Xc/∂ω = R_cam R_obj(-[Xo]_x), ∂Xc/∂t = R_cam.
-    Camera: ∂Xc/∂ω = -R_cam[Xg]_x, ∂Xc/∂t = I."""
-    N = len(Xo)
-    uv, J_point, J_param, valid = model.project_jacobian(Xc)
-    mask = valid[:, None, None].astype(float)
-    Jp = J_point * mask
-    r = np.zeros((N, 2))
-    r[valid] = uv[valid] - pts_2d[valid]
-    dXc_dw_o = -np.einsum('ij,njk->nik', R_cam @ R_obj, _skew_batch(Xo))
-    Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o).reshape(2 * N, 3)
-    Jt_o = np.einsum('nij,jc->nic', Jp, R_cam).reshape(2 * N, 3)
-    dXc_dw_c = -np.einsum('ij,njk->nik', R_cam, _skew_batch(Xg))
-    Jw_c = np.einsum('nij,njc->nic', Jp, dXc_dw_c).reshape(2 * N, 3)
-    Jt_c = Jp.reshape(2 * N, 3)
-    Jpar = (J_param * mask).reshape(2 * N, -1) if want_intr else None
-    return r.ravel(), Jw_o, Jt_o, Jw_c, Jt_c, Jpar
-
-
 def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                         fix_intrinsics: bool = True, fix_extrinsics: bool = False,
                         refine_boards: bool = False, bend_boards: bool = False):
@@ -780,15 +759,45 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     bases, board_col, bend_col, shared_dim = _board_layout(
         rig, col, refine_boards=refine_boards, bend_boards=bend_boards)
 
-    # groups = object poses; gather each group's observations once
+    # groups = object poses. Every observation's points are laid out once, flat and in the
+    # residual order (group -> observation -> point -> (u, v)), so each evaluation is one
+    # projection call per camera plus array algebra; per-group blocks are contiguous slices.
     groups = sorted(rig.object_poses)
+    gindex = {k: i for i, k in enumerate(groups)}
     gobs = {k: [] for k in groups}
     for o in object_obs:
         k = (o.object_id, o.frame_id)
         if o.cam_id in rig.cameras and k in rig.object_poses:
-            gobs[k].append((o, rig.objects[o.object_id].pts_3d[o.point_rows]))
+            gobs[k].append(o)
     n_groups = len(groups)
-    whiteners = {id(o): pixel_whiteners(o.pixel_covariances, len(o.pts_2d)) for o in object_obs}
+    seq = [o for k in groups for o in gobs[k]]
+    counts = np.array([len(o.point_rows) for o in seq], int)
+    N = int(counts.sum())
+    p_group = np.repeat([gindex[(o.object_id, o.frame_id)] for o in seq], counts).astype(int)
+    p_cam = np.repeat([o.cam_id for o in seq], counts).astype(int)
+    p_oid = np.repeat([o.object_id for o in seq], counts).astype(int)
+    p_row = (np.concatenate([np.asarray(o.point_rows, int) for o in seq]) if seq
+             else np.zeros(0, int))
+    p_uv = (np.concatenate([np.asarray(o.pts_2d, float) for o in seq]) if seq
+            else np.zeros((0, 2)))
+    Xo_static = (np.concatenate([rig.objects[o.object_id].pts_3d[o.point_rows] for o in seq])
+                 if seq else np.zeros((0, 3)))
+    p_W = None
+    if any(o.pixel_covariances is not None for o in seq):
+        p_W = np.concatenate([pixel_whiteners(o.pixel_covariances, len(o.pts_2d))
+                              if o.pixel_covariances is not None
+                              else np.tile(np.eye(2), (len(o.pts_2d), 1, 1)) for o in seq])
+    gstart = np.zeros(n_groups + 1, int)
+    np.add.at(gstart, p_group + 1, 1)
+    gstart = np.cumsum(gstart)
+    cam_pts = {c: np.flatnonzero(p_cam == c) for c in rig.cameras}
+    board_masks = {}                                  # (oid, b) -> point indices on that board
+    for oid, base in bases.items():
+        on = p_oid == oid
+        bids = np.full(N, -1)
+        bids[on] = base["board_of_row"][p_row[on]]
+        for bb in base["boards"]:
+            board_masks[(oid, bb)] = np.flatnonzero(on & (bids == bb))
 
     def _models(state):
         return {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
@@ -796,77 +805,102 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     def _object_points(state):
         return {oid: _board_points(base, state, oid) for oid, base in bases.items()}
 
-    def _xo(pts, o, Xo):
-        return pts[o.object_id][o.point_rows] if o.object_id in pts else Xo
-
-    def _xc(state, o, Xo, key):
-        Xg = (state["obj_R"][key] @ Xo.T).T + state["obj_t"][key]
-        Xc = (state["cam_R"][o.cam_id] @ Xg.T).T + state["cam_t"][o.cam_id]
-        return Xg, Xc
+    def _geometry(state):
+        """Flat ``Xo, Xg, Xc`` and the per-point object/camera rotations."""
+        Xo = Xo_static.copy()
+        for oid, P in _object_points(state).items():
+            m = p_oid == oid
+            Xo[m] = P[p_row[m]]
+        R_obj = np.stack([state["obj_R"][k] for k in groups])[p_group] if N else np.zeros((0, 3, 3))
+        t_obj = np.stack([state["obj_t"][k] for k in groups])[p_group] if N else np.zeros((0, 3))
+        cams = sorted(rig.cameras)
+        cpos = {c: i for i, c in enumerate(cams)}
+        ci = np.array([cpos[c] for c in p_cam], int)
+        R_cam = np.stack([state["cam_R"][c] for c in cams])[ci]
+        t_cam = np.stack([state["cam_t"][c] for c in cams])[ci]
+        Xg = np.einsum('nij,nj->ni', R_obj, Xo) + t_obj
+        Xc = np.einsum('nij,nj->ni', R_cam, Xg) + t_cam
+        return Xo, Xg, Xc, R_obj, R_cam
 
     def residual(state):
         """Stacked reprojection residual, grouped by object pose (frame), for :func:`core.optimize.schur_lm`."""
         mc = _models(state)
-        pts = _object_points(state)
-        out = []
-        for k in groups:
-            for o, Xo in gobs[k]:
-                _, Xc = _xc(state, o, _xo(pts, o, Xo), k)
-                uv, valid = mc[o.cam_id].project(Xc)
-                d = np.zeros_like(o.pts_2d)
-                d[valid] = uv[valid] - o.pts_2d[valid]
-                W = whiteners[id(o)]
-                if W is not None:
-                    d = np.einsum('nij,nj->ni', W, d)
-                out.append(d.ravel())
-        return np.concatenate(out) if out else np.zeros(0)
+        _Xo, _Xg, Xc, _Ro, _Rc = _geometry(state)
+        d = np.zeros((N, 2))
+        for c, idx in cam_pts.items():
+            if not len(idx):
+                continue
+            uv, valid = mc[c].project(Xc[idx])
+            valid = np.asarray(valid, bool).ravel()
+            d[idx[valid]] = uv[valid] - p_uv[idx[valid]]
+        if p_W is not None:
+            d = np.einsum('nij,nj->ni', p_W, d)
+        return d.ravel()
 
     def linearize(state):
         """Per-group ``(r, A, B)`` blocks for :func:`core.optimize.schur_lm`.
 
         Returns three lists (one entry per object-pose group): ``r_list[i]`` the
         group's stacked residual, ``A_list[i]`` its Jacobian w.r.t. the shared block
-        (camera extrinsics/intrinsics), ``B_list[i]`` its Jacobian w.r.t. that
-        group's own 6-DoF local (object-pose) block.
+        (camera extrinsics/intrinsics, board poses/bows), ``B_list[i]`` its Jacobian w.r.t.
+        that group's own 6-DoF local (object-pose) block. Object pose: ∂Xc/∂ω =
+        R_cam R_obj(-[Xo]_×), ∂Xc/∂t = R_cam; camera: ∂Xc/∂ω = -R_cam[Xg]_×, ∂Xc/∂t = I.
         """
         mc = _models(state)
-        pts = _object_points(state)
+        Xo, Xg, Xc, R_obj, R_cam = _geometry(state)
+        r = np.zeros((N, 2))
+        Jp = np.zeros((N, 2, 3))
+        A = np.zeros((N, 2, shared_dim))
+        for c, idx in cam_pts.items():
+            if not len(idx):
+                continue
+            uv, J_point, J_param, valid = mc[c].project_jacobian(Xc[idx])
+            valid = np.asarray(valid, bool).ravel()
+            r[idx[valid]] = uv[valid] - p_uv[idx[valid]]
+            Jp[idx] = J_point * valid[:, None, None]
+            if not fix_intrinsics:
+                ic = intr_col[c]
+                A[idx, :, ic:ic + Pn[c]] = J_param * valid[:, None, None]
+        M = np.einsum('nij,njk->nik', R_cam, R_obj)
+        B = np.empty((N, 2, 6))
+        B[:, :, :3] = -np.einsum('nij,njk,nkl->nil', Jp, M, _skew_batch(Xo))
+        B[:, :, 3:] = np.einsum('nij,njk->nik', Jp, R_cam)
+        for c in cam_col:
+            idx = cam_pts[c]
+            if not len(idx):
+                continue
+            cc = cam_col[c]
+            A[idx, :, cc:cc + 3] = -np.einsum('nij,njk,nkl->nil', Jp[idx], R_cam[idx],
+                                              _skew_batch(Xg[idx]))
+            A[idx, :, cc + 3:cc + 6] = Jp[idx]
+        if board_col or bend_col:
+            Jx = np.einsum('nij,njk->nik', Jp, M)              # ∂uv/∂X_o
+            for key, idx in board_masks.items():
+                if not len(idx):
+                    continue
+                oid, bb = key
+                base = bases[oid]
+                if key in board_col:
+                    q = Xo[idx] - base["cent"][bb] - state["board_t"][key]
+                    cb = board_col[key]
+                    A[idx, :, cb:cb + 3] = -np.einsum('nij,njk->nik', Jx[idx], _skew_batch(q))
+                    A[idx, :, cb + 3:cb + 6] = Jx[idx]
+                if key in bend_col:
+                    Rb = state["board_R"][key] if key in board_col else np.eye(3)
+                    ck = bend_col[key]
+                    F = base["basis"][p_row[idx]]
+                    A[idx, :, ck:ck + 3] = np.einsum('nij,j,nk->nik', Jx[idx],
+                                                     Rb @ base["normal"][bb], F)
+        if p_W is not None:
+            r = np.einsum('nij,nj->ni', p_W, r)
+            A = np.einsum('nij,njk->nik', p_W, A)
+            B = np.einsum('nij,njk->nik', p_W, B)
         r_list, A_list, B_list = [], [], []
-        for k in groups:
-            R_obj = state["obj_R"][k]
-            rs, As, Bs = [], [], []
-            for o, Xo in gobs[k]:
-                cam = o.cam_id
-                Xo = _xo(pts, o, Xo)
-                Xg, Xc = _xc(state, o, Xo, k)
-                r, Jw_o, Jt_o, Jw_c, Jt_c, Jpar = _obs_blocks(
-                    mc[cam], state["cam_R"][cam], R_obj, Xo, Xg, Xc, o.pts_2d,
-                    not fix_intrinsics)
-                m = len(r)
-                A = np.zeros((m, shared_dim))
-                if cam in cam_col:
-                    cc = cam_col[cam]
-                    A[:, cc:cc + 3] = Jw_c
-                    A[:, cc + 3:cc + 6] = Jt_c
-                if not fix_intrinsics:
-                    ic = intr_col[cam]
-                    A[:, ic:ic + Pn[cam]] = Jpar
-                if o.object_id in bases:
-                    _add_board_columns(A, mc[cam], state, o, Xo, Xc, R_obj)
-                B = np.empty((m, 6))
-                B[:, :3] = Jw_o
-                B[:, 3:] = Jt_o
-                W = whiteners[id(o)]
-                if W is not None:
-                    r = np.einsum('nij,nj->ni', W, r.reshape(-1, 2)).ravel()
-                    A = np.einsum('nij,njk->nik', W, A.reshape(len(W), 2, shared_dim)).reshape(m, shared_dim)
-                    B = np.einsum('nij,njk->nik', W, B.reshape(len(W), 2, 6)).reshape(m, 6)
-                rs.append(r)
-                As.append(A)
-                Bs.append(B)
-            r_list.append(np.concatenate(rs))
-            A_list.append(np.vstack(As))
-            B_list.append(np.vstack(Bs))
+        for g in range(n_groups):
+            s0, s1 = gstart[g], gstart[g + 1]
+            r_list.append(r[s0:s1].ravel())
+            A_list.append(A[s0:s1].reshape(2 * (s1 - s0), shared_dim))
+            B_list.append(B[s0:s1].reshape(2 * (s1 - s0), 6))
         return r_list, A_list, B_list
 
     def retract(state, d_shared, d_local):
@@ -900,34 +934,6 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
             for key, o in bend_col.items():
                 s["board_k"][key] = state["board_k"][key] + d_shared[o:o + 3]
         return s
-
-    def _add_board_columns(A, model, state, o, Xo, Xc, R_obj):
-        """Board-pose columns of one observation: ``∂uv/∂X_o · R_cam R_obj · [-[q]_× | I]``
-        with ``q = X_o - c_b - t_b`` the board-centred, already-rotated point."""
-        base = bases[o.object_id]
-        _uv, J_point, _Jp, valid = model.project_jacobian(Xc)
-        M = state["cam_R"][o.cam_id] @ R_obj
-        Jx = np.einsum('nij,jk->nik', J_point * valid[:, None, None], M)    # (n,2,3)
-        bids = base["board_of_row"][o.point_rows]
-        for b in base["boards"]:
-            key = (o.object_id, b)
-            if key not in board_col and key not in bend_col:
-                continue
-            m = np.where(bids == b)[0]
-            if not len(m):
-                continue
-            rows2 = (2 * m[:, None] + np.arange(2)).ravel()
-            R = state["board_R"][key] if key in board_col else np.eye(3)
-            if key in board_col:
-                q = Xo[m] - base["cent"][b] - state["board_t"][key]
-                cb = board_col[key]
-                A[rows2, cb:cb + 3] = -np.einsum('nij,njk->nik', Jx[m], _skew_batch(q)).reshape(-1, 3)
-                A[rows2, cb + 3:cb + 6] = Jx[m].reshape(-1, 3)
-            if key in bend_col:
-                ck = bend_col[key]
-                F = base["basis"][o.point_rows[m]]
-                A[rows2, ck:ck + 3] = np.einsum('nij,j,nk->nik', Jx[m], R @ base["normal"][b],
-                                                F).reshape(-1, 3)
 
     state0 = _state_from_rig(rig)
     if bases:
@@ -1011,7 +1017,11 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
             rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics,
             refine_boards=refine_boards, bend_boards=bend_boards)
-        if shared_dim == 0 or n_groups == 0:           # nothing shared to solve -> dense
+        # No shared parameters (cameras and intrinsics both fixed) is the pure per-frame pose
+        # stage: block-diagonal, so the Schur solver handles it as independent 6x6 solves. The
+        # dense fallback here was O((6·frames)³) per iteration -- ~5,900 columns on a 985-frame
+        # camera -- and dominated runtime on full-length captures. Dense only without groups.
+        if n_groups == 0:
             return refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                           fix_extrinsics=fix_extrinsics, max_iter=max_iter,
                           noise_bound=noise_bound, verbose=verbose, sparse=False,

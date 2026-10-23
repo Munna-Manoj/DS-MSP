@@ -63,7 +63,6 @@ def bundle_adjust(model_cls,
     P = len(cls.param_names)
     n_img = len(X_world_list)
     sizes = [len(X) for X in X_world_list]
-    total = 2 * sum(sizes)
     masks = [np.asarray(v, bool) for v in visibility_list]
     if pixel_covariances is None:
         pixel_covariances = [None] * n_img
@@ -74,24 +73,33 @@ def bundle_adjust(model_cls,
     state0 = (np.clip(np.asarray(params0, float), lb_i, ub_i).copy(),
               np.asarray(R0, float).copy(), np.asarray(t0, float).copy())
 
+    # Every view's points flattened once (image-major, the residual order): each evaluation
+    # is a single projection call over all points instead of a Python loop over views.
+    img = np.repeat(np.arange(n_img), sizes).astype(int)
+    starts = np.concatenate([[0], np.cumsum(sizes)]).astype(int)
+    Xw_all = (np.concatenate([np.asarray(X, float) for X in X_world_list]) if n_img
+              else np.zeros((0, 3)))
+    uv_all = (np.concatenate([np.asarray(u, float) for u in keypoints_list]) if n_img
+              else np.zeros((0, 2)))
+    vis_all = np.concatenate(masks) if n_img else np.zeros(0, bool)
+    W_all = None
+    if any(w is not None for w in whiteners):
+        W_all = np.concatenate([w if w is not None else np.tile(np.eye(2), (n, 1, 1))
+                                for w, n in zip(whiteners, sizes)])
+    hat_Xw = hat_batch(Xw_all)
+
     def residual(state):
         """Flat ``(2 * sum(sizes),)`` pixel residual ``uv_predicted - uv_observed``, image-major."""
         params, Rb, t = state
         m = cls.from_params(params)
-        out = np.zeros((total,))
-        row = 0
-        for i, (Xw, uv) in enumerate(zip(X_world_list, keypoints_list)):
-            N = sizes[i]
-            Xc = (Rb[i] @ Xw.T).T + t[i]
-            uvp, valid = m.project(Xc)
-            mask = masks[i] & valid
-            diff = np.zeros_like(uv, dtype=np.float64)
-            diff[mask] = uvp[mask] - uv[mask]
-            if whiteners[i] is not None:
-                diff = np.einsum('nij,nj->ni', whiteners[i], diff)
-            out[row:row + 2 * N] = diff.ravel()
-            row += 2 * N
-        return out
+        Xc = np.einsum('nij,nj->ni', Rb[img], Xw_all) + t[img]
+        uvp, valid = m.project(Xc)
+        mask = vis_all & np.asarray(valid, bool).ravel()
+        diff = np.zeros_like(uv_all)
+        diff[mask] = uvp[mask] - uv_all[mask]
+        if W_all is not None:
+            diff = np.einsum('nij,nj->ni', W_all, diff)
+        return diff.ravel()
 
     def linearize(state):
         """Per-image residual + split Jacobian (shared intrinsics A_i, local pose B_i).
@@ -102,28 +110,27 @@ def bundle_adjust(model_cls,
         """
         params, Rb, t = state
         m = cls.from_params(params)
+        R = Rb[img]
+        Xc = np.einsum('nij,nj->ni', R, Xw_all) + t[img]
+        uvp, J_point, J_param, valid = m.project_jacobian(Xc)
+        mask = vis_all & np.asarray(valid, bool).ravel()
+        r = np.zeros_like(uv_all)
+        r[mask] = uvp[mask] - uv_all[mask]
+        mask3 = mask[:, None, None].astype(np.float64)
+        # δω linearized at 0 ⇒ J_r = I, so ∂Xc/∂δω = -R[Xw]_×; ∂Xc/∂δt = I.
+        J_rvec = -np.einsum('nij,njk,nkl->nil', J_point, R, hat_Xw)
+        J_ext = np.concatenate([J_rvec, J_point], axis=-1) * mask3
+        J_intr = J_param * mask3
+        if W_all is not None:
+            r = np.einsum('nij,nj->ni', W_all, r)
+            J_intr = np.einsum('nij,njk->nik', W_all, J_intr)
+            J_ext = np.einsum('nij,njk->nik', W_all, J_ext)
         r_list, A_list, B_list = [], [], []
-        for i, (Xw, uv) in enumerate(zip(X_world_list, keypoints_list)):
-            N = sizes[i]
-            Xc = (Rb[i] @ Xw.T).T + t[i]
-            uvp, J_point, J_param, valid = m.project_jacobian(Xc)
-            mask = (masks[i] & valid)
-            r_i = np.zeros((N, 2))
-            r_i[mask] = uvp[mask] - uv[mask]
-            mask3 = mask[:, None, None].astype(np.float64)
-            # δω linearized at 0 ⇒ J_r = I, so ∂Xc/∂δω = -R[Xw]_×; ∂Xc/∂δt = I.
-            dXc_dw = -np.einsum('ij,njk->nik', Rb[i], hat_batch(Xw))
-            J_rvec = np.einsum('nij,njc->nic', J_point, dXc_dw)
-            J_ext = np.concatenate([J_rvec, J_point], axis=-1) * mask3
-            J_intr = J_param * mask3
-            if whiteners[i] is not None:
-                W = whiteners[i]
-                r_i = np.einsum('nij,nj->ni', W, r_i)
-                J_intr = np.einsum('nij,njk->nik', W, J_intr)
-                J_ext = np.einsum('nij,njk->nik', W, J_ext)
-            r_list.append(r_i.ravel())
-            A_list.append(J_intr.reshape(2 * N, P))
-            B_list.append(J_ext.reshape(2 * N, 6))
+        for i in range(n_img):
+            s0, s1 = starts[i], starts[i + 1]
+            r_list.append(r[s0:s1].ravel())
+            A_list.append(J_intr[s0:s1].reshape(2 * (s1 - s0), P))
+            B_list.append(J_ext[s0:s1].reshape(2 * (s1 - s0), 6))
         return r_list, A_list, B_list
 
     def retract(state, d_shared, d_local):

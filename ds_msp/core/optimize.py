@@ -669,7 +669,7 @@ def schur_lm(
         f_try = cost(r_try, c)
 
         # Predicted reduction for the gain ratio: ½ δᵀ(λ D δ − g) over the full vector.
-        dmax = max(float(np.max(np.abs(d_shared))),
+        dmax = max(float(np.max(np.abs(d_shared))) if shared_dim else 0.0,
                    float(np.max(np.abs(d_local))) if n_groups else 0.0)
         pred = 0.5 * (lam * (float(Da @ (d_shared ** 2))
                              + sum(float(Db @ (dl ** 2)) for Db, dl in zip(Dbs, d_local)))
