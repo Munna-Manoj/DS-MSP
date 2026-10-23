@@ -330,6 +330,8 @@ class RigConfig:
     accuracy_profile_path: Optional[str] = None  # task-space ROI, units, pairs, limits (FR-RIG-024)
     refine_structure: bool = False              # explicit opt-in; can absorb measurement bias
     structure_prior_sigma: Optional[float] = None
+    frame_pattern: Optional[str] = None         # regex; group "frame" = frame number in filename
+    keypoints_pixel_convention: Optional[str] = None  # pixel_center|opencv4_charuco (else file label)
     accuracy_gate: str = "off"
     raw: Dict = field(default_factory=dict)
 
@@ -419,6 +421,9 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         accuracy_profile_path=path_key("accuracy_profile_path", "None"),
         refine_structure=_bool_field(ov, fs, "refine_structure", 0),
         structure_prior_sigma=ov.get("structure_prior_sigma", _scalar(fs, "structure_prior_sigma", None)),
+        frame_pattern=ov.get("frame_pattern", _scalar(fs, "frame_pattern", None)) or None,
+        keypoints_pixel_convention=ov.get("keypoints_pixel_convention",
+                                          _scalar(fs, "keypoints_pixel_convention", None)) or None,
         accuracy_gate=str(ov.get("accuracy_gate", _scalar(fs, "accuracy_gate", "off"))),
         raw={"path": config_path},
     )
@@ -464,7 +469,8 @@ def _detect_obs(cfg: RigConfig, obj, *, animator=None):
         cam_ids = list(range(cfg.number_camera))
         progress_cb = _compose_progress(cfg, animator)
         return detect_rig(cfg.root_path, cam_ids, cfg.boards, obj,
-                          cam_prefix=cfg.cam_prefix, min_corners=8, progress_cb=progress_cb)
+                          cam_prefix=cfg.cam_prefix, min_corners=8, progress_cb=progress_cb,
+                          frame_pattern=cfg.frame_pattern)
     raise ValueError("config has neither keypoints_path nor root_path")
 
 
@@ -522,20 +528,22 @@ def _reconstruct(cfg: RigConfig, *, animator=None):
                        if c in cams and cams[c].K is not None}
     if cfg.keypoints_path:
         objects, obs, img_size = reconstruct_objects_from_keypoints(
-            cfg.keypoints_path, cfg.boards, init_models=init_models)
+            cfg.keypoints_path, cfg.boards, init_models=init_models,
+            pixel_convention=cfg.keypoints_pixel_convention)
     elif cfg.root_path:
         cam_ids = list(range(cfg.number_camera))
         progress_cb = _compose_progress(cfg, animator)
         objects, obs, img_size = reconstruct_objects_from_images(
             cfg.root_path, cam_ids, cfg.boards, cam_prefix=cfg.cam_prefix,
-            init_models=init_models, progress_cb=progress_cb)
+            init_models=init_models, progress_cb=progress_cb, frame_pattern=cfg.frame_pattern)
     else:
         raise ValueError("config has neither keypoints_path nor root_path")
     return objects, obs, img_size
 
 
 def _obs_from_keypoints(cfg: RigConfig, obj):
-    per_cam, img_size = _load_detections(cfg.keypoints_path, obj, include_covariances=True)
+    per_cam, img_size = _load_detections(cfg.keypoints_path, obj, include_covariances=True,
+                                         pixel_convention=cfg.keypoints_pixel_convention)
     obs: List[ObjectObs] = []
     for cam_id, frames in per_cam.items():
         for frame_id, (rows, uvs, cov) in frames.items():

@@ -42,8 +42,11 @@ release. The layering rules that keep these internal are enforced per
 Calibration measurement extensions (FR-CALIB-009, FR-RIG-025): observation containers accept
 optional finite symmetric positive-definite `(N,2,2)` pixel covariances. Solvers whiten both
 residuals and Jacobians, while reports retain pixel units. MC-Calib keypoint caches carry these
-in an optional parallel `pixel_covariances` sequence. Rig configuration adds `refine_structure`
-(default false), `structure_prior_sigma` (target units), and `accuracy_gate` (`off` or `refuse`).
-Refusal gates run before calibration export, and `calibration_acceptance.json` records the
-physical acceptance status. Filename-based rig ingestion uses the trailing frame number and
-rejects collisions within a camera.
+in an optional parallel `pixel_covariances` sequence, and a top-level `pixel_convention`
+(`pixel_center`; readers accept `keypoints_pixel_convention: opencv4_charuco` to migrate
+unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration adds `refine_structure`
+(default false), `structure_prior_sigma` (target units), `frame_pattern` (regex with a `frame`
+group), and `accuracy_gate` (`off` or `refuse`). Refusal gates run before calibration export, and
+`calibration_acceptance.json` records the physical acceptance status. Filename-based rig
+ingestion uses the trailing frame number (or `frame_pattern`), rejects timestamp-like and
+trailing-camera-id names, collisions within a camera, and cameras that share no frame index.

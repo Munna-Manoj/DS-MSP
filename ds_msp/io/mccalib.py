@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import threading
+import warnings
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -133,9 +134,39 @@ def _load_object(path: str) -> Object3D:
     )
 
 
-def _load_detections(path: str, obj: Object3D, *, include_covariances: bool = False):
-    """Return ``{cam_id: {frame_id: (point_rows, pts_2d)}}`` and per-cam image size."""
+#: Keypoint pixel conventions. ``pixel_center``: integer coordinates are pixel centres (the
+#: camera models' convention; SB/AprilGrid/cornerSubPix output and DS-MSP caches written from
+#: this version). ``opencv4_charuco``: raw OpenCV 4.x ``CharucoDetector`` output, measured
+#: +0.49 px in both axes against rendered truth -- earlier DS-MSP caches carry it.
+PIXEL_CONVENTIONS = ("pixel_center", "opencv4_charuco")
+_CONVENTION_SHIFT = {"pixel_center": 0.0, "opencv4_charuco": -0.5}
+
+
+def keypoint_pixel_shift(fs, declared: Optional[str] = None, *, path: str = "") -> float:
+    """Shift that converts a keypoint cache to ``pixel_center``. ``declared`` (config
+    ``keypoints_pixel_convention``) overrides the file's ``pixel_convention`` label; an
+    unlabeled file is read unchanged with a warning, since its producer is unknown."""
+    node = fs.getNode("pixel_convention")
+    label = declared or (node.string() if node is not None and not node.empty() else None)
+    if label is None:
+        warnings.warn(
+            f"keypoint cache {path or '<file>'} has no pixel_convention label; reading it "
+            f"unchanged as pixel_center. Caches written by earlier DS-MSP from OpenCV 4.x "
+            f"ChArUco are +0.5 px off: set keypoints_pixel_convention: opencv4_charuco to "
+            f"migrate them, or re-detect.", UserWarning, stacklevel=3)
+        return 0.0
+    if label not in _CONVENTION_SHIFT:
+        raise ValueError(f"unknown keypoint pixel_convention {label!r}; expected one of "
+                         f"{PIXEL_CONVENTIONS}")
+    return _CONVENTION_SHIFT[label]
+
+
+def _load_detections(path: str, obj: Object3D, *, include_covariances: bool = False,
+                     pixel_convention: Optional[str] = None):
+    """Return ``{cam_id: {frame_id: (point_rows, pts_2d)}}`` and per-cam image size, with
+    pixels converted to ``pixel_center`` (see :func:`keypoint_pixel_shift`)."""
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
+    shift = keypoint_pixel_shift(fs, pixel_convention, path=path)
     nb = int(fs.getNode("nb_camera").real())
     per_cam: Dict[int, Dict[int, Tuple[list, list]]] = {}
     img_size: Dict[int, Tuple[int, int]] = {}
@@ -153,7 +184,7 @@ def _load_detections(path: str, obj: Object3D, *, include_covariances: bool = Fa
         for k in range(len(frame_idxs)):
             f = int(frame_idxs[k])
             b = int(board_idxs[k])
-            pts = _flat(pts_seq[k]).reshape(-1, 2)
+            pts = _flat(pts_seq[k]).reshape(-1, 2) + shift
             cids = _flat(cid_seq[k]).astype(int).ravel()
             rows, uvs = frames.setdefault(f, ([], []))
             cov = _flat(cov_seq[k]).reshape(-1, 2, 2) if cov_seq else np.empty((0, 2, 2))
@@ -544,12 +575,14 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
     (inline) and ``pts_2d`` / ``charuco_idxs`` (sequence of inline ``[u,v,...]`` / corner-id
     arrays), plus ``img_width`` / ``img_height``. DS-MSP fuses boards into one object, so each
     point is mapped back to its ``(board_id, corner_id)`` via ``obj.pts_obj_2_board`` and the
-    per-frame observation is split by board — round-trip-identical to the reader."""
+    per-frame observation is split by board — round-trip-identical to the reader. The file is
+    labeled ``pixel_convention: pixel_center`` (an extension MC-Calib ignores)."""
     by_cam: Dict[int, List] = {}
     for o in object_obs:
         by_cam.setdefault(o.cam_id, []).append(o)
     b2 = obj.pts_obj_2_board                                  # (N,2) = [board_id, corner_id]
     fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_WRITE)
+    fs.write("pixel_convention", "pixel_center")
     fs.write("nb_camera", int(len(by_cam)))
     for cam in sorted(by_cam):
         w, h = img_size.get(cam, (0, 0))

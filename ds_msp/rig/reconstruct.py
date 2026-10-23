@@ -32,8 +32,10 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from ..detect.charuco import (BoardSpec, _frame_id_from_name, _validate_frame_names, board_object_points,
+from ..detect.charuco import (BoardSpec, _frame_id_from_name, _validate_frame_association,
+                              _validate_frame_names, board_object_points,
                              detect_image, make_detectors)
+from ..io.mccalib import keypoint_pixel_shift
 from .object3d import build_objects
 from .pose_init import robust_pose_irls
 from .types import BoardObs, Object3D, ObjectObs
@@ -61,7 +63,8 @@ def _thread_detectors(specs, legacy, tuned):
     return d
 
 
-def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners, subpix, tuned):
+def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners, subpix, tuned,
+                      frame_pattern=None):
     """Detect every board in one image — the unit of work for image-level load balancing (the
     big 2592px cameras have far more work than the 640px ones, so balancing per image, not per
     camera, keeps every core busy)."""
@@ -69,7 +72,7 @@ def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners
     if gray is None:
         return c, None, []
     dets = _thread_detectors(specs, legacy, tuned)
-    frame_id = _frame_id_from_name(path)
+    frame_id = _frame_id_from_name(path, frame_pattern)
     out = []
     for board_id, corner_ids, pts in detect_image(dets, gray, min_corners=min_corners,
                                                    subpix=subpix):
@@ -81,7 +84,8 @@ def _detect_one_image(root_path, c, path, specs, cam_prefix, legacy, min_corners
 def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec], *,
                             cam_prefix: str = "Cam_", legacy: bool = True,
                             min_corners: int = 6, subpix: bool = False, tuned: bool = False,
-                            workers: Optional[int] = None, progress_cb=None
+                            workers: Optional[int] = None, progress_cb=None,
+                            frame_pattern: Optional[str] = None
                             ) -> Tuple[List[BoardObs], Dict[int, Tuple[int, int]]]:
     """Detect per-board ChArUco corners over ``<root>/<cam_prefix><cam+1:03d>/`` — the raw,
     *object-free* detections needed to reconstruct the fused object. Returns
@@ -104,6 +108,7 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
     if workers is None:
         workers = (os.cpu_count() or 4)
     files_by_cam: Dict[int, List[str]] = {}
+    frames_by_cam: Dict[int, set] = {}
     for c in cam_ids:
         cam_dir = os.path.join(root_path, f"{cam_prefix}{c + 1:03d}")
         if not os.path.isdir(cam_dir):
@@ -111,8 +116,9 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
         files = sorted(f for f in glob.glob(os.path.join(cam_dir, "*"))
                        if f.lower().endswith(_IMG_EXT))
         if files:
-            _validate_frame_names(files)
+            frames_by_cam[c] = _validate_frame_names(files, frame_pattern)
             files_by_cam[c] = files
+    _validate_frame_association(frames_by_cam)
     # round-robin (image-index-major, not camera-major) so parallel progress is visibly
     # interleaved across cameras instead of draining one camera's directory before the next.
     tasks = []
@@ -135,7 +141,7 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
                 seen[c] += 1
                 progress_cb(c, seen[c], counts[c], path)
         return _detect_one_image(root_path, c, path, specs, cam_prefix, legacy,
-                                 min_corners, subpix, tuned)
+                                 min_corners, subpix, tuned, frame_pattern)
 
     if workers and workers > 1 and len(tasks) > 1:
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -158,13 +164,15 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
     return all_obs, img_size
 
 
-def detect_board_obs_keypoints(keypoints_path: str
+def detect_board_obs_keypoints(keypoints_path: str, pixel_convention: Optional[str] = None
                                ) -> Tuple[List[BoardObs], Dict[int, Tuple[int, int]]]:
     """Read board-level detections from MC-Calib ``detected_keypoints_data.yml`` (one
     :class:`BoardObs` per stored (camera, frame, board) entry). Unlike
     :func:`io.mccalib._load_detections` this keeps the boards *separate* (no object needed),
-    which is what reconstruction consumes."""
+    which is what reconstruction consumes. Pixels are converted to ``pixel_center`` (see
+    :func:`io.mccalib.keypoint_pixel_shift`)."""
     fs = cv2.FileStorage(keypoints_path, cv2.FILE_STORAGE_READ)
+    shift = keypoint_pixel_shift(fs, pixel_convention, path=keypoints_path)
     nb = int(fs.getNode("nb_camera").real())
     all_obs: List[BoardObs] = []
     img_size: Dict[int, Tuple[int, int]] = {}
@@ -183,7 +191,7 @@ def detect_board_obs_keypoints(keypoints_path: str
             b = int(bidx.at(k).real())
             p = pts_node.at(k)
             cset = cid_node.at(k)
-            pts = np.array([p.at(i).real() for i in range(p.size())], float).reshape(-1, 2)
+            pts = np.array([p.at(i).real() for i in range(p.size())], float).reshape(-1, 2) + shift
             cids = np.array([cset.at(i).real() for i in range(cset.size())], int).ravel()
             cov = None
             if not cov_node.empty():
@@ -403,7 +411,7 @@ def object_obs_from_board_obs_multi(board_obs: List[BoardObs], objects: List[Obj
 def reconstruct_from_images(root_path: str, cam_ids: List[int], specs: List[BoardSpec], *,
                             cam_prefix: str = "Cam_", legacy: bool = True,
                             min_corners: int = 6, init_models: Optional[Dict[int, object]] = None,
-                            progress_cb=None
+                            progress_cb=None, frame_pattern: Optional[str] = None
                             ) -> Tuple[Object3D, List[ObjectObs], Dict[int, Tuple[int, int]]]:
     """Raw image folder -> ``(fused object, object_obs, img_size)`` for a multi-board rig.
     ``init_models`` resects boards with the native per-camera model (see
@@ -411,18 +419,20 @@ def reconstruct_from_images(root_path: str, cam_ids: List[int], specs: List[Boar
     forwarded to :func:`detect_board_obs_images` -- see its docstring."""
     board_obs, img_size = detect_board_obs_images(
         root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
-        min_corners=min_corners, progress_cb=progress_cb)
+        min_corners=min_corners, progress_cb=progress_cb,
+        frame_pattern=frame_pattern)
     obj = reconstruct_object(board_obs, specs, img_size, init_models=init_models)
     return obj, object_obs_from_board_obs(board_obs, obj), img_size
 
 
 def reconstruct_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
-                               init_models: Optional[Dict[int, object]] = None
+                               init_models: Optional[Dict[int, object]] = None,
+                               pixel_convention: Optional[str] = None
                                ) -> Tuple[Object3D, List[ObjectObs], Dict[int, Tuple[int, int]]]:
     """Pre-detected keypoints -> ``(fused object, object_obs, img_size)`` for a multi-board rig.
     ``init_models`` resects boards with the native per-camera model (see
     :func:`reconstruct_object`)."""
-    board_obs, img_size = detect_board_obs_keypoints(keypoints_path)
+    board_obs, img_size = detect_board_obs_keypoints(keypoints_path, pixel_convention)
     obj = reconstruct_object(board_obs, specs, img_size, init_models=init_models)
     return obj, object_obs_from_board_obs(board_obs, obj), img_size
 
@@ -431,7 +441,7 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
                                     *, cam_prefix: str = "Cam_", legacy: bool = True,
                                     min_corners: int = 6,
                                     init_models: Optional[Dict[int, object]] = None,
-                                    progress_cb=None
+                                    progress_cb=None, frame_pattern: Optional[str] = None
                                     ) -> Tuple[List[Object3D], List[ObjectObs],
                                                Dict[int, Tuple[int, int]]]:
     """Raw image folder -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
@@ -440,19 +450,21 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
     native per-camera model; ``progress_cb`` is forwarded to :func:`detect_board_obs_images`."""
     board_obs, img_size = detect_board_obs_images(
         root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
-        min_corners=min_corners, progress_cb=progress_cb)
+        min_corners=min_corners, progress_cb=progress_cb,
+        frame_pattern=frame_pattern)
     objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
     return objects, obs, img_size
 
 
 def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
-                                       init_models: Optional[Dict[int, object]] = None
+                                       init_models: Optional[Dict[int, object]] = None,
+                                       pixel_convention: Optional[str] = None
                                        ) -> Tuple[List[Object3D], List[ObjectObs],
                                                   Dict[int, Tuple[int, int]]]:
     """Pre-detected keypoints -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
     keeping every covisibility component. Multi-object analogue of
     :func:`reconstruct_from_keypoints`. ``init_models`` resects boards with the native
     per-camera model (see :func:`reconstruct_objects`)."""
-    board_obs, img_size = detect_board_obs_keypoints(keypoints_path)
+    board_obs, img_size = detect_board_obs_keypoints(keypoints_path, pixel_convention)
     objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
     return objects, obs, img_size
