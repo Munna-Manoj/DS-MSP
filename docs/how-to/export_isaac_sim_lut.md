@@ -99,6 +99,18 @@ The calibration principal point is baked into both textures. Therefore the gener
 sets `opticalCenter` to half the nominal width/height, as NVIDIA requires, rather than
 applying `cx,cy` a second time.
 
+Two conventions matter for geometric accuracy:
+
+- **Pixel centres.** DS-MSP pixel coordinates are integers at pixel centres, so pixel `i`
+  maps to NDC `(i + 0.5) / width`.
+- **Field of view.** RTX discards every ray outside the camera's `fthetaMaxFov` cone, which
+  defaults to 200°. The exporter writes `fthetaMaxFov` to cover the widest valid ray of the
+  model, so a lens seeing more than 100° off-axis keeps its outer field.
+
+Manifests before format v2 had neither: renders were shifted by about (−0.5, −0.5) px and
+lost the field beyond 100°. They are refused; regenerate them with `--overwrite`. Model
+parameters in an old manifest can still be rebaked (`ds-msp lut --path old_manifest.json`).
+
 ## Load it in Isaac Sim
 
 The quickest no-code path is to add/reference the generated `*_camera.usda` in the stage,
@@ -137,6 +149,14 @@ DS_MSP_ISAAC_LUT_OUTPUT_DIR=/tmp/ds_msp_lut_test \
 
 Inspect `report.json` and the PNG captures in the output directory. Every model shipped
 with DS-MSP has also passed this validator on Isaac Sim 6.0.1.0 / Kit 110.1.2.
+
+That validator shows that the LUT loads and distorts the image. It does not measure where a
+point lands. For geometric accuracy, render small emissive points along rays unprojected
+from known pixels, and compare their centroids with those pixels. On Isaac Sim 6.0.1 /
+RTX 5090 with format v2, KB, double-sphere, UCM, EUCM and RadTan LUT cameras matched to
+0.05–0.08 px median (0.66 px worst point). Every point rendered out to 120° off-axis. A
+point within about 1° of a model's own validity limit (double sphere: 122°) can be lost,
+because the ray-exit texture interpolates across the edge of the model's domain.
 
 ## Python API
 
