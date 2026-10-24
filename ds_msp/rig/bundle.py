@@ -16,7 +16,7 @@ count is small at calibration scale (a handful of cameras, hundreds of object po
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -34,6 +34,11 @@ from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .types import ObjectObs, RigState
 
 Key = Tuple[int, int]
+
+# Largest diag(G)-scaled eigenvalue an absorbed board direction may keep after frame-pose
+# elimination (rounding leaves <= 1e-12 on MC-Calib rigs); larger means the board
+# co-observation graph and S disagree, and the covariance fails closed.
+_ABSORBED_RTOL = 1e-9
 
 
 def _state_from_rig(rig: RigState) -> dict:
@@ -111,6 +116,68 @@ def _board_bases(rig: RigState, bend: bool = False) -> dict:
             base["normal"][b] = Vt[2]
         bases[oid] = base
     return bases
+
+
+def _board_layout(rig: RigState, col: int, *, refine_boards: bool, bend_boards: bool):
+    """Shared columns of the board poses (``refine_boards``) and bows (``bend_boards``),
+    starting at ``col``. Returns ``(bases, board_col, bend_col, end_col)``."""
+    bases = _board_bases(rig, bend=bend_boards) if (refine_boards or bend_boards) else {}
+    board_col, bend_col = {}, {}
+    for oid in sorted(bases):
+        for b in (bases[oid]["movable"] if refine_boards else []):
+            board_col[(oid, b)] = col
+            col += 6
+        for b in bases[oid]["bent"]:
+            bend_col[(oid, b)] = col
+            col += 3
+    return bases, board_col, bend_col, col
+
+
+def _absorbed_boards(rig: RigState, object_obs: List[ObjectObs], bases: dict,
+                     board_col: dict, bend_col: dict) -> List[Tuple[List[int], int]]:
+    """Board directions the frame poses absorb, as ``[(columns, nullity)]``.
+
+    Boards of one object that appear in the same frame are linked. A linked component
+    without the reference board can move rigidly against it, and the frame poses follow, so 6
+    directions of its board poses carry no information. A board never observed has none in its
+    pose or bow."""
+    seen: Dict[Key, set] = {}
+    for o in object_obs:
+        if (o.cam_id in rig.cameras and o.object_id in bases
+                and (o.object_id, o.frame_id) in rig.object_poses):
+            rows = np.asarray(o.point_rows, int)
+            seen.setdefault((o.object_id, o.frame_id), set()).update(
+                bases[o.object_id]["board_of_row"][rows].tolist())
+    gauges = []
+    for oid in sorted(bases):
+        parent = {b: b for b in bases[oid]["boards"]}
+
+        def root(b):
+            while parent[b] != b:
+                b = parent[b]
+            return b
+        observed = set()
+        for (o2, _frame), boards in seen.items():
+            if o2 == oid:
+                boards = sorted(boards)
+                observed |= set(boards)
+                for b in boards[1:]:
+                    parent[root(b)] = root(boards[0])
+        ref = root(int(rig.objects[oid].ref_board_id))
+        components: Dict[int, List[int]] = {}
+        for b in bases[oid]["boards"]:
+            components.setdefault(root(b), []).append(b)
+        for r, members in sorted(components.items()):
+            pose = [j for b in members if (oid, b) in board_col
+                    for j in range(board_col[(oid, b)], board_col[(oid, b)] + 6)]
+            if not observed & set(members):
+                bows = [j for b in members if (oid, b) in bend_col
+                        for j in range(bend_col[(oid, b)], bend_col[(oid, b)] + 3)]
+                if pose or bows:
+                    gauges.append((pose + bows, len(pose) + len(bows)))
+            elif r != ref and pose:
+                gauges.append((pose, 6))
+    return gauges
 
 
 def _board_points(base: dict, state: dict, oid: int) -> np.ndarray:
@@ -466,7 +533,8 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
 
     Frame poses (and, with ``refine_boards``/``bend_boards``, board poses/bows) are nuisance
     parameters marginalised in. Free per-point structure is not modelled. Returns
-    ``{"cov", "cam_col", "intr_col", "n_clusters", "n_blocks", "scale", "kernel"}`` with the
+    ``{"cov", "identifiable", "unidentified_structure", "cam_col", "intr_col", "n_clusters",
+    "n_blocks", "scale", "kernel"}`` with the
     shared column layout of :func:`build_schur_problem` (extrinsic tangent ``[δω rad, δt]``,
     right-multiplied, reference camera gauge-fixed)."""
     state, _residual, linearize, _retract, shared_dim, n_groups = build_schur_problem(
@@ -519,42 +587,78 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
         p_total = p_s + 6 * n_groups
         M *= (n_clusters / (n_clusters - 1.0)) * ((n_blocks - 1.0) / max(n_blocks - p_total, 1.0))
     S = 0.5 * (S + S.T)
-    cov, identifiable = _sandwich_from_schur(S, M)
-    cam_col, intr_col, _Pn = _report_column_layout(rig, fix_intrinsics=fix_intrinsics,
-                                                   fix_extrinsics=False)
+    cam_col, intr_col, Pn = _report_column_layout(rig, fix_intrinsics=fix_intrinsics,
+                                                  fix_extrinsics=False)
     # _report_column_layout interleaves frame-pose columns before intrinsics; the shared
     # Schur layout has them removed, so intrinsic columns shift down by 6 per frame pose.
     intr_col = {c: col - 6 * len(rig.object_poses) for c, col in intr_col.items()}
-    return {"cov": cov, "identifiable": identifiable, "cam_col": cam_col,
-            "intr_col": intr_col, "n_clusters": n_clusters, "n_blocks": n_blocks,
-            "scale": float(scale), "kernel": kernel}
+    start = 6 * len(cam_col) + sum(Pn[c] for c in intr_col)
+    bases, board_col, bend_col, end = _board_layout(
+        rig, start, refine_boards=refine_boards, bend_boards=bend_boards)
+    assert end == p_s, (end, p_s)
+    gauges = _absorbed_boards(rig, object_obs, bases, board_col, bend_col)
+    cov, identifiable, absorbed = _sandwich_from_schur(S, M, G_ss, gauges)
+    return {"cov": cov, "identifiable": identifiable, "unidentified_structure": absorbed,
+            "cam_col": cam_col, "intr_col": intr_col, "n_clusters": n_clusters,
+            "n_blocks": n_blocks, "scale": float(scale), "kernel": kernel}
 
 
-def _sandwich_from_schur(S: np.ndarray, M: np.ndarray) -> Tuple[np.ndarray, bool]:
+def _sandwich_from_schur(S: np.ndarray, M: np.ndarray, G: Optional[np.ndarray] = None,
+                         gauges: Sequence[Tuple[List[int], int]] = ()
+                         ) -> Tuple[np.ndarray, bool, List[int]]:
     """``S⁻¹ M S⁻¹`` through a Jacobi-scaled inverse, failing closed.
+
+    ``gauges`` lists board directions the frame poses absorb (:func:`_absorbed_boards`):
+    ``(columns, nullity)``. Each one's ``nullity`` least-informative directions, found on
+    ``S`` scaled by ``diag(G)`` (the information before frame-pose elimination; ``diag(S)``
+    would blow their rounding noise up to O(1)), are projected out, and the sandwich is taken
+    on the rest. They carry no information or score, so the remaining parameters'
+    covariance does not depend on that choice. The gauge columns are returned as ``inf`` and
+    listed (third value). Without gauges this is the plain inverse.
 
     No jitter: ``S`` mixes pixel-scale focal columns with radian and distortion columns
     (cond ~1e11 on a real rig), where even a 1e-12 trace-relative Tikhonov term perturbs the
     small-eigenvalue directions by percents. ``S`` that is non-finite, not positive definite
-    after equilibration, or numerically singular leaves the shared parameters unidentified:
-    every entry is returned as ``inf`` with ``identifiable=False`` instead of overflowing
-    into NaN."""
+    after equilibration, numerically singular, or not null along a listed gauge
+    (``_ABSORBED_RTOL``) leaves the shared parameters unidentified: every entry is returned
+    as ``inf`` with ``identifiable=False`` instead of overflowing into NaN."""
     p = S.shape[0]
+    G = S if G is None else G
     unidentified = np.full((p, p), np.inf)
-    d = np.diag(S)
-    if not (np.isfinite(S).all() and np.isfinite(M).all()) or np.any(d <= 0.0):
-        return unidentified, False
+    if not (np.isfinite(S).all() and np.isfinite(M).all() and np.isfinite(G).all()):
+        return unidentified, False, list(range(p))
+    absorbed = sorted(j for cols, _n in gauges for j in cols)
+    # basis of the identified subspace: identity outside the gauges, and inside each gauge its
+    # scaled eigenvectors with the `nullity` least-informative ones left out
+    B = np.eye(p)
+    null = []
+    for cols, nullity in gauges:
+        g = np.diag(G)[cols]
+        Dc = np.where(g > 0.0, 1.0 / np.sqrt(np.where(g > 0.0, g, 1.0)), 1.0)
+        ev, V = np.linalg.eigh(Dc[:, None] * S[np.ix_(cols, cols)] * Dc[None, :])
+        if nullity and abs(ev[nullity - 1]) > _ABSORBED_RTOL:
+            return unidentified, False, absorbed
+        B[np.ix_(cols, cols)] = Dc[:, None] * V
+        null.extend(cols[:nullity])
+    B = np.delete(B, null, axis=1)
+    Sr, Mr = B.T @ S @ B, B.T @ M @ B
+    d = np.diag(Sr)
+    if np.any(d <= 0.0):
+        return unidentified, False, absorbed
     D = 1.0 / np.sqrt(d)
-    Se = D[:, None] * S * D[None, :]
+    Se = D[:, None] * Sr * D[None, :]
     ev = np.linalg.eigvalsh(Se)
-    if ev[0] <= p * np.finfo(float).eps * ev[-1]:
-        return unidentified, False
-    S_inv = D[:, None] * np.linalg.inv(Se) * D[None, :]
-    cov = S_inv @ M @ S_inv.T
+    if ev[0] <= Sr.shape[0] * np.finfo(float).eps * ev[-1]:
+        return unidentified, False, absorbed
+    Sr_inv = D[:, None] * np.linalg.inv(Se) * D[None, :]
+    cov = B @ (Sr_inv @ Mr @ Sr_inv.T) @ B.T
     cov = 0.5 * (cov + cov.T)
-    if not np.isfinite(cov).all():
-        return unidentified, False
-    return cov, True
+    cov[absorbed, :] = np.inf
+    cov[:, absorbed] = np.inf
+    keep = np.setdiff1d(np.arange(p), absorbed)
+    if not np.isfinite(cov[np.ix_(keep, keep)]).all():
+        return unidentified, False, absorbed
+    return cov, True, absorbed
 
 
 def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str, float]]:
@@ -673,16 +777,8 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         for c in sorted(rig.cameras):
             intr_col[c] = col
             col += Pn[c]
-    bases = _board_bases(rig, bend=bend_boards) if (refine_boards or bend_boards) else {}
-    board_col, bend_col = {}, {}
-    for oid in sorted(bases):
-        for b in (bases[oid]["movable"] if refine_boards else []):
-            board_col[(oid, b)] = col
-            col += 6
-        for b in bases[oid]["bent"]:
-            bend_col[(oid, b)] = col
-            col += 3
-    shared_dim = col
+    bases, board_col, bend_col, shared_dim = _board_layout(
+        rig, col, refine_boards=refine_boards, bend_boards=bend_boards)
 
     # groups = object poses; gather each group's observations once
     groups = sorted(rig.object_poses)

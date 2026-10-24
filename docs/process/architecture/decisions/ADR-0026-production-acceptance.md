@@ -28,9 +28,17 @@ dropped.
    (`ω′ ≥ −ω/(2s)`, Triggs et al. 2000 §4.3): a redescending kernel otherwise gives negative
    curvature for residuals beyond its scale, and frames dominated by gross outliers made the
    bread indefinite (75 of 1207 frame blocks on MC-Calib Seq03), which overflowed the Schur
-   inverse and crashed the run. A Schur complement that is still non-finite, indefinite or
-   numerically singular after equilibration fails closed: the pair σ is unbounded, recorded
-   as `null` with `identifiable: false`, a warning is raised, and no limit can pass.
+   inverse and crashed the run. A Schur complement that is still non-finite or indefinite,
+   or singular in a camera direction, fails closed: the pair σ is unbounded, recorded as
+   `null` with `identifiable: false`, a warning is raised, and no limit can pass. One
+   singularity is expected and does not fail the rest. Boards of an object that appear in
+   the same frame are linked; a linked group without the reference board can move rigidly
+   against it, and the frame poses follow. Those 6 board-pose directions are found from
+   the board graph, not from an eigenvalue cutoff, and projected out before the inverse.
+   They are reported unbounded (`unidentified_structure`). Before this, 7 of 56 two-camera
+   fits on MC-Calib Seq01/Seq04 reported no σ at all. A cutoff cannot separate them:
+   absorbed directions keep ≤ 6e-13 of their information there, while EUCM's
+   near-redundant intrinsics keep 2e-10 and are still identified.
 2. Every calibration propagates it to each camera pair's 1σ relative rotation (deg) and camera
    centre (scene units) and records them in `calibration_acceptance.json`.
    `uncertainty_gate: refuse` blocks export above `max_rotation_sigma_deg` / `max_centre_sigma`.
@@ -59,6 +67,7 @@ dropped.
 ## Verification
 
 - `tests/rig/test_shared_covariance.py`: equality with the (well-conditioned) dense estimator,
-  honesty against truth, marginalisation never shrinks σ.
+  honesty against truth, marginalisation never shrinks σ, an absorbed board leaves the
+  cameras bounded, an ill-conditioned but identified `S` stays bounded.
 - `tests/rig/test_production_profile.py`: profile defaults, strict keys, `boards_index`
   detection, refusal before export, rejection ledger.

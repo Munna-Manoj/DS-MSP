@@ -142,13 +142,92 @@ def test_gross_outliers_keep_the_covariance_finite(monkeypatch):
 
 def test_singular_schur_complement_fails_closed():
     S = np.diag([4.0, 1.0, 0.0])
-    cov, ok = bundle._sandwich_from_schur(S, np.eye(3))
+    cov, ok, _ = bundle._sandwich_from_schur(S, np.eye(3))
     assert not ok and np.isinf(cov).all()
     S = np.array([[1.0, 2.0], [2.0, 1.0]])                 # indefinite
-    cov, ok = bundle._sandwich_from_schur(S, np.eye(2))
+    cov, ok, _ = bundle._sandwich_from_schur(S, np.eye(2))
     assert not ok
-    cov, ok = bundle._sandwich_from_schur(np.diag([1.0, np.nan]), np.eye(2))
+    cov, ok, _ = bundle._sandwich_from_schur(np.diag([1.0, np.nan]), np.eye(2))
     assert not ok
+
+
+def _absorbed_case(seed=0):
+    """Shared block of 3 camera + 4 structure columns where the frame poses absorbed two
+    structure directions -- one single column, one combination of two columns (two boards that
+    only ever move together relative to the reference board) -- leaving rounding-level noise."""
+    rng = np.random.default_rng(seed)
+    A = rng.normal(size=(40, 7)) * np.r_[1.0, 30.0, 0.2, 5.0, 1.0, 2.0, 2.0]
+    G = A.T @ A
+    Q = np.eye(7)
+    Q[:, 3] = 0.0
+    n = np.zeros(7)
+    n[5], n[6] = 1.0, -1.0
+    Q -= np.outer(n, n) / 2.0
+    S = Q @ G @ Q
+    S[3, 3] = -1e-11 * G[3, 3]                             # rounding left after elimination
+    R = rng.normal(size=(7, 7))
+    M = Q @ R @ R.T @ Q
+    return S, M, G
+
+
+def test_absorbed_structure_is_unbounded_and_spares_the_cameras():
+    S, M, G = _absorbed_case()
+    cov, ok, absorbed = bundle._sandwich_from_schur(S, M, G, [([3], 1), ([5, 6], 1)])
+    assert ok and absorbed == [3, 5, 6]
+    assert np.isinf(cov[3]).all() and np.isinf(cov[:, 5]).all()
+    # the camera block equals the sandwich on the identified reparameterisation
+    keep = [0, 1, 2, 4]
+    B = np.zeros((7, 5))
+    B[keep, range(4)] = 1.0
+    B[[5, 6], 4] = 1.0 / np.sqrt(2.0)
+    Si = np.linalg.inv(B.T @ S @ B)
+    ref = B @ Si @ (B.T @ M @ B) @ Si @ B.T
+    np.testing.assert_allclose(cov[:3, :3], ref[:3, :3], rtol=1e-8)
+    # without the gauges the same matrix is singular and fails closed
+    cov, ok, _ = bundle._sandwich_from_schur(S, M, G)
+    assert not ok and np.isinf(cov).all()
+    # a listed gauge that is not null contradicts the board graph: fail closed
+    cov, ok, _ = bundle._sandwich_from_schur(S, M, G, [([0], 1)])
+    assert not ok and np.isinf(cov).all()
+
+
+def test_ill_conditioned_but_identified_stays_bounded():
+    """Near-redundant intrinsics (EUCM alpha/beta against focal) leave scaled eigenvalues near
+    1e-10 that are still information, not rounding; they must keep a finite sigma."""
+    rng = np.random.default_rng(1)
+    Q, _ = np.linalg.qr(rng.normal(size=(6, 6)))
+    S = Q @ np.diag([1.0, 0.5, 0.2, 1e-3, 1e-7, 2e-10]) @ Q.T
+    cov, ok, absorbed = bundle._sandwich_from_schur(S, np.eye(6), S)
+    assert ok and absorbed == [] and np.isfinite(cov).all()
+    np.testing.assert_allclose(cov, np.linalg.inv(S) @ np.linalg.inv(S), rtol=1e-4)
+
+
+def test_board_never_seen_with_another_is_absorbed_not_fatal():
+    """Board 2 shares no frame with boards 0/1, so the frame poses absorb its in-object pose:
+    its columns are unbounded, board 1 and the cameras keep a finite sigma close to the one
+    with the boards held fixed (the sandwich's meat changes too, so it need not be larger)."""
+    obj, obs, img_size, _ext, models = make_rig(n_cam=2, n_frame=24, noise_px=0.3, seed=11)
+    board = np.asarray(obj.pts_obj_2_board, int)[:, 0]
+    split = []
+    for o in obs:
+        on2 = board[o.point_rows] == 2
+        sel = on2 if o.frame_id % 2 else ~on2
+        if sel.sum() >= 6:
+            o = copy.copy(o)
+            o.point_rows, o.pts_2d = o.point_rows[sel], o.pts_2d[sel]
+            split.append(o)
+    rig = _calibrate(split, obj, img_size, models)
+    unc = bundle.shared_covariance(rig, split, refine_boards=True)
+    bases, board_col, _bend, _end = bundle._board_layout(
+        rig, 6, refine_boards=True, bend_boards=False)
+    c1, c2 = board_col[(0, 1)], board_col[(0, 2)]
+    assert unc["identifiable"] and unc["unidentified_structure"] == list(range(c2, c2 + 6))
+    std = np.sqrt(np.diag(unc["cov"]))
+    assert np.isfinite(std[c1:c1 + 6]).all()
+    col = unc["cam_col"][1]
+    s_fixed = np.sqrt(np.diag(bundle.shared_covariance(rig, split)["cov"]))[col:col + 6]
+    ratio = std[col:col + 6] / s_fixed
+    assert np.all((ratio > 0.8) & (ratio < 1.5)), ratio
 
 
 def test_unidentifiable_extrinsics_refuse_and_write_strict_json(monkeypatch):
