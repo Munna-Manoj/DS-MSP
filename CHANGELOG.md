@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.18.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.17.1...v0.18.0) (2026-10-24)
+
+
+### Features
+
+* **rig:** add attributable calibration run manifests ([b923b15](https://github.com/Munna-Manoj/DS-MSP/commit/b923b155dcaf45701e450a3e359dc74bdb2793dd))
+* **rig:** add truthful full-pose accuracy metrics ([a42cb51](https://github.com/Munna-Manoj/DS-MSP/commit/a42cb5100e614a76d9f8db0fefad00f5eaef0d9b))
+
+
+### Bug Fixes
+
+* **rig:** clarify replay manifest paths ([090c681](https://github.com/Munna-Manoj/DS-MSP/commit/090c6814a24934dbf1a836cbcb1ae0785a63f6f0))
+
+
+### Documentation
+
+* **rig:** add reproducibility workflow guide ([e7f3354](https://github.com/Munna-Manoj/DS-MSP/commit/e7f33545e3ce8d04faf5bc7c6a1162b35f65cffe))
+
 ## [0.17.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.17.0...v0.17.1) (2026-10-23)
 
 
