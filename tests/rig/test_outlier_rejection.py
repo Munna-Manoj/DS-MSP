@@ -45,8 +45,8 @@ def test_reject_outlier_observations_is_a_noop_on_clean_data():
     obj, obs, img, gt_ext, _ = make_rig(n_cam=2, n_frame=15, noise_px=0.1, seed=0)
     rig = calibrate_rig(obj, obs, img, fix_intrinsics=False)
 
-    kept, ndrop = _reject_outlier_observations(rig, obs, gate_px=10.0)
-    assert ndrop == 0
+    kept, dropped = _reject_outlier_observations(rig, obs, gate_px=10.0)
+    assert dropped == []
     assert len(kept) == len(obs)
 
 
@@ -56,9 +56,11 @@ def test_reject_outlier_observations_drops_only_the_corrupted_board():
 
     mixed = list(obs)
     mixed[3] = _corrupt_copy(obs[3])
-    kept, ndrop = _reject_outlier_observations(rig, mixed, gate_px=10.0)
+    kept, dropped = _reject_outlier_observations(rig, mixed, gate_px=10.0)
 
-    assert ndrop == 1
+    assert len(dropped) == 1
+    assert (dropped[0]["cam_id"], dropped[0]["frame_id"]) == (mixed[3].cam_id, mixed[3].frame_id)
+    assert dropped[0]["reprojection_rms_px"] > 10.0 and dropped[0]["reason"]
     assert len(kept) == len(mixed) - 1
     kept_ids = {(o.cam_id, o.frame_id) for o in kept}
     assert (mixed[3].cam_id, mixed[3].frame_id) not in kept_ids

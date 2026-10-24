@@ -44,9 +44,14 @@ optional finite symmetric positive-definite `(N,2,2)` pixel covariances. Solvers
 residuals and Jacobians, while reports retain pixel units. MC-Calib keypoint caches carry these
 in an optional parallel `pixel_covariances` sequence, and a top-level `pixel_convention`
 (`pixel_center`; readers accept `keypoints_pixel_convention: opencv4_charuco` to migrate
-unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration adds `refine_structure`
-(default false), `structure_prior_sigma` (target units), `frame_pattern` (regex with a `frame`
-group), and `accuracy_gate` (`off` or `refuse`). Refusal gates run before calibration export, and
-`calibration_acceptance.json` records the physical acceptance status. Filename-based rig
-ingestion uses the trailing frame number (or `frame_pattern`), rejects timestamp-like and
-trailing-camera-id names, collisions within a camera, and cameras that share no frame index.
+unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration adds
+`structure_mode` (`rigid` default, `bend`, `free`, `off`; legacy `refine_structure: true` means
+`free`), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
+`frame` group), `accuracy_gate` (`off` or `refuse`), `uncertainty_gate` (`off`, `warn`, `refuse`)
+with `max_rotation_sigma_deg` / `max_centre_sigma`, `reject_outliers`, and `profile`
+(`default` or `production`). MC-Calib `boards_index` sets marker-id offsets. Unknown keys warn
+(production refuses them). Refusal gates run before calibration export, and
+`calibration_acceptance.json` records the physical acceptance status, per-pair extrinsic 1σ,
+the rejection ledger and config warnings. Filename-based rig ingestion uses the trailing frame
+number (or `frame_pattern`), rejects timestamp-like and trailing-camera-id names, collisions
+within a camera, and cameras that share no frame index.

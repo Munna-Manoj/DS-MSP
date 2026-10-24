@@ -84,7 +84,10 @@ def test_merge_rebinds_live_view_scene_to_fused_object():
     assert len(rig.objects) == 1                    # merge did happen
     assert len(animator.binds) >= 2, "bind_scene must be called again after the merge"
     fused_obj, fused_obs = animator.binds[-1]
-    assert fused_obj is rig.objects[0]
+    # the default rigid target refinement returns a refined copy of the fused object after the
+    # merge; the live view must be bound to the same fused point layout (rows/boards).
+    assert fused_obj.board_ids == rig.objects[0].board_ids
+    np.testing.assert_array_equal(fused_obj.pts_obj_2_board, rig.objects[0].pts_obj_2_board)
     # every observation's point_rows must be valid against the *rebound* object's pts_3d --
     # this is exactly the indexing the live view's _camera_frame_errors performs per iteration.
     n_pts = len(fused_obj.pts_3d)

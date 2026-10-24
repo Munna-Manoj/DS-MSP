@@ -10,6 +10,7 @@ cross-dataset validation.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -24,7 +25,13 @@ from ..io.mccalib import (
 from ..models.registry import FISHEYE_MODELS, PINHOLE_MODELS
 from . import bundle
 from .accuracy import AccuracyProfile, accuracy_metrics
-from .calibrate import _gated_pnp, calibrate_rig, make_bundle_front_end, paraxial_focal
+from .calibrate import (
+    _gated_pnp,
+    calibrate_rig,
+    make_bundle_front_end,
+    paraxial_focal,
+    resolve_structure_mode,
+)
 from .types import RigState
 
 
@@ -74,6 +81,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        cam_prefix: str = "Cam_", he_approach: int = 0,
                        refine_structure: bool = False,
                        structure_prior_sigma: Optional[float] = None,
+                       structure_mode: Optional[str] = None,
                        noise_bound: Optional[float] = None,
                        verbose: bool = False, on_iter=None,
                        objects: Optional[list] = None,
@@ -81,7 +89,12 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        report_covariance: bool = False,
                        audit_gate: str = "warn", accuracy_gate: str = "off",
                        certify: bool = False,
-                       accuracy_profile: Optional[AccuracyProfile] = None) -> Dict:
+                       accuracy_profile: Optional[AccuracyProfile] = None,
+                       uncertainty_gate: str = "warn",
+                       max_rotation_sigma_deg: Optional[float] = None,
+                       max_centre_sigma: Optional[float] = None,
+                       config_warnings: Optional[List[str]] = None,
+                       profile: str = "default") -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -111,11 +124,24 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     graph — opt-in like ``report_covariance``.
     ``accuracy_gate="refuse"`` requires a profile with limits and independent truth;
     incomplete or failing comparisons refuse export. Both refusal gates run before saving.
-    ``refine_structure`` is explicit opt-in; ``structure_prior_sigma`` specifies target
-    geometry uncertainty in scene length units, fixed across alternating refinement rounds.
+    ``structure_mode`` (``rigid`` default | ``bend`` | ``free`` | ``off``) selects multi-board target
+    refinement (see :func:`~ds_msp.rig.calibrate.calibrate_rig`); legacy
+    ``refine_structure=True`` means ``free``. ``structure_prior_sigma`` specifies free-mode
+    target geometry uncertainty in scene length units, fixed across refinement rounds.
+    ``uncertainty_gate`` (``warn`` default | ``refuse`` | ``off``) evaluates the
+    frame-clustered sandwich covariance of the solved rig (:func:`bundle.shared_covariance`,
+    frame and board poses marginalised) and propagates it to every camera pair's 1-sigma
+    relative rotation (deg) and camera-centre (scene units). The result is attached as
+    ``"uncertainty"`` and recorded in the acceptance file; ``refuse`` blocks export when any
+    pair exceeds ``max_rotation_sigma_deg`` / ``max_centre_sigma``. Observations hard-dropped
+    by ``reproj_gate_px`` are recorded there too, one ledger entry each.
     Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
-    ``"certificate"`` when enabled).
+    ``"certificate"``/``"uncertainty"`` when enabled).
     """
+    if uncertainty_gate not in ("off", "warn", "refuse"):
+        raise ValueError(f"uncertainty_gate must be 'off', 'warn' or 'refuse', got {uncertainty_gate!r}")
+    if uncertainty_gate == "refuse" and (max_rotation_sigma_deg is None or max_centre_sigma is None):
+        raise ValueError("uncertainty_gate='refuse' needs max_rotation_sigma_deg and max_centre_sigma")
     if audit_gate not in ("off", "warn", "refuse"):
         raise ValueError(f"audit_gate must be 'off', 'warn' or 'refuse', got {audit_gate!r}")
     if accuracy_gate not in ("off", "refuse"):
@@ -123,6 +149,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     if structure_prior_sigma is not None and (
             not np.isfinite(structure_prior_sigma) or structure_prior_sigma <= 0):
         raise ValueError("structure_prior_sigma must be positive in target length units")
+    structure_mode = resolve_structure_mode(structure_mode, refine_structure)
     if accuracy_gate == "refuse" and accuracy_profile is None:
         raise ValueError("accuracy_gate='refuse' requires an accuracy profile and independent truth")
     if init_cameras is not None:
@@ -137,7 +164,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         front_end = make_bundle_front_end(model_spec, init_K=init_K)
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
                         fix_intrinsics=fix_intrinsics, front_end=front_end,
-                        he_approach=he_approach, refine_structure=refine_structure,
+                        he_approach=he_approach, structure_mode=structure_mode,
                         structure_prior_sigma=structure_prior_sigma,
                         noise_bound=noise_bound, verbose=verbose, on_iter=on_iter,
                         objects=objects, reproj_gate_px=reproj_gate_px)
@@ -163,6 +190,27 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
             raise RuntimeError(
                 f"observability audit refused this calibration (audit_gate='refuse'): "
                 f"{details}")
+    uncertainty = None
+    if uncertainty_gate != "off":
+        uncertainty = extrinsic_uncertainty(rig, scn.object_obs, fix_intrinsics=fix_intrinsics,
+                                            structure_mode=structure_mode,
+                                            max_rotation_sigma_deg=max_rotation_sigma_deg,
+                                            max_centre_sigma=max_centre_sigma)
+        out["uncertainty"] = uncertainty
+        if not uncertainty["identifiable"]:
+            bad = [k for k, p in uncertainty["pairs"].items() if not p["identifiable"]]
+            warnings.warn(f"extrinsic uncertainty is unbounded (not identifiable) for camera "
+                          f"pair(s) {', '.join(bad) or 'all'}: the data or the chosen camera "
+                          f"models do not constrain these extrinsics", RuntimeWarning,
+                          stacklevel=2)
+        if uncertainty_gate == "refuse" and not uncertainty["within_limits"]:
+            worst = uncertainty["worst"]
+            raise RuntimeError(
+                f"uncertainty gate refused this calibration (uncertainty_gate='refuse'): pair "
+                f"{worst['pair']} 1-sigma rotation {worst['rotation_sigma_deg_t'] or float('inf'):.4f} "
+                f"deg / centre {worst['centre_sigma_t'] or float('inf'):.4g} (small-sample widened) "
+                f"exceed limits "
+                f"{max_rotation_sigma_deg} deg / {max_centre_sigma}; capture more varied views")
     truth = metrics["accuracy"]["ground_truth"]
     physical_pass = (truth.get("status") == "EVALUATED"
                      and truth.get("limit_checks", {}).get("all_pass") is True)
@@ -170,11 +218,18 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "accuracy_status": "PASS" if physical_pass else "NOT_ACCEPTED",
         "accuracy_gate": accuracy_gate, "observability_gate": audit_gate,
         "fit_scope": "training reprojection only; not physical accuracy",
-        "structure_refined": refine_structure,
+        "structure_mode": structure_mode,
+        "structure_refined": structure_mode != "off",
         "structure_prior_sigma": structure_prior_sigma,
         "accuracy_evaluation_status": truth.get("status"),
         "limit_checks": truth.get("limit_checks"),
         "accuracy_profile": accuracy_profile.to_dict() if accuracy_profile is not None else None,
+        "profile": profile,
+        "uncertainty_gate": uncertainty_gate,
+        "extrinsic_uncertainty": uncertainty,
+        "outlier_gate_px": reproj_gate_px,
+        "rejected_observations": list(getattr(rig, "rejected", [])),
+        "config_warnings": list(config_warnings or []),
     }
     if accuracy_gate == "refuse" and not physical_pass:
         raise RuntimeError("accuracy gate refused calibration: independent truth must cover "
@@ -209,6 +264,79 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         paths["acceptance"] = str(acceptance_path)
     out["paths"] = paths
     return out
+
+
+def extrinsic_uncertainty(rig: RigState, object_obs, *, fix_intrinsics: bool,
+                          structure_mode: str = "rigid",
+                          max_rotation_sigma_deg: Optional[float] = None,
+                          max_centre_sigma: Optional[float] = None) -> Dict:
+    """Per camera-pair 1-sigma extrinsic uncertainty from the frame-clustered sandwich
+    covariance (:func:`bundle.shared_covariance` -> :func:`bundle.pair_uncertainty`), with
+    board poses/bows marginalised when the target was refined rigidly. JSON-safe; pair keys
+    are ``"a-b"``. Free per-point (``structure_mode="free"``) target motion is not modelled,
+    so its sigmas are optimistic and flagged.
+
+    With ``G`` frame clusters the sigma is itself estimated from ~``G`` effective samples, so
+    error/sigma follows Student-t with ``G - 1`` degrees of freedom: the reported ``k``-sigma
+    intervals are widened by ``t_factor = t_{0.975, G-1} / z_{0.975}`` (1.15 at 10 frames, 1.04 at
+    30) and the gate compares the widened sigma with the limits. Measured on 200-capture Monte
+    Carlo per condition: 2-sigma coverage 0.913 -> 0.942 at 10 frames, 0.94-0.97 elsewhere."""
+    from scipy import stats
+
+    unc = bundle.shared_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                                   refine_boards=structure_mode in ("rigid", "bend"),
+                                   bend_boards=structure_mode == "bend")
+    pairs = bundle.pair_uncertainty(rig, unc)
+    dof = unc["n_clusters"] - 1
+    # one frame cluster leaves no degrees of freedom: no interval, and any limit is exceeded
+    t_factor = float(stats.t.ppf(0.975, dof) / stats.norm.ppf(0.975)) if dof >= 1 else None
+    table = {}
+    for (a, b), p in pairs.items():
+        row = dict(p)
+        row["rotation_sigma_deg_t"] = None if t_factor is None else p["rotation_sigma_deg"] * t_factor
+        row["centre_sigma_t"] = None if t_factor is None else p["centre_sigma"] * t_factor
+        table[f"{a}-{b}"] = row
+
+    def unbounded(x):                    # unidentified (inf) or missing; NaN never passes a gate
+        return x is None or not np.isfinite(x)
+
+    def over(p):
+        if t_factor is None or not p["identifiable"]:
+            return max_rotation_sigma_deg is not None or max_centre_sigma is not None
+        return ((max_rotation_sigma_deg is not None
+                 and (unbounded(p["rotation_sigma_deg_t"])
+                      or p["rotation_sigma_deg_t"] > max_rotation_sigma_deg))
+                or (max_centre_sigma is not None
+                    and (unbounded(p["centre_sigma_t"]) or p["centre_sigma_t"] > max_centre_sigma)))
+
+    def rank(k):
+        x = table[k]["rotation_sigma_deg"]
+        return np.inf if unbounded(x) else x
+    within = not any(over(p) for p in table.values())
+    worst_key = max(table, key=rank) if table else None
+    # strict JSON for the acceptance file: an unidentified sigma is recorded as null
+    for row in table.values():
+        for k, x in row.items():
+            if isinstance(x, float) and not np.isfinite(x):
+                row[k] = None
+    return {
+        "estimator": "frame-clustered M-estimator sandwich (Schur-marginalised)",
+        "units": {"rotation": "deg", "centre": "scene length units (square_size)"},
+        "n_frame_clusters": unc["n_clusters"],
+        "dof": dof,
+        "t_factor": t_factor,
+        "interval_note": "k-sigma intervals use sigma * t_factor (Student-t, dof = frames - 1)",
+        "structure_mode": structure_mode,
+        "structure_modelled": structure_mode != "free",
+        "pairs": table,
+        "limits": {"max_rotation_sigma_deg": max_rotation_sigma_deg,
+                   "max_centre_sigma": max_centre_sigma},
+        "identifiable": bool(unc["identifiable"]) and all(p["identifiable"] for p in table.values()),
+        "within_limits": within,
+        "worst": None if worst_key is None else {"pair": worst_key, **{
+            k: table[worst_key][k] for k in ("rotation_sigma_deg", "centre_sigma",
+                                             "rotation_sigma_deg_t", "centre_sigma_t")}},
+    }
 
 
 def intrinsics_error(rig: RigState, ref_K: Dict[int, np.ndarray]) -> Dict[int, Dict[str, float]]:

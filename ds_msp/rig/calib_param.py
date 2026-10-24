@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import os
 import sys
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -66,7 +67,7 @@ from ..models.kb import KannalaBrandtModel
 from ..models.registry import canonical_name, model_class
 from ..rig.types import ObjectObs
 from .accuracy import load_accuracy_profile
-from .calibrate import _seed_from_K
+from .calibrate import _seed_from_K, resolve_structure_mode
 from .pipeline import calibrate_scenario
 
 _BROWN, _KANNALA = 0, 1
@@ -190,6 +191,66 @@ def _param_bounds(cls):
         lo.append(a)
         hi.append(b)
     return lo, hi
+
+
+class _OverrideNode:
+    """A ``--set``/``overrides`` value standing in for a ``cv2.FileNode``: a scalar string or
+    number, or a sequence (a list, or a ``"[a, b]"`` string)."""
+
+    def __init__(self, value):
+        if isinstance(value, str) and value.strip().startswith("["):
+            inner = value.strip()[1:-1].strip() if value.strip().endswith("]") else None
+            if inner is None:
+                raise ValueError(f"override {value!r}: unterminated sequence")
+            value = [s.strip().strip("\"'") for s in inner.split(",")] if inner else []
+        self.value = value
+
+    def empty(self):
+        return self.value is None
+
+    def isSeq(self):
+        return isinstance(self.value, (list, tuple))
+
+    def isString(self):
+        if not isinstance(self.value, str):
+            return False
+        try:
+            float(self.value)
+            return False
+        except ValueError:
+            return True
+
+    def isMap(self):
+        return False
+
+    def string(self):
+        return str(self.value)
+
+    def real(self):
+        return float(self.value)
+
+    def size(self):
+        return len(self.value) if self.isSeq() else 1
+
+    def at(self, i):
+        return _OverrideNode(self.value[i])
+
+
+class _OverriddenStorage:
+    """``cv2.FileStorage`` view where every key in ``overrides`` replaces the file's value, so
+    each field parser -- board geometry, camera models, sequences -- honours ``--set``."""
+
+    def __init__(self, fs, overrides: Dict):
+        self.fs, self.ov = fs, overrides
+
+    def getNode(self, name):
+        return _OverrideNode(self.ov[name]) if name in self.ov else self.fs.getNode(name)
+
+    def root(self):
+        return self.fs.root()
+
+    def release(self):
+        self.fs.release()
 
 
 def _node(fs, name, default=None):
@@ -328,11 +389,18 @@ class RigConfig:
     audit_gate: str = "warn"                     # observability audit: off|warn|refuse (FR-RIG-021)
     certify: bool = False                        # rotation-backbone certificate (FR-RIG-022)
     accuracy_profile_path: Optional[str] = None  # task-space ROI, units, pairs, limits (FR-RIG-024)
-    refine_structure: bool = False              # explicit opt-in; can absorb measurement bias
+    refine_structure: bool = False              # legacy alias: true -> structure_mode "free"
     structure_prior_sigma: Optional[float] = None
+    structure_mode: str = "rigid"               # multi-board target refinement: rigid|bend|free|off
     frame_pattern: Optional[str] = None         # regex; group "frame" = frame number in filename
     keypoints_pixel_convention: Optional[str] = None  # pixel_center|opencv4_charuco (else file label)
     accuracy_gate: str = "off"
+    profile: str = "default"                    # default|production (strict gates, FR-RIG-028)
+    uncertainty_gate: str = "warn"              # extrinsic 1-sigma limits: off|warn|refuse
+    max_rotation_sigma_deg: Optional[float] = None
+    max_centre_sigma: Optional[float] = None    # scene length units (square_size units)
+    reject_outliers: bool = False               # hard-drop board observations > ransac_threshold
+    config_warnings: List[str] = field(default_factory=list)
     raw: Dict = field(default_factory=dict)
 
     @property
@@ -363,6 +431,16 @@ def _board_specs(fs) -> List[BoardSpec]:
             n_y=ny_pb[b] if b < len(ny_pb) else ny,
             length_square=ls, length_marker=lm,
             square_size=float(sq_pb[b]) if b < len(sq_pb) else sq))
+    # MC-Calib ``boards_index``: the boards in use are physical boards ``boards_index[k]`` of a
+    # larger printed set, whose marker ids start after every lower-indexed board's markers
+    # (createCharucoBoards). Earlier boards share the default geometry.
+    index = _int_seq(fs, "boards_index")
+    if index:
+        if len(index) != nb:
+            raise ValueError(f"boards_index has {len(index)} entries but number_board is {nb}")
+        per_board = (nx * ny) // 2
+        for spec, phys in zip(specs, index):
+            spec.id_offset = int(phys) * per_board
     return specs
 
 
@@ -379,6 +457,67 @@ def _camera_models(fs, n_cam: int) -> List[str]:
     return [_DIST_TO_MODEL.get(per[c] if c < len(per) else glob, "radtan") for c in range(n_cam)]
 
 
+#: Keys DS-MSP reads (besides the per-board/per-camera sequences parsed above).
+_KNOWN_KEYS = {
+    "number_x_square", "number_y_square", "length_square", "length_marker", "number_board",
+    "boards_index", "square_size", "number_x_square_per_board", "number_y_square_per_board",
+    "square_size_per_board", "distortion_model", "distortion_per_camera", "camera_models",
+    "number_camera", "cam_params_path", "fix_intrinsic", "root_path", "cam_prefix",
+    "keypoints_path", "ransac_threshold", "number_iterations", "he_approach", "save_path",
+    "save_detection", "save_reprojection", "camera_params_file_name", "noise_bound", "verbose",
+    "webviewer", "object_path", "report_covariance", "audit_gate", "certify",
+    "accuracy_profile_path", "refine_structure", "structure_prior_sigma", "structure_mode",
+    "frame_pattern", "keypoints_pixel_convention", "accuracy_gate", "profile",
+    "uncertainty_gate", "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
+}
+#: MC-Calib keys DS-MSP accepts but does not act on, with what happens instead.
+_IGNORED_MCCALIB_KEYS = {
+    "refine_corner": "ChArUco corners are not re-refined with cornerSubPix",
+    "min_perc_pts": "a board observation needs a minimum corner count (6-8), not a visible fraction",
+    "quaternion_averaging": "rotations are always averaged with Markley quaternion averaging "
+                            "(MC-Calib's quaternion_averaging: 1)",
+    "camera_board_poses_index": "per-board pose export is not produced",
+    "board_poses_file_name": "per-board pose export is not produced",
+    "enable_rigidity_check": "no rigidity check; target refinement is set by structure_mode",
+    "rigidity_threshold": "no rigidity check; target refinement is set by structure_mode",
+    "fix_intrinsic_per_camera": "use fix_intrinsic",
+    "resolution_x": "board image size is only used to generate printable boards",
+    "resolution_y": "board image size is only used to generate printable boards",
+    "resolution_x_per_board": "board image size is only used to generate printable boards",
+    "resolution_y_per_board": "board image size is only used to generate printable boards",
+}
+#: ``profile: production`` defaults for fields the config does not set explicitly.
+_PRODUCTION = {"audit_gate": "refuse", "uncertainty_gate": "refuse", "reject_outliers": True}
+
+
+def _config_key_warnings(fs, profile: str, overrides: Optional[Dict] = None) -> List[str]:
+    """Unknown keys (typos) and MC-Calib keys DS-MSP ignores, in the file and in ``overrides``.
+    A production profile refuses unknown keys outright -- a misspelt gate must not silently
+    fall back to its default."""
+    root = fs.root()
+    keys = [k for k in root.keys()] if root is not None and root.isMap() else []
+    keys += [k for k in (overrides or {}) if k not in keys]
+    out = []
+    for k in keys:
+        if k in _KNOWN_KEYS:
+            continue
+        if k in _IGNORED_MCCALIB_KEYS:
+            out.append(f"config key {k!r} is accepted for MC-Calib compatibility but ignored: "
+                       f"{_IGNORED_MCCALIB_KEYS[k]}")
+        elif profile == "production":
+            raise ValueError(f"unknown config key {k!r} (profile: production refuses unknown keys)")
+        else:
+            out.append(f"unknown config key {k!r} is ignored")
+    return out
+
+
+def _explicit(ov: Dict, fs, name: str) -> bool:
+    if name in ov:
+        return True
+    n = fs.getNode(name)
+    return n is not None and not n.empty()
+
+
 def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig:
     """Parse a ``calib_param.yml`` into a :class:`RigConfig`. ``overrides`` replaces raw
     config values *before* path resolution (e.g. ``{"root_path": "/abs/Images"}``)."""
@@ -386,8 +525,9 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
     fs = cv2.FileStorage(config_path, cv2.FILE_STORAGE_READ)
     if not fs.isOpened():
         raise FileNotFoundError(config_path)
-    n_cam = int(_scalar(fs, "number_camera", 1))
     ov = overrides or {}
+    fs = _OverriddenStorage(fs, ov)
+    n_cam = int(_scalar(fs, "number_camera", 1))
 
     def path_key(name, default=None):
         """Resolve config field ``name`` to an absolute path, preferring ``overrides``."""
@@ -421,13 +561,43 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         accuracy_profile_path=path_key("accuracy_profile_path", "None"),
         refine_structure=_bool_field(ov, fs, "refine_structure", 0),
         structure_prior_sigma=ov.get("structure_prior_sigma", _scalar(fs, "structure_prior_sigma", None)),
+        structure_mode=ov.get("structure_mode", _scalar(fs, "structure_mode", None)),
         frame_pattern=ov.get("frame_pattern", _scalar(fs, "frame_pattern", None)) or None,
         keypoints_pixel_convention=ov.get("keypoints_pixel_convention",
                                           _scalar(fs, "keypoints_pixel_convention", None)) or None,
         accuracy_gate=str(ov.get("accuracy_gate", _scalar(fs, "accuracy_gate", "off"))),
+        profile=str(ov.get("profile", _scalar(fs, "profile", "default"))),
+        uncertainty_gate=str(ov.get("uncertainty_gate", _scalar(fs, "uncertainty_gate", "warn"))),
+        max_rotation_sigma_deg=ov.get("max_rotation_sigma_deg",
+                                      _scalar(fs, "max_rotation_sigma_deg", None)),
+        max_centre_sigma=ov.get("max_centre_sigma", _scalar(fs, "max_centre_sigma", None)),
+        reject_outliers=_bool_field(ov, fs, "reject_outliers", 0),
         raw={"path": config_path},
     )
+    if cfg.profile not in ("default", "production"):
+        raise ValueError(f"profile must be default or production, got {cfg.profile!r}")
+    cfg.config_warnings = _config_key_warnings(fs, cfg.profile, ov)
+    if cfg.profile == "production":
+        for name, value in _PRODUCTION.items():
+            if not _explicit(ov, fs, name):
+                setattr(cfg, name, value)
     fs.release()
+    for w in cfg.config_warnings:
+        warnings.warn(w, UserWarning, stacklevel=2)
+    for name in ("max_rotation_sigma_deg", "max_centre_sigma"):
+        v = getattr(cfg, name)
+        if v is not None:
+            v = float(v)
+            if not np.isfinite(v) or v <= 0:
+                raise ValueError(f"{name} must be positive")
+            setattr(cfg, name, v)
+    if cfg.uncertainty_gate not in ("off", "warn", "refuse"):
+        raise ValueError("uncertainty_gate must be off, warn or refuse")
+    if cfg.uncertainty_gate == "refuse" and (cfg.max_rotation_sigma_deg is None
+                                             or cfg.max_centre_sigma is None):
+        raise ValueError("uncertainty_gate: refuse (and profile: production) needs "
+                         "max_rotation_sigma_deg and max_centre_sigma")
+    cfg.structure_mode = resolve_structure_mode(cfg.structure_mode, cfg.refine_structure)
     if cfg.structure_prior_sigma is not None:
         cfg.structure_prior_sigma = float(cfg.structure_prior_sigma)
         if not np.isfinite(cfg.structure_prior_sigma) or cfg.structure_prior_sigma <= 0:
@@ -685,13 +855,18 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              camera_params_file_name=cfg.camera_params_file_name,
                              image_root=image_root, cam_prefix=cfg.cam_prefix,
                              he_approach=cfg.he_approach,
-                             refine_structure=cfg.refine_structure,
+                             structure_mode=cfg.structure_mode,
                              structure_prior_sigma=cfg.structure_prior_sigma,
                              noise_bound=cfg.noise_bound, verbose=cfg.verbose,
                              on_iter=animator, objects=objects,
                              report_covariance=cfg.report_covariance,
                              audit_gate=cfg.audit_gate, accuracy_gate=cfg.accuracy_gate, certify=cfg.certify,
-                             accuracy_profile=accuracy_profile)
+                             accuracy_profile=accuracy_profile,
+                             reproj_gate_px=cfg.ransac_threshold if cfg.reject_outliers else None,
+                             uncertainty_gate=cfg.uncertainty_gate,
+                             max_rotation_sigma_deg=cfg.max_rotation_sigma_deg,
+                             max_centre_sigma=cfg.max_centre_sigma,
+                             config_warnings=cfg.config_warnings, profile=cfg.profile)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
     # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical

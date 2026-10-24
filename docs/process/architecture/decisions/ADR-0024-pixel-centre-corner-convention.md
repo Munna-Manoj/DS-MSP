@@ -46,3 +46,4 @@ extrinsics: on MC-Calib Seq04 the camera-centre difference to the published fit 
 ## Verification
 
 - `tests/calib/test_charuco_compat.py`: version rules and rendered-truth bias.
+- `tests/rig/test_image_truth_benchmark.py`: full pipeline on rendered images.
