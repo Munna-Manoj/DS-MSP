@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.19.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.18.0...v0.19.0) (2026-10-24)
+
+
+### Features
+
+* **rig:** joint rigid target refinement and production acceptance [stack 4/5] ([#74](https://github.com/Munna-Manoj/DS-MSP/issues/74)) ([e7193be](https://github.com/Munna-Manoj/DS-MSP/commit/e7193be74658f88016ce03d5e07ed26f104c2bdc))
+
+
+### Bug Fixes
+
+* **detect:** pixel-centre corners, strict frame association, SB grid gate ([18b5333](https://github.com/Munna-Manoj/DS-MSP/commit/18b533330605e1e2ec628e00e0e422e8403d054f))
+* harden calibration observations and acceptance gates ([e19fbd2](https://github.com/Munna-Manoj/DS-MSP/commit/e19fbd227c682b6927d38d7f3bdf4ceb085411c5))
+
+
+### Performance
+
+* **rig:** sparse pose-only stage and vectorised bundle adjustment [stack 5/5] ([#75](https://github.com/Munna-Manoj/DS-MSP/issues/75)) ([7a5f19c](https://github.com/Munna-Manoj/DS-MSP/commit/7a5f19c22667d93035190744782da190685077a6))
+
 ## [0.18.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.17.1...v0.18.0) (2026-10-24)
 
 
