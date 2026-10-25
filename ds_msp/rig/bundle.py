@@ -29,7 +29,7 @@ from ..core.covariance import (
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
 from ..core.numerics import NumericalError, psd_eigvalsh, spd_inverse
-from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
+from ..core.optimize import box_active, gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from ..core.robust import auto_kernel_scale, robust_weight
 from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .types import ObjectObs, RigState
@@ -376,6 +376,17 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 s["intr"][c] = np.clip(state["intr"][c] + d[ic:ic + Pn[c]], lb, ub)
         return s
 
+    def bound_active(state, g):
+        """Intrinsic coordinates the clipping retraction holds at a bound (see
+        :func:`core.optimize.box_active`)."""
+        act = np.zeros(K, bool)
+        if not fix_intrinsics:
+            for c in sorted(rig.cameras):
+                ic = intr_col[c]
+                act[ic:ic + Pn[c]] = box_active(state["intr"][c], *bounds[c], g[ic:ic + Pn[c]])
+        return act
+
+    retract.bound_active = bound_active
     return _state_from_rig(rig), residual, jacobian, retract, K
 
 
@@ -964,6 +975,17 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 s["board_k"][key] = state["board_k"][key] + d_shared[o:o + 3]
         return s
 
+    def bound_active(state, g):
+        """Shared intrinsic coordinates held at a bound (see :func:`core.optimize.box_active`)."""
+        act = np.zeros(shared_dim, bool)
+        if not fix_intrinsics:
+            for c in sorted(rig.cameras):
+                ic = intr_col[c]
+                act[ic:ic + Pn[c]] = box_active(state["intr"][c], *bounds[c], g[ic:ic + Pn[c]])
+        return act
+
+    retract.bound_active = bound_active
+
     state0 = _state_from_rig(rig)
     if bases:
         state0["board_R"] = {key: np.eye(3) for key in board_col}
@@ -1056,7 +1078,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
                                 block=3, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=3, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
         if log is not None:
             log.append(solve_record(res, "gnc_tls" if barc is not None else "lm"))
         return _rig_from_state(rig, res.state)
@@ -1081,7 +1103,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         else:
             res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
                            shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
     else:
         state0, residual, jacobian, retract, K = build_problem(
             rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
@@ -1092,7 +1114,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
                                 block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
     if log is not None:
         kind = "gnc_tls" if barc is not None else "lm"
         log.append(solve_record(res, kind + ("_schur" if sparse else "")))

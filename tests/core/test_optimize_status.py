@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from ds_msp.core.optimize import (
-    CONVERGED, NO_CONVERGENCE, NUMERICAL_FAILURE, gnc_tls_schur_solve, gnc_tls_solve, lm_solve,
-    schur_lm,
+    CONVERGED, NO_CONVERGENCE, NUMERICAL_FAILURE, box_active, gnc_tls_schur_solve, gnc_tls_solve,
+    lm_solve, schur_lm,
 )
 
 pytestmark = pytest.mark.req("NFR-NUM-008")
@@ -138,3 +138,32 @@ def test_gnc_tls_budget_exhaustion_is_not_success():
                         noise_bound=0.1, block=1, max_outer=1)
     assert res.stop_reason == "max_outer"
     assert res.status == NO_CONVERGENCE and not res.success
+
+
+def _boxed_line():
+    """Fit y = a·x + b with a clipped to [0, 1]; the data want a = 2, so the constrained
+    optimum is a = 1 with the gradient still pushing a upward."""
+    x = np.linspace(-1.0, 1.0, 20)
+    y = 2.0 * x - 1.0
+    lo, hi = np.array([0.0, -np.inf]), np.array([1.0, np.inf])
+    return (np.array([0.5, 0.0]), lambda s: s[0] * x + s[1] - y,
+            lambda s: np.c_[x, np.ones_like(x)], lambda s, d: np.clip(s + d, lo, hi), lo, hi)
+
+
+def test_box_constrained_optimum_converges_on_the_projected_gradient():
+    x0, r, J, ret, lo, hi = _boxed_line()
+    raw = lm_solve(x0, r, J, ret, block=1, max_iter=200)
+    assert raw.state[0] == 1.0
+    assert raw.status == NO_CONVERGENCE                  # raw gradient points out of the box
+    kkt = lm_solve(x0, r, J, ret, block=1, max_iter=200,
+                   bound_active=lambda s, g: box_active(s, lo, hi, g))
+    np.testing.assert_array_equal(kkt.state, raw.state)  # classification only
+    assert kkt.status == CONVERGED and kkt.gradient_ratio < 1e-12
+
+
+def test_box_active_only_exempts_outward_gradients():
+    lo, hi = np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0])
+    x = np.array([0.0, 0.0, 1.0])
+    g = np.array([1.0, -1.0, -1.0])     # descent -g: leaves, enters, leaves the box
+    np.testing.assert_array_equal(box_active(x, lo, hi, g), [True, False, True])
+    assert not box_active(np.array([0.5]), lo[:1], hi[:1], np.array([3.0])).any()
