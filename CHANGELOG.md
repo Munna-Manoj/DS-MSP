@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.20.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.19.0...v0.20.0) (2026-10-25)
+
+
+### Features
+
+* **core:** solver termination status and numerical guard rails ([7060132](https://github.com/Munna-Manoj/DS-MSP/commit/706013297f0fa1b540ca18da4d6c02b0f01691ed))
+* **core:** solver termination status and numerical guard rails ([783825c](https://github.com/Munna-Manoj/DS-MSP/commit/783825c9f1c9f3092b7dd9efc2cc0f535f3259e3))
+
+
+### Documentation
+
+* **rig:** add real-data evaluation against MC-Calib ([#78](https://github.com/Munna-Manoj/DS-MSP/issues/78)) ([a4c8488](https://github.com/Munna-Manoj/DS-MSP/commit/a4c848805087e7496a382697cfb6aa26e4517761))
+
 ## [0.19.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.18.0...v0.19.0) (2026-10-24)
 
 
