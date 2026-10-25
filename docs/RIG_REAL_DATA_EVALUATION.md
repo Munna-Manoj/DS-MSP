@@ -73,7 +73,9 @@ fisheye.
 On all seven rigs, DS-MSP's extrinsics agree with MC-Calib's to within 0.15° and 1.6 mm per camera pair. Its held-out reprojection error matches or beats MC-Calib's.
 ///
 
-Repeated end-to-end runs give the same extrinsics to within 5×10⁻⁶°. That was three runs per sequence on a pre-release build, which 0.19.0 matches to within 10⁻⁴°.
+Three end-to-end runs per sequence on a pre-release build gave the same extrinsics to within 2×10⁻¹⁰° and 2×10⁻⁹ mm, and four of the seven sequences were bit-identical. 0.19.0 matches that build to within 10⁻⁴°.
+
+These repeatability figures use the chordal rotation distance, 2·asin(‖R₁ − R₂‖_F / 2√2). The usual arccos((trace(R₁ᵀR₂) − 1) / 2) loses precision near zero. In double precision it reports 2–5×10⁻⁶° even for bit-identical rotations. An earlier version of this page quoted that floor (5×10⁻⁶°) as the repeatability.
 
 ## Result 2: a private two-camera rig
 
