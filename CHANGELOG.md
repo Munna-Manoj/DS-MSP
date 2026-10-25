@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.20.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.20.0...v0.20.1) (2026-10-25)
+
+
+### Documentation
+
+* **rig:** correct the repeatability figure in the real-data report ([b242dea](https://github.com/Munna-Manoj/DS-MSP/commit/b242dea08ed79789091d2859a6c6145be8a14cc2))
+
 ## [0.20.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.19.0...v0.20.0) (2026-10-25)
 
 
