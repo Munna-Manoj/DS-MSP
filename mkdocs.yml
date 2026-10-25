@@ -180,6 +180,7 @@ nav:
       - Calibrate a single camera: CALIBRATE_GUIDE.md
       - Calibrate a multi-camera rig: RIG_CALIBRATION_GUIDE.md
       - Rig Blender evaluation: RIG_BLENDER_EVALUATION.md
+      - Rig real-data evaluation: RIG_REAL_DATA_EVALUATION.md
       - Rig evaluation table: RIG_EVALUATION_TABLE.md
       - Rig outlier benchmark: RIG_OUTLIER_BENCHMARK.md
       - Multi-model library & conversion: MULTI_MODEL.md
