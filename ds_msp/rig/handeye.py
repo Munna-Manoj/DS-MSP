@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-import cv2
 import numpy as np
 
 from ..core.lie import so3_log
@@ -21,6 +20,43 @@ from .averaging import average_rotation, average_translation
 
 def _rot_angle_deg(R: np.ndarray) -> float:
     return float(np.degrees(np.arccos(np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0))))
+
+
+def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, *, attempts: int = 5,
+            max_iter: int = 10, eps: float = 0.01) -> np.ndarray:
+    """Cluster labels for the rows of ``x``: k-means++ seeding, Lloyd iterations until no
+    centre moves more than ``eps`` (or ``max_iter``), best compactness over ``attempts``
+    restarts -- the same criteria ``cv2.kmeans`` was called with here.
+
+    The only randomness is ``rng``, so the result depends on the caller's seed alone.
+    ``cv2.kmeans`` draws from OpenCV's process-global RNG instead, which made the clustering
+    depend on whatever had consumed that RNG earlier in the process.
+    """
+    n = len(x)
+    best_labels, best_compact = np.zeros(n, int), np.inf
+    for _ in range(attempts):
+        centres = [x[rng.integers(n)]]
+        for _c in range(1, k):
+            d2 = np.min(((x[:, None, :] - np.asarray(centres)[None]) ** 2).sum(-1), axis=1)
+            total = float(d2.sum())
+            centres.append(x[rng.choice(n, p=d2 / total)] if total > 0.0 else x[rng.integers(n)])
+        C = np.asarray(centres, float)
+        for _it in range(max_iter):
+            labels = np.argmin(((x[:, None, :] - C[None]) ** 2).sum(-1), axis=1)
+            C_new = C.copy()
+            for j in range(k):
+                members = x[labels == j]
+                if len(members):
+                    C_new[j] = members.mean(axis=0)
+            moved = float(np.max(np.linalg.norm(C_new - C, axis=1)))
+            C = C_new
+            if moved <= eps:
+                break
+        labels = np.argmin(((x[:, None, :] - C[None]) ** 2).sum(-1), axis=1)
+        compact = float(((x - C[labels]) ** 2).sum())
+        if compact < best_compact:
+            best_labels, best_compact = labels, compact
+    return best_labels
 
 
 def _tsai_solve(motions_a: List[np.ndarray], motions_b: List[np.ndarray],
@@ -66,14 +102,9 @@ def handeye_bootstrap(poses_a: List[np.ndarray], poses_b: List[np.ndarray], *,
     n = len(poses_a)
     if n < 3:
         return _single_handeye(poses_a, poses_b)
-    feats = np.array([np.r_[Ta[:3, 3], Tb[:3, 3]] for Ta, Tb in zip(poses_a, poses_b)],
-                     np.float32)
+    feats = np.array([np.r_[Ta[:3, 3], Tb[:3, 3]] for Ta, Tb in zip(poses_a, poses_b)], float)
     k = min(nb_cluster, n)
-    _, labels, _ = cv2.kmeans(
-        feats, k, None,
-        (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_COUNT, 10, 0.01), 5,
-        cv2.KMEANS_PP_CENTERS)
-    labels = labels.ravel()
+    labels = _kmeans(feats, k, np.random.default_rng([seed, 1]))
     by_cluster: Dict[int, List[int]] = {}
     for i, c in enumerate(labels):
         by_cluster.setdefault(int(c), []).append(i)
