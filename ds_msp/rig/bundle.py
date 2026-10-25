@@ -28,6 +28,7 @@ from ..core.covariance import (
 )
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
+from ..core.numerics import NumericalError, psd_eigvalsh
 from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from ..core.robust import auto_kernel_scale, robust_weight
 from ..geometry.bearing import chordal_bearing_residual_jacobian
@@ -701,18 +702,30 @@ def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str
                     Jf[:, m] += sign * np.r_[dw, C - C0] / (2 * eps)
             block = cov[np.ix_(cols, cols)]
             P = Jf @ block @ Jf.T if np.isfinite(block).all() else None
-            if P is None or not np.isfinite(P).all():
+            ev_r = ev_c = None
+            if P is not None and np.isfinite(P).all():
+                P = 0.5 * (P + P.T)
+                try:
+                    # A clearly negative variance is a defect, not a zero: report the pair
+                    # as unidentified rather than clamping it to a falsely tight sigma.
+                    # (rtol 1e-8: the propagation's roundoff, across mixed rotation and
+                    # length units, can exceed n*eps of a 3x3 block.)
+                    ev_r = psd_eigvalsh(P[:3, :3], where="pair_uncertainty",
+                                        what="rotation cov", rtol=1e-8)
+                    ev_c = psd_eigvalsh(P[3:, 3:], where="pair_uncertainty",
+                                        what="centre cov", rtol=1e-8)
+                except NumericalError:
+                    ev_r = ev_c = None
+            if ev_r is None or ev_c is None:
                 out[(a, b)] = {"rotation_sigma_deg": np.inf, "rotation_sigma_rms_deg": np.inf,
                                "centre_sigma": np.inf, "centre_sigma_rms": np.inf,
                                "covariance": None, "identifiable": False}
                 continue
-            ev_r = np.linalg.eigvalsh(P[:3, :3])
-            ev_c = np.linalg.eigvalsh(P[3:, 3:])
             out[(a, b)] = {
-                "rotation_sigma_deg": float(np.degrees(np.sqrt(max(ev_r[-1], 0.0)))),
-                "rotation_sigma_rms_deg": float(np.degrees(np.sqrt(max(ev_r.sum(), 0.0) / 3))),
-                "centre_sigma": float(np.sqrt(max(ev_c[-1], 0.0))),
-                "centre_sigma_rms": float(np.sqrt(max(ev_c.sum(), 0.0) / 3)),
+                "rotation_sigma_deg": float(np.degrees(np.sqrt(ev_r[-1]))),
+                "rotation_sigma_rms_deg": float(np.degrees(np.sqrt(ev_r.sum() / 3))),
+                "centre_sigma": float(np.sqrt(ev_c[-1])),
+                "centre_sigma_rms": float(np.sqrt(ev_c.sum() / 3)),
                 "covariance": P.tolist(),
                 "identifiable": True,
             }
@@ -1216,7 +1229,13 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
             if W is not None:
                 r = np.einsum('nij,nj->ni', W, r)
                 J = np.einsum('nij,njk->nik', W, J)
-            w = _robust_w(np.einsum('ni,ni->n', r, r), robust_scale) * valid.astype(float)
+            # Drop invalid or non-finite rows by selection: multiplying a NaN by a zero
+            # weight is still NaN, and one NaN would poison that point's normal equations.
+            use = (np.asarray(valid, bool) & np.isfinite(r).all(axis=1)
+                   & np.isfinite(J).all(axis=(1, 2)))
+            r = np.where(use[:, None], r, 0.0)
+            J = np.where(use[:, None, None], J, 0.0)
+            w = np.where(use, _robust_w(np.einsum('ni,ni->n', r, r), robust_scale), 0.0)
             np.add.at(H, slots, w[:, None, None] * np.einsum('nij,nik->njk', J, J))
             np.add.at(g, slots, w[:, None] * np.einsum('nij,ni->nj', J, r))
         if prior_w:
@@ -1227,6 +1246,9 @@ def refine_object_structure(rig: RigState, object_obs: List[ObjectObs], *,
             dX = np.linalg.solve(H, -g[..., None])[..., 0]      # (F,3) all points at once
         except np.linalg.LinAlgError:
             break
+        # A point whose update is not finite keeps its position (never write NaN into the
+        # target); every other point moves.
+        dX = np.where(np.isfinite(dX).all(axis=1)[:, None], dX, 0.0)
         X += dX
         if float(np.max(np.einsum('ni,ni->n', dX, dX))) < 1e-14:
             break
