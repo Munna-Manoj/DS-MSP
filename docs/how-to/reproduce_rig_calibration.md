@@ -376,8 +376,8 @@ rotation (degrees) and camera-centre (scene units) in `calibration_acceptance.js
 `uncertainty_gate: "refuse"` with `max_rotation_sigma_deg` and `max_centre_sigma` to block export
 of a capture that does not constrain the extrinsics; the gate uses the small-sample widened
 `*_sigma_t` values (Student-t with frames − 1 degrees of freedom), which matter below ~20
-frames. The σ covers random error only, not systematic detector bias. `profile: "production"` turns on the observability and uncertainty
-refusals (limits required), hard rejection of board observations above `ransac_threshold`
+frames. The σ covers random error only, not systematic detector bias. `profile: "production"` turns on the observability, uncertainty
+and convergence refusals (limits required), hard rejection of board observations above `ransac_threshold`
 (recorded one by one in the acceptance file), and refuses unknown config keys.
 
 `audit_gate: "refuse"` runs the observability check before any calibration parameters are
@@ -387,6 +387,15 @@ limits, or failed limits refuse export. A reference comparison to MC-Calib does 
 for independent ground truth. With the accuracy gate off, diagnostic exports remain available;
 `calibration_acceptance.json` records their acceptance status separately from fit quality.
 Existing parameter files are not overwritten by a refused run.
+
+**Solver status.** The acceptance file's `solver` entry lists every BA stage with its
+termination status (`CONVERGED`, `NO_CONVERGENCE` or `NUMERICAL_FAILURE`), stop reason,
+iterations and final RMS. It also lists cameras whose front-end fit fell back to a seed, and
+camera groups hand-eye could not link. Only the last stage produced the exported estimate;
+earlier stages are warm starts, and an unconverged warm start is not a problem by itself. A
+`NUMERICAL_FAILURE` (a NaN or inf cost) in any stage stops the run. `convergence_gate: "warn"`
+(default) warns when the final stage did not converge; `"refuse"` (the production default)
+blocks export.
 
 `Observation`, `BoardObs` and `ObjectObs` accept optional per-corner `pixel_covariances`.
 Board fusion, object remapping, single-camera and rig bundle adjustment preserve these values.

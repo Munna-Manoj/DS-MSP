@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from ..core.optimize import CONVERGED, NUMERICAL_FAILURE
 from ..io.mccalib import (
     Scenario,
     save_detection_images,
@@ -90,7 +91,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        audit_gate: str = "warn", accuracy_gate: str = "off",
                        certify: bool = False,
                        accuracy_profile: Optional[AccuracyProfile] = None,
-                       uncertainty_gate: str = "warn",
+                       uncertainty_gate: str = "warn", convergence_gate: str = "warn",
                        max_rotation_sigma_deg: Optional[float] = None,
                        max_centre_sigma: Optional[float] = None,
                        config_warnings: Optional[List[str]] = None,
@@ -135,6 +136,13 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     ``"uncertainty"`` and recorded in the acceptance file; ``refuse`` blocks export when any
     pair exceeds ``max_rotation_sigma_deg`` / ``max_centre_sigma``. Observations hard-dropped
     by ``reproj_gate_px`` are recorded there too, one ledger entry each.
+
+    Solver termination (:func:`solver_acceptance`) is recorded as ``"solver"`` in the acceptance
+    file. A ``NUMERICAL_FAILURE`` in any BA stage always raises :class:`RuntimeError`, because a
+    non-finite cost has no meaning. ``convergence_gate`` (``warn`` default | ``refuse`` |
+    ``off``) judges the final stage, the one that produced the returned estimate: ``warn``
+    raises a ``RuntimeWarning`` when it did not converge, ``refuse`` blocks export. Front-end
+    fallbacks and unlinked hand-eye groups always warn.
     Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
     ``"certificate"``/``"uncertainty"`` when enabled).
     """
@@ -146,6 +154,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         raise ValueError(f"audit_gate must be 'off', 'warn' or 'refuse', got {audit_gate!r}")
     if accuracy_gate not in ("off", "refuse"):
         raise ValueError("accuracy_gate must be off or refuse")
+    if convergence_gate not in ("off", "warn", "refuse"):
+        raise ValueError(f"convergence_gate must be 'off', 'warn' or 'refuse', got {convergence_gate!r}")
     if structure_prior_sigma is not None and (
             not np.isfinite(structure_prior_sigma) or structure_prior_sigma <= 0):
         raise ValueError("structure_prior_sigma must be positive in target length units")
@@ -170,6 +180,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                         objects=objects, reproj_gate_px=reproj_gate_px)
     # keep the (possibly structure-refined) object the rig actually solved with
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
+    solver = solver_acceptance(rig)
+    _gate_solver(solver, convergence_gate)
 
     metrics = _scenario_metrics(rig, scn, accuracy_profile=accuracy_profile)
     out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
@@ -227,6 +239,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "profile": profile,
         "uncertainty_gate": uncertainty_gate,
         "extrinsic_uncertainty": uncertainty,
+        "convergence_gate": convergence_gate,
+        "solver": solver,
         "outlier_gate_px": reproj_gate_px,
         "rejected_observations": list(getattr(rig, "rejected", [])),
         "config_warnings": list(config_warnings or []),
@@ -264,6 +278,53 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         paths["acceptance"] = str(acceptance_path)
     out["paths"] = paths
     return out
+
+
+def solver_acceptance(rig: RigState) -> Dict:
+    """Acceptance summary of how the calibration's solves ended, from ``rig.solver_report``
+    (:func:`~ds_msp.rig.calibrate.calibrate_rig`).
+
+    Returns the report (``stages``, ``front_end``, ``links``) plus ``final_stage`` and
+    ``final_status`` (the last BA solve, which produced the estimate),
+    ``numerical_failures`` (stages that hit a non-finite cost or linearisation),
+    ``front_end_fallbacks`` (``{cam: reason}``) and ``unlinked_groups``."""
+    rep = getattr(rig, "solver_report", None) or {}
+    stages = list(rep.get("stages", []))
+    final = stages[-1] if stages else None
+    front = rep.get("front_end")
+    return {
+        "final_stage": final.get("stage") if final else None,
+        "final_status": final["status"] if final else None,
+        "numerical_failures": [s.get("stage") for s in stages if s["status"] == NUMERICAL_FAILURE],
+        "front_end_fallbacks": {c: f["fallback"] for c, f in (front or {}).items()
+                                if f.get("fallback")},
+        "unlinked_groups": [ln["group"] for ln in rep.get("links", []) if not ln["linked"]],
+        "stages": stages, "front_end": front, "links": list(rep.get("links", [])),
+    }
+
+
+def _gate_solver(solver: Dict, convergence_gate: str) -> None:
+    """Apply decision rules to :func:`solver_acceptance`: numerical failure always refuses;
+    a non-converged final stage warns or refuses per ``convergence_gate``; fallbacks warn."""
+    if solver["numerical_failures"]:
+        raise RuntimeError(
+            f"calibration failed: non-finite cost or linearisation in BA stage(s) "
+            f"{', '.join(map(str, solver['numerical_failures']))}; check the observations and "
+            f"camera models for NaN/inf or points outside the model's valid domain")
+    if solver["front_end_fallbacks"]:
+        warnings.warn("front-end intrinsics fell back for camera(s) "
+                      + ", ".join(f"{c} ({r})" for c, r in solver["front_end_fallbacks"].items())
+                      + "; the global BA starts these cameras from a seed, not a fit",
+                      RuntimeWarning, stacklevel=3)
+    if solver["final_status"] not in (None, CONVERGED) and convergence_gate != "off":
+        msg = (f"the final BA stage ({solver['final_stage']}) ended {solver['final_status']} "
+               f"after {solver['stages'][-1]['iterations']} iterations "
+               f"(gradient ratio {solver['stages'][-1]['gradient_ratio']}); the estimate may "
+               f"not be at the optimum")
+        if convergence_gate == "refuse":
+            raise RuntimeError(f"convergence gate refused this calibration "
+                               f"(convergence_gate='refuse'): {msg}")
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
 
 
 def extrinsic_uncertainty(rig: RigState, object_obs, *, fix_intrinsics: bool,

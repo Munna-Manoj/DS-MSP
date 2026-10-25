@@ -23,6 +23,7 @@ from ..calib.bundle import calibrate as _calibrate_single
 from ..geometry.bearing import projection_bearing_whiteners
 from ..geometry.resection import gnc_pnp_bearings, intrinsics_seed
 from ..core.contracts import CameraModel
+from ..core.numerics import max_or_nan
 from ..models.radtan import RadTanModel
 from ..models.registry import seed_from_K as _seed_from_K
 from . import bundle
@@ -228,7 +229,13 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
     top-level function so it is picklable for :class:`~concurrent.futures.ProcessPoolExecutor`
     (see :func:`make_bundle_front_end`'s ``n_jobs``). ``objs`` is the ``{object_id: Object3D}``
     map (see :func:`_obs_points`) so a camera that observes several objects still pools all its
-    board views into one intrinsic fit."""
+    board views into one intrinsic fit.
+
+    ``fit`` in the result records how the model was obtained: the chosen candidate's solver
+    ``status`` and ``rms_px``, and ``fallback`` -- ``None`` for a fitted model,
+    ``"no_correspondences"`` when fewer than 3 views survive the seed (the model-aware seed is
+    used unfitted), ``"focal_collapse"`` when every candidate failed the focal check or had a
+    non-finite RMS (seed focal, neutral distortion; the global BA fits the rest)."""
     ge6 = [o for o in obs if len(o.point_rows) >= 6]   # views usable for intrinsics
     objpts = [_obs_points(objs, o).astype(np.float32) for o in ge6]
     imgpts = [o.pts_2d.astype(np.float32) for o in ge6]
@@ -277,12 +284,18 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
             return (0.5 * foc_seed < fx < 2.0 * foc_seed
                     and 0.5 * foc_seed < fy < 2.0 * foc_seed)
 
-        ok = [r for r in cands if _focal_ok(r["model"])]
-        model = (min(ok, key=lambda r: r["rms_px"])["model"] if ok
-                else _seed_from_K(model_cls, Kp))
+        ok = [r for r in cands if _focal_ok(r["model"]) and np.isfinite(r["rms_px"])]
+        if ok:
+            best = min(ok, key=lambda r: r["rms_px"])
+            model = best["model"]
+            fit = {"status": best["status"], "rms_px": float(best["rms_px"]), "fallback": None}
+        else:
+            model = _seed_from_K(model_cls, Kp)
+            fit = {"status": None, "rms_px": None, "fallback": "focal_collapse"}
     else:
         model = seed_ma
-    return dict(model=model, cls=model_cls)
+        fit = {"status": None, "rms_px": None, "fallback": "no_correspondences"}
+    return dict(model=model, cls=model_cls, fit=fit)
 
 
 def _init_pool_worker(objs: Dict[int, Object3D]) -> None:
@@ -349,7 +362,10 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
     zero, so every view retains a corrective gradient. A Cauchy refine here can silently
     abandon an initially flipped view while reporting a good median over all other views.
     The later global rig BA still uses Cauchy + GNC, after the rig is in the correct basin.
-    Returns a callable with the ``front_end`` signature used by :func:`calibrate_rig`.
+    Returns a callable with the ``front_end`` signature used by :func:`calibrate_rig`. After
+    each call its ``report`` attribute maps every camera to its ``fit`` record (see
+    :func:`_fit_one_camera`), with ``fallback="focal_consensus"`` for a camera reset to the
+    rig's median focal.
 
     ``init_K`` (``{cam_id: 3x3}``) supplies a per-camera focal / principal-point **seed** from
     a known intrinsics file — MC-Calib's ``cam_params_path`` initialization. When given for a
@@ -420,7 +436,9 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
 
             cameras = {}
             pnp_args = {}
+            report = {}
             for cam_id, r in raw.items():
+                report[cam_id] = dict(r["fit"])
                 fx, fy = feff[cam_id]
                 if (cam_id not in seeded and len(raw) >= 2
                         and (abs(fx - med_fx) > 0.25 * med_fx
@@ -428,6 +446,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
                     w, h = img_size[cam_id]
                     Kc = np.array([[med_fx, 0, w / 2.0], [0, med_fy, h / 2.0], [0, 0, 1.0]])
                     model = _seed_from_K(r["cls"], Kc)
+                    report[cam_id]["fallback"] = "focal_consensus"
                 else:
                     model = r["model"]
                 cameras[cam_id] = model
@@ -446,6 +465,7 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
         for cam_id in cam_ids:
             for o, T in zip(raw[cam_id]["obs"], poses[cam_id]):
                 o.T_c_o = T
+        front_end.report = report
         return cameras
     return front_end
 
@@ -497,7 +517,8 @@ def _pnp_poses_pooled(cam_id, model, obs_light):
     return cam_id, _pnp_poses_one_camera(model, _POOL_OBJS, obs_light)
 
 
-def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbose):
+def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbose,
+                      links=None):
     """MC-Calib ``merge3DObjects`` + re-group loop — link rigidly-connected objects that are
     never co-observed at the board level.
 
@@ -514,7 +535,7 @@ def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbos
     for _ in range(max(1, len(objects))):
         groups, extr = init_camera_groups(object_obs, cam_ids)
         if len(groups) > 1:
-            extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+            extr = link_groups(groups, extr, object_obs, he_approach=he_approach, report=links)
         merged, remap = merge_objects(objects, object_obs, extr)
         if len(merged) == len(objects):
             break                                    # nothing fused this round -> stable
@@ -532,7 +553,7 @@ def _merge_and_relink(objects, object_obs, cameras, cam_ids, he_approach, verbos
                   f"{[o.board_ids for o in objects]}")
     groups, extr = init_camera_groups(object_obs, cam_ids)
     if len(groups) > 1:                              # any groups still disjoint -> hand-eye rebase
-        extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+        extr = link_groups(groups, extr, object_obs, he_approach=he_approach, report=links)
     return objects, {o.object_id: o for o in objects}, groups, extr
 
 
@@ -615,8 +636,19 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     ``on_iter(it, max_iter, rms, cost, rig_snapshot)`` — optional live-progress callback,
     forwarded to every stage's underlying solver (:func:`bundle.refine` / ``core.optimize.lm_solve`` /
     ``schur_lm``); fires once per solver iteration across every stage in sequence.
+
+    The returned rig's ``solver_report`` records how each step ended: ``stages`` (one
+    :func:`bundle.solve_record` per BA solve, labelled with its ``stage``), ``front_end`` (the
+    front-end's per-camera ``report``, when it has one) and ``links`` (hand-eye group links).
+    The last stage produced the returned estimate; earlier stages are warm starts.
     """
     structure_mode = resolve_structure_mode(structure_mode, refine_structure)
+    stages: List[Dict] = []
+    links: List[Dict] = []
+
+    def _label(name, start):
+        for rec in stages[start:]:
+            rec["stage"] = name
     obs_by_cam: Dict[int, List[ObjectObs]] = defaultdict(list)
     for o in object_obs:
         obs_by_cam[o.cam_id].append(o)
@@ -652,7 +684,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
         # Non-overlapping groups: link with hand-eye, then re-base every camera to the
         # global reference (group 0's reference camera).
         from .handeye import link_groups
-        extr = link_groups(groups, extr, object_obs, he_approach=he_approach)
+        extr = link_groups(groups, extr, object_obs, he_approach=he_approach, report=links)
 
     # 2b. Multi-object merge (MC-Calib merge3DObjects): fuse rigidly-linked objects that are
     #     never co-observed at the board level (each camera sees a different board) into ONE
@@ -662,7 +694,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #     docs/RIG_MULTIOBJECT_IMPLEMENTATION_PLAN.md.
     if len(objects) > 1:
         objects, objects_by_id, groups, extr = _merge_and_relink(
-            objects, object_obs, cameras, cam_ids, he_approach, verbose)
+            objects, object_obs, cameras, cam_ids, he_approach, verbose, links=links)
         # The live-view animator (if any) cached the PRE-merge object's pts_3d/point_rows via
         # bind_scene() before this stage ran (calib_param.py/cli.py bind it right after
         # detection); a merge changes both, so every on_iter callback from here on would index
@@ -693,18 +725,22 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        of the closed-form averaged object poses before any extrinsic moves.
     if on_iter is not None and hasattr(on_iter, "set_stage"):
         on_iter.set_stage("(a) per-object pose warm-up")
+    n0 = len(stages)
     rig = bundle.refine(rig, object_obs, fix_intrinsics=True, fix_extrinsics=True,
                     robust_kernel="huber", robust_scale="auto", verbose=verbose,
-                    on_iter=on_iter)
+                    on_iter=on_iter, log=stages)
+    _label("a_object_poses", n0)
     #    (b) per-camera-group — refine each group's extrinsics + its object poses, intrinsics
     #        fixed (calibrateCameraGroup / refineAllCameraGroupAndObjects). Single group ->
     #        whole-rig poses-only; multiple groups -> each independently before the joint pass.
     if on_iter is not None and hasattr(on_iter, "set_stage"):
         on_iter.set_stage("(b) per-camera-group extrinsics" if len(groups) > 1
                            else "(b) rig extrinsics")
+    n0 = len(stages)
     rig = bundle.refine_groups(rig, object_obs, groups,
                            robust_kernel="huber", robust_scale="auto", verbose=verbose,
-                           on_iter=on_iter)
+                           on_iter=on_iter, log=stages)
+    _label("b_group_extrinsics", n0)
     #    (c) global joint — full rig + (optionally) intrinsics with a redescending Cauchy
     #        kernel and a short GNC anneal (refineAllCameraGroupAndObjectsAndIntrinsics).
     # Graduated non-convexity: anneal the robust scale from ``gnc_start``×MAD down. A wider
@@ -714,9 +750,11 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     if on_iter is not None and hasattr(on_iter, "set_stage"):
         on_iter.set_stage("(c) global joint BA" + (" + intrinsics" if fix_intrinsics is False
                                                      else ""))
+    n0 = len(stages)
     rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics, robust_kernel="cauchy",
                     robust_scale="auto", gnc_iters=gnc_iters, gnc_start=gnc_start,
-                    noise_bound=noise_bound, verbose=verbose, on_iter=on_iter)
+                    noise_bound=noise_bound, verbose=verbose, on_iter=on_iter, log=stages)
+    _label("c_global_joint", n0)
 
     #    (c.5) gross-outlier rejection (MC-Calib's ``ransac_threshold``). The robust BA above
     #        recovers the correct rig even with mis-detections, but a *self-consistent* blunder —
@@ -738,10 +776,12 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
             if verbose:
                 print(f"[outliers] dropped {ndrop} board observation(s) reprojecting > "
                       f"{reproj_gate_px:.1f}px through the rig (mis-detections); re-solving")
+            n0 = len(stages)
             rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", gnc_iters=gnc_iters,
                             gnc_start=gnc_start, noise_bound=noise_bound, verbose=verbose,
-                            on_iter=on_iter)
+                            on_iter=on_iter, log=stages)
+            _label("c5_after_outlier_rejection", n0)
             rig.rejected = list(dropped)
 
     #    (d) multi-board target refinement. build_objects fixes inter-board poses from
@@ -756,10 +796,12 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     if structure_mode in ("rigid", "bend") and multi_board:
         if on_iter is not None and hasattr(on_iter, "set_stage"):
             on_iter.set_stage(f"(d) {structure_mode} board-pose refinement")
+        n0 = len(stages)
         rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", refine_boards=True,
                             bend_boards=structure_mode == "bend", verbose=verbose,
-                            on_iter=on_iter)
+                            on_iter=on_iter, log=stages)
+        _label(f"d_{structure_mode}_boards", n0)
     elif structure_mode == "free" and multi_board:
         if structure_prior_sigma is None:
             warnings.warn("unconstrained structure refinement can absorb camera/detection bias; "
@@ -776,13 +818,19 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
             # were ~80% of total runtime for <0.5% extra accuracy.
             if on_iter is not None and hasattr(on_iter, "set_stage"):
                 on_iter.set_stage(f"(d) structure refinement {round_i + 1}/{structure_rounds}")
+            n0 = len(stages)
             rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", max_iter=25,
-                            verbose=verbose, on_iter=on_iter)
-            cur = max(bundle.reprojection_rms(rig, object_obs).values())
+                            verbose=verbose, on_iter=on_iter, log=stages)
+            _label(f"d_free_structure_{round_i + 1}", n0)
+            cur = max_or_nan(bundle.reprojection_rms(rig, object_obs).values())
             if prev - cur < 0.003 * prev:           # converged -> stop early
                 break
             prev = cur
+    fe_report = getattr(fe, "report", None)
+    rig.solver_report = {"stages": stages, "links": links,
+                         "front_end": ({str(c): v for c, v in fe_report.items()}
+                                       if fe_report is not None else None)}
     return rig
 
 

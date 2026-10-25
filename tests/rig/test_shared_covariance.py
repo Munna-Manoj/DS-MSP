@@ -129,13 +129,12 @@ def test_gross_outliers_keep_the_covariance_finite(monkeypatch):
     import ds_msp.rig.bundle as rb
     monkeypatch.setattr(rb, "psd_curvature_derivative", lambda s, om, omp: omp)
     seen = []
-    real_inv = np.linalg.inv
+    real_inv = rb.spd_inverse
 
-    def spy(M):
-        if M.shape == (6, 6):
-            seen.append(np.linalg.eigvalsh(M)[0])
-        return real_inv(M)
-    monkeypatch.setattr(rb.np.linalg, "inv", spy)
+    def spy(M, **kw):
+        seen.append(np.linalg.eigvalsh(M)[0])
+        return real_inv(M, **kw)
+    monkeypatch.setattr(rb, "spd_inverse", spy)
     rb.shared_covariance(rig, bad)
     assert min(seen) < 0.0
 

@@ -10,7 +10,8 @@ subsets, gate by rotational consistency (15 deg), and aggregate.
 
 from __future__ import annotations
 
-from typing import Dict, List
+import warnings
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -60,14 +61,15 @@ def _kmeans(x: np.ndarray, k: int, rng: np.random.Generator, *, attempts: int = 
 
 
 def _tsai_solve(motions_a: List[np.ndarray], motions_b: List[np.ndarray],
-                min_angle: float = 1e-3) -> np.ndarray:
+                min_angle: float = 1e-3) -> Optional[np.ndarray]:
     """Solve ``M_b = X · M_a · X⁻¹`` for the rigid transform ``X = T_b_a`` from paired
     relative motions (Tsai–Lenz). Rotation: ``log(R_b) = R_X · log(R_a)`` solved by SVD
     (Kabsch); translation: ``(R_{M_b} − I) t_X = R_X t_{M_a} − t_{M_b}`` by least squares.
 
     A direct solve avoids ``cv2.calibrateHandEye``'s absolute-pose convention (it rebuilds
     motions internally, so feeding it motions is wrong). Motions with near-zero rotation
-    carry no constraint and are dropped (need rotational diversity).
+    carry no constraint and are dropped (need rotational diversity); fewer than two
+    rotational motions leave the rotation unidentified and return ``None``.
     """
     A, B = [], []
     for Ma, Mb in zip(motions_a, motions_b):
@@ -77,7 +79,7 @@ def _tsai_solve(motions_a: List[np.ndarray], motions_b: List[np.ndarray],
         A.append(a)
         B.append(so3_log(Mb[:3, :3]))
     if len(A) < 2:
-        return np.eye(4)
+        return None
     A, B = np.array(A), np.array(B)
     U, _, Vt = np.linalg.svd(B.T @ A)
     D = np.eye(3)
@@ -95,9 +97,10 @@ def _tsai_solve(motions_a: List[np.ndarray], motions_b: List[np.ndarray],
 
 def handeye_bootstrap(poses_a: List[np.ndarray], poses_b: List[np.ndarray], *,
                       nb_cluster: int = 20, nb_pick: int = 6, nb_it: int = 200,
-                      gate_deg: float = 15.0, seed: int = 0) -> np.ndarray:
+                      gate_deg: float = 15.0, seed: int = 0) -> Optional[np.ndarray]:
     """Estimate ``T_b_a`` (group-a-ref -> group-b-ref) from paired absolute object poses
     ``poses_a[i]`` / ``poses_b[i]`` (object->camera 4x4) observed in the same frame.
+    Returns ``None`` when the motions have too little rotation to identify ``T_b_a``.
     """
     n = len(poses_a)
     if n < 3:
@@ -120,7 +123,7 @@ def handeye_bootstrap(poses_a: List[np.ndarray], poses_b: List[np.ndarray], *,
         Ma_list = [poses_a[v] @ np.linalg.inv(poses_a[u]) for u, v in zip(sel[:-1], sel[1:])]
         Mb_list = [poses_b[v] @ np.linalg.inv(poses_b[u]) for u, v in zip(sel[:-1], sel[1:])]
         X = _tsai_solve(Ma_list, Mb_list)
-        if np.allclose(X, np.eye(4)):
+        if X is None:
             continue
         # consistency: X must satisfy Mb @ X ~ X @ Ma for each motion
         worst = max((_rot_angle_deg((np.linalg.inv(Mb @ X) @ (X @ Ma))[:3, :3])
@@ -140,10 +143,11 @@ def handeye_bootstrap(poses_a: List[np.ndarray], poses_b: List[np.ndarray], *,
     return T
 
 
-def _single_handeye(poses_a, poses_b) -> np.ndarray:
-    """Fallback solve over all consecutive motions (no RANSAC clustering)."""
+def _single_handeye(poses_a, poses_b) -> Optional[np.ndarray]:
+    """Fallback solve over all consecutive motions (no RANSAC clustering); ``None`` when
+    the motions do not identify the transform."""
     if len(poses_a) < 2:
-        return np.eye(4)
+        return None
     Ma = [poses_a[v] @ np.linalg.inv(poses_a[u])
           for u, v in zip(range(len(poses_a) - 1), range(1, len(poses_a)))]
     Mb = [poses_b[v] @ np.linalg.inv(poses_b[u])
@@ -152,7 +156,8 @@ def _single_handeye(poses_a, poses_b) -> np.ndarray:
 
 
 def link_groups(groups: List[List[int]], extr: Dict[int, np.ndarray],
-                object_obs, *, he_approach: int = 0) -> Dict[int, np.ndarray]:
+                object_obs, *, he_approach: int = 0,
+                report: Optional[List[Dict]] = None) -> Dict[int, np.ndarray]:
     """Merge non-overlapping camera groups into one frame.
 
     Each group's cameras keep their intra-group ``T_c_g`` (relative to the group's own
@@ -163,6 +168,12 @@ def link_groups(groups: List[List[int]], extr: Dict[int, np.ndarray],
     ``he_approach`` mirrors MC-Calib's config key: ``0`` = the robust bootstrap
     (cluster + RANSAC Tsai, ``handeye_bootstrap``); ``1`` = the traditional single Tsai
     solve over all motions (``_single_handeye``).
+
+    A group that cannot be linked (fewer than 3 frames shared with the base group's reference
+    camera, or motions without enough rotation) keeps its own frame as the guess, i.e. its
+    reference camera is placed at the base reference. That is a placeholder, not an estimate,
+    so it raises a ``RuntimeWarning``. ``report``, when given, gets one entry per linked group:
+    ``{"group", "common_frames", "method", "linked"}``.
     """
     solve = (handeye_bootstrap if int(he_approach) == 0 else
              (lambda pa, pb: _single_handeye(pa, pb)))
@@ -184,11 +195,21 @@ def link_groups(groups: List[List[int]], extr: Dict[int, np.ndarray],
     for group in groups[1:]:
         gref, gposes = ref_poses(group)
         common = sorted(set(base_poses) & set(gposes))
+        T_gref_baseref = None
         if len(common) >= 3:
             pa = [base_poses[f] for f in common]
             pb = [gposes[f] for f in common]
             T_gref_baseref = solve(pa, pb)                     # base-ref -> g-ref
-        else:
+        if report is not None:
+            report.append({"group": [int(c) for c in group], "common_frames": len(common),
+                           "method": "bootstrap" if int(he_approach) == 0 else "tsai",
+                           "linked": T_gref_baseref is not None})
+        if T_gref_baseref is None:
+            warnings.warn(
+                f"hand-eye could not link camera group {group} to the base group "
+                f"({len(common)} shared frame(s); needs at least 3 with rotational variety): "
+                f"its extrinsics start from an identity placeholder", RuntimeWarning,
+                stacklevel=2)
             T_gref_baseref = np.eye(4)
         # re-base: camera in group has T_c_gref; want T_c_baseref = T_c_gref @ T_gref_baseref
         for c in group:
