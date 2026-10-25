@@ -167,3 +167,45 @@ def test_box_active_only_exempts_outward_gradients():
     g = np.array([1.0, -1.0, -1.0])     # descent -g: leaves, enters, leaves the box
     np.testing.assert_array_equal(box_active(x, lo, hi, g), [True, False, True])
     assert not box_active(np.array([0.5]), lo[:1], hi[:1], np.array([3.0])).any()
+
+
+def _exp_groups():
+    """Three groups y_i = a·exp(b_i x) sharing a, with two outliers in group 1."""
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 1.0, 30)
+    ys = [2.0 * np.exp(b * x) + 0.01 * rng.standard_normal(30) for b in (0.3, -0.5, 0.8)]
+    ys[1][[3, 17]] += 0.5
+
+    def residual(s):
+        return np.concatenate([s[0] * np.exp(s[1 + i] * x) - ys[i] for i in range(3)])
+
+    def linearize(s):
+        es = [np.exp(s[1 + i] * x) for i in range(3)]
+        return ([s[0] * e - y for e, y in zip(es, ys)], [e[:, None] for e in es],
+                [(s[0] * x * e)[:, None] for e in es])
+
+    def jacobian(s):
+        J = np.zeros((90, 4))
+        for i in range(3):
+            e = np.exp(s[1 + i] * x)
+            J[30 * i:30 * (i + 1), 0] = e
+            J[30 * i:30 * (i + 1), 1 + i] = s[0] * x * e
+        return J
+
+    return np.array([1.0, 0.0, 0.0, 0.0]), residual, linearize, jacobian
+
+
+@pytest.mark.req("NFR-NUM-008")
+@pytest.mark.parametrize("kernel", ["none", "huber", "cauchy"])
+def test_schur_lm_stops_on_relative_tests_without_the_step_test(kernel):
+    """With the absolute step test disabled (tol=0), the statistical function test stops the
+    solve at the optimum instead of letting it run to maximum damping."""
+    x0, r, lin, J = _exp_groups()
+    kw = {} if kernel == "none" else {"robust_kernel": kernel, "robust_scale": "auto"}
+    res = schur_lm(x0, r, lin, lambda s, ds, dl: s + np.r_[ds, dl[:, 0]], n_groups=3,
+                   shared_dim=1, local_dim=1, block=1, tol=0.0, max_iter=500, **kw)
+    ref = lm_solve(x0, r, J, lambda s, d: s + d, block=1, tol=0.0, max_iter=500, **kw)
+    assert res.stop_reason == "function_tol"
+    assert res.status == CONVERGED and res.iterations < 20
+    assert ref.iterations > res.iterations
+    np.testing.assert_allclose(res.state, ref.state, atol=1e-4)

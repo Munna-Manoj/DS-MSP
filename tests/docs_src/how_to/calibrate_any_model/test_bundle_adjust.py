@@ -18,9 +18,9 @@ def test_main_prints_expected_values(capsys):
     bundle_adjust.main()
     out = capsys.readouterr().out
     assert "True" in out
-    assert "0.5768" in out
-    assert "DoubleSphereModel(fx=737.994, fy=737.123, cx=951.364, cy=517.716, " \
-           "xi=0.2350, alpha=0.8203)" in out
+    assert "0.5767" in out
+    assert "DoubleSphereModel(fx=737.946, fy=737.075, cx=951.362, cy=517.718, " \
+           "xi=0.2349, alpha=0.8202)" in out
 
 
 def test_module_runs_as_script():
@@ -28,7 +28,7 @@ def test_module_runs_as_script():
         [sys.executable, "-m", "docs_src.how_to.calibrate_any_model.bundle_adjust"],
         cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert "0.5768" in result.stdout
+    assert "0.5767" in result.stdout
 
 
 # Traceability: links this suite to the requirement it verifies.

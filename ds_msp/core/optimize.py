@@ -74,7 +74,8 @@ class OptResult:
     #: One of :data:`CONVERGED`, :data:`NO_CONVERGENCE`, :data:`NUMERICAL_FAILURE`.
     status: str = CONVERGED
     #: Why the loop stopped: ``"step_tol"``, ``"lambda_max"``, ``"max_iter"``,
-    #: ``"non_finite"``, or for a graduated solve ``"binary"`` / ``"cost_stable"`` /
+    #: ``"non_finite"``, ``"function_tol"`` (:func:`schur_lm` only), or
+    #: for a graduated solve ``"binary"`` / ``"cost_stable"`` /
     #: ``"max_outer"``.
     stop_reason: str = ""
     #: Scaled gradient ``gᵀ diag(D)⁻¹ g / (2 cost)`` at the last linearisation point (the
@@ -89,14 +90,16 @@ class OptResult:
 def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
     """Map a dense/Schur LM stop to a termination status.
 
-    Converged when the step test passed, when the scaled gradient left is negligible against
-    the cost (``gradient_ratio <= GRADIENT_RATIO_TOL``, whatever stopped the loop: a damping
-    stall or the iteration budget), or when the cost is exactly zero, the global minimum of a
-    non-negative cost. The stopping rules themselves are unchanged; this only classifies.
+    Converged when the step test passed, when :func:`schur_lm` stopped on its statistical
+    function test, when the scaled gradient left is negligible against the cost
+    (``gradient_ratio <= GRADIENT_RATIO_TOL``, whatever stopped the loop: a damping stall or
+    the iteration budget), or when the cost is exactly zero, the global minimum of a
+    non-negative cost.
     """
     if stop_reason == "non_finite":
         return NUMERICAL_FAILURE
-    if stop_reason == "step_tol" or f == 0.0 or gradient_ratio <= GRADIENT_RATIO_TOL:
+    if (stop_reason in ("step_tol", "function_tol") or f == 0.0
+            or gradient_ratio <= GRADIENT_RATIO_TOL):
         return CONVERGED
     return NO_CONVERGENCE
 
@@ -106,6 +109,18 @@ def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
 #: Ceres' default ``function_tolerance``). On the real-data benchmark, damping stalls end at
 #: ``<= 4e-17`` and deliberately truncated solves at ``1e-3``..``4``, so 1e-6 separates them.
 GRADIENT_RATIO_TOL = 1e-6
+
+#: :func:`schur_lm` statistical stopping rule. With ``M`` residuals at cost ``f``, ``2f/M``
+#: estimates the residual variance, so a cost change ``Δf`` is ``Δχ² ≈ M·Δf/f``, and a solve
+#: stopped ``Δχ²`` short of the optimum sits about ``√Δχ²`` standard deviations from it.
+#: The loop stops when a trial step, accepted or rejected, changes the cost by at most
+#: ``SCHUR_CHI2_TOL·f/M``: about 0.01σ for any problem size. A fixed relative tolerance
+#: (Ceres' ``function_tolerance``) does not scale this way: at 1e-6 and 1e5 residuals it can
+#: stop 0.3σ short. There is no matching gradient test: ``gᵀD⁻¹g`` uses the Jacobi metric,
+#: which under ill-conditioning can understate the remaining decrease by orders of magnitude.
+#: Near the optimum the absolute step test can stay unmet while each iteration only raises
+#: the damping; this test ends such tails.
+SCHUR_CHI2_TOL = 1e-4
 
 
 def _gradient_ratio(g: np.ndarray, D: np.ndarray, f: float,
@@ -735,6 +750,7 @@ def schur_lm(
         c = scale_at(it - 1, r_full)
         if auto or (gnc_iters > 0 and gnc_start > 0):
             f = cost(r_full, c)
+        f_tol = SCHUR_CHI2_TOL * f / max(r_full.size, 1)
         r_list, A_list, B_list = linearize(state)
 
         # Assemble the arrow blocks (with IRLS row weights folded in).
@@ -807,6 +823,7 @@ def schur_lm(
                       - float(ga @ d_shared)
                       - sum(float(gb @ dl) for gb, dl in zip(gbs, d_local)))
         accepted = f_try < f
+        flat = bool(np.isfinite(f_try)) and abs(f - f_try) <= f_tol
         lam, nu = _update_lambda(accepted, lam, nu, schedule=schedule, pred=pred,
                                  actual=f - f_try, lam_min=lam_min, lam_max=lam_max)
         if accepted:
@@ -816,6 +833,9 @@ def schur_lm(
             on_iter(it, max_iter,
                    float(np.sqrt((bn_now ** 2).mean())) if bn_now.size else float("nan"), f,
                    state)
+        if flat:
+            stop_reason = "function_tol"
+            break
         if accepted:
             if dmax < tol:
                 stop_reason = "step_tol"
