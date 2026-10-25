@@ -49,6 +49,14 @@ from .robust import (
 )
 
 
+#: Termination status of a solve (Ceres-summary style). ``CONVERGED``: a convergence test
+#: passed at a finite cost. ``NO_CONVERGENCE``: the iteration or damping budget ran out first.
+#: ``NUMERICAL_FAILURE``: the cost, residual or linearisation went non-finite.
+CONVERGED = "CONVERGED"
+NO_CONVERGENCE = "NO_CONVERGENCE"
+NUMERICAL_FAILURE = "NUMERICAL_FAILURE"
+
+
 @dataclass
 class OptResult:
     """Outcome of :func:`lm_solve`. ``state`` is the refined state object the caller
@@ -63,6 +71,45 @@ class OptResult:
     #: Per-block inlier weights from a graduated solve (:func:`gnc_tls_solve`); ``None`` for
     #: the plain :func:`lm_solve` path. ≈binary after GNC-TLS converges (1 inlier / 0 outlier).
     weights: Optional[np.ndarray] = None
+    #: One of :data:`CONVERGED`, :data:`NO_CONVERGENCE`, :data:`NUMERICAL_FAILURE`.
+    status: str = CONVERGED
+    #: Why the loop stopped: ``"step_tol"``, ``"lambda_max"``, ``"max_iter"``,
+    #: ``"non_finite"``, or for a graduated solve ``"binary"`` / ``"cost_stable"`` /
+    #: ``"max_outer"``.
+    stop_reason: str = ""
+    #: Scaled gradient ``gᵀ diag(D)⁻¹ g / (2 cost)`` at the last linearisation point (the
+    #: returned state unless the final step was accepted): the fraction of the cost a
+    #: steepest-descent step in the damping metric could still remove. ``nan`` when undefined
+    #: (no iteration ran, or zero cost).
+    gradient_ratio: float = float("nan")
+
+
+def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
+    """Map a dense/Schur LM stop to a termination status.
+
+    Converged when the step test passed, when the scaled gradient left is negligible against
+    the cost (``gradient_ratio <= GRADIENT_RATIO_TOL``, whatever stopped the loop: a damping
+    stall or the iteration budget), or when the cost is exactly zero, the global minimum of a
+    non-negative cost. The stopping rules themselves are unchanged; this only classifies.
+    """
+    if stop_reason == "non_finite":
+        return NUMERICAL_FAILURE
+    if stop_reason == "step_tol" or f == 0.0 or gradient_ratio <= GRADIENT_RATIO_TOL:
+        return CONVERGED
+    return NO_CONVERGENCE
+
+
+#: Gradient convergence test: a solve has converged when at most this fraction of its cost
+#: could still be removed by a steepest-descent step in the damping metric (the same order as
+#: Ceres' default ``function_tolerance``). On the real-data benchmark, damping stalls end at
+#: ``<= 4e-17`` and deliberately truncated solves at ``1e-3``..``4``, so 1e-6 separates them.
+GRADIENT_RATIO_TOL = 1e-6
+
+
+def _gradient_ratio(g: np.ndarray, D: np.ndarray, f: float) -> float:
+    if not (np.isfinite(f) and f > 0.0):
+        return float("nan")
+    return float(g @ (g / D)) / (2.0 * f)
 
 
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
@@ -296,8 +343,11 @@ def lm_solve(
     c = scale_at(0, r)
     f = cost(r, c)
     lam, nu = lam_init, 2.0
-    converged = False
     it = 0
+    stop_reason = "max_iter"
+    g_ratio = float("nan")
+    if not np.isfinite(f):
+        return _finish(state, r, f, 0, lam, "non_finite", g_ratio, block)
 
     for it in range(1, max_iter + 1):
         J = F = None
@@ -321,13 +371,22 @@ def lm_solve(
             g = Jw.T @ r
         D = (np.maximum(np.diag(H), 1e-12) if damping == "marquardt"
              else np.ones(H.shape[0]))
+        if not (np.isfinite(H).all() and np.isfinite(g).all()):
+            # No step can be trusted from a non-finite linearisation; every trial would be
+            # rejected, so stopping here returns the same state the old loop did.
+            stop_reason = "non_finite"
+            break
+        g_ratio = _gradient_ratio(g, D, f)
 
         delta = solve(H, g, lam, D)
-        state_try = retract(state, delta)
-        r_try = np.asarray(residual(state_try), float)
-        f_try = cost(r_try, c, F)                    # same F: consistent comparison
+        if np.isfinite(delta).all():
+            state_try = retract(state, delta)
+            r_try = np.asarray(residual(state_try), float)
+            f_try = cost(r_try, c, F)                # same F: consistent comparison
+        else:
+            f_try = float("nan")
 
-        accepted = f_try < f
+        accepted = f_try < f                         # False for a NaN trial cost
         pred = 0.5 * float(delta @ (lam * D * delta - g))   # model's predicted reduction
         lam, nu = _update_lambda(accepted, lam, nu, schedule=schedule, pred=pred,
                                  actual=f - f_try, lam_min=lam_min, lam_max=lam_max)
@@ -340,16 +399,27 @@ def lm_solve(
                    state)
         if accepted:
             if float(np.max(np.abs(delta))) < tol:
-                converged = True
+                stop_reason = "step_tol"
                 break
         elif lam >= lam_max:
+            stop_reason = "lambda_max"
             break
 
-    bn = block_norms(r)
+    return _finish(state, r, f, it, lam, stop_reason, g_ratio, block)
+
+
+def _finish(state: object, r: np.ndarray, f: float, it: int, lam: float, stop_reason: str,
+            g_ratio: float, block: int) -> OptResult:
+    """Build the :class:`OptResult` of a dense or Schur LM solve."""
+    bn = np.linalg.norm(r.reshape(-1, block), axis=1)
     rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
+    if stop_reason != "non_finite" and not (np.isfinite(f) and np.isfinite(r).all()):
+        stop_reason = "non_finite"
+    status = _status(stop_reason, g_ratio, f)
     return OptResult(state=state, cost=f, rms=rms, iterations=it,
-                     success=converged or it < max_iter, converged=converged,
-                     final_lambda=lam)
+                     success=status == CONVERGED, converged=stop_reason == "step_tol",
+                     final_lambda=lam, status=status, stop_reason=stop_reason,
+                     gradient_ratio=g_ratio)
 
 
 def gnc_tls_solve(
@@ -480,12 +550,15 @@ def _gnc_tls_graduate(
     res = inner_solve(state0, weights)
     state = res.state
     s = block_sq(state)
+    if res.status == NUMERICAL_FAILURE or not np.isfinite(s).all():
+        return _gnc_result(state, s, np.ones_like(s), 0, res, "non_finite")
     mu = gnc_tls_mu_init(s, barc2)
 
     w = np.ones_like(s)
     prev = float("inf")
     outer = 0
     weight_mu = mu
+    stop_reason = "max_outer"
     for outer in range(1, max_outer + 1):
         weight_mu = mu
         w = gnc_tls_weight(s, barc2, mu)
@@ -493,9 +566,12 @@ def _gnc_tls_graduate(
         res = inner_solve(state, bw)
         state = res.state
         s = block_sq(state)
+        if res.status == NUMERICAL_FAILURE or not np.isfinite(s).all():
+            return _gnc_result(state, s, w, outer, res, "non_finite")
         cost = float((s * w).sum())
         binary = bool(np.all((w <= 1e-9) | (np.abs(1.0 - w) <= 1e-9)))
         if binary or abs(cost - prev) < 1e-12:
+            stop_reason = "binary" if binary else "cost_stable"
             break
         mu *= continuation
         prev = cost
@@ -504,10 +580,25 @@ def _gnc_tls_graduate(
     # that final residual, not the pre-solve weights that drove the last variable update. The
     # latter can be the exact opposite classification when the state moves across the TLS band.
     w = gnc_tls_weight(s, barc2, weight_mu)
-    bn = np.sqrt(s)
-    rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
+    return _gnc_result(state, s, w, outer, res, stop_reason)
+
+
+def _gnc_result(state: object, s: np.ndarray, w: np.ndarray, outer: int, last: OptResult,
+                stop_reason: str) -> OptResult:
+    """Graduated-solve :class:`OptResult`. Converged when the graduation ended on its own test
+    (binary weights or a stable cost). Each level's inner solve is deliberately short
+    (``inner_max_iter``), so its budget is not a failure; a non-finite inner solve is."""
+    if stop_reason == "non_finite":
+        status = NUMERICAL_FAILURE
+    elif stop_reason == "max_outer":
+        status = NO_CONVERGENCE
+    else:
+        status = CONVERGED
+    rms = float(np.sqrt(s.mean())) if s.size else float("nan")
     return OptResult(state=state, cost=float((s * w).sum()), rms=rms, iterations=outer,
-                     success=True, converged=True, final_lambda=res.final_lambda, weights=w)
+                     success=status == CONVERGED, converged=status == CONVERGED,
+                     final_lambda=last.final_lambda, weights=w, status=status,
+                     stop_reason=stop_reason, gradient_ratio=last.gradient_ratio)
 
 
 def schur_lm(
@@ -609,8 +700,11 @@ def schur_lm(
     c = scale_at(0, r_full)
     f = cost(r_full, c)
     lam, nu = lam_init, 2.0
-    converged = False
     it = 0
+    stop_reason = "max_iter"
+    g_ratio = float("nan")
+    if not np.isfinite(f):
+        return _finish(state, r_full, f, 0, lam, "non_finite", g_ratio, block)
 
     for it in range(1, max_iter + 1):
         c = scale_at(it - 1, r_full)
@@ -638,6 +732,14 @@ def schur_lm(
 
         Da = np.maximum(np.diag(U).copy(), 1e-12)
         Dbs = [np.maximum(np.diag(V).copy(), 1e-12) for V in Vs]
+        if not (np.isfinite(U).all() and np.isfinite(ga).all()
+                and all(np.isfinite(V).all() and np.isfinite(W).all() and np.isfinite(gb).all()
+                        for V, W, gb in zip(Vs, Ws, gbs))):
+            stop_reason = "non_finite"                 # see lm_solve
+            break
+        if f > 0.0:
+            q = float(ga @ (ga / Da)) + sum(float(gb @ (gb / Db)) for gb, Db in zip(gbs, Dbs))
+            g_ratio = q / (2.0 * f)
 
         # Schur complement onto the shared block.
         S = U + lam * np.diag(Da)
@@ -664,9 +766,12 @@ def schur_lm(
         for i, (Vinv, W, gb) in enumerate(zip(Vinvs, Ws, gbs)):
             d_local[i] = -Vinv @ (gb + W.T @ d_shared)
 
-        state_try = retract(state, d_shared, d_local)
-        r_try = np.asarray(residual(state_try), float)
-        f_try = cost(r_try, c)
+        if np.isfinite(d_shared).all() and np.isfinite(d_local).all():
+            state_try = retract(state, d_shared, d_local)
+            r_try = np.asarray(residual(state_try), float)
+            f_try = cost(r_try, c)
+        else:
+            f_try = float("nan")
 
         # Predicted reduction for the gain ratio: ½ δᵀ(λ D δ − g) over the full vector.
         dmax = max(float(np.max(np.abs(d_shared))) if shared_dim else 0.0,
@@ -687,13 +792,10 @@ def schur_lm(
                    state)
         if accepted:
             if dmax < tol:
-                converged = True
+                stop_reason = "step_tol"
                 break
         elif lam >= lam_max:
+            stop_reason = "lambda_max"
             break
 
-    bn = np.linalg.norm(r_full.reshape(-1, block), axis=1)
-    rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
-    return OptResult(state=state, cost=f, rms=rms, iterations=it,
-                     success=converged or it < max_iter, converged=converged,
-                     final_lambda=lam)
+    return _finish(state, r_full, f, it, lam, stop_reason, g_ratio, block)

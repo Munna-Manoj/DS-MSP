@@ -358,6 +358,8 @@ def robust_pose_irls(
             delta = -np.linalg.solve(H, g)
         except np.linalg.LinAlgError:
             break
+        if not np.isfinite(delta).all():                 # solve() returns NaN silently
+            break
         T = se3_exp(delta) @ T
         if np.linalg.norm(delta) < 1e-9:
             break
@@ -381,9 +383,17 @@ def robust_pose_irls(
     R = candidate[:3, :3]
     candidate[:3, :3] = 0.5 * R @ (3.0 * np.eye(3) - R.T @ R)
 
-    T0_full = T0
-    if _robust_bearing_cost(candidate) > _robust_bearing_cost(T0_full):
-        return T0_full
+    # Every comparison with NaN is False, so test finiteness explicitly: a non-finite
+    # candidate (or cost) must never win the acceptance guard.
+    T0_ok = bool(np.isfinite(T0).all())
+    if not np.isfinite(candidate).all():
+        return T0 if T0_ok else None
+    cost_new = _robust_bearing_cost(candidate)
+    cost_old = _robust_bearing_cost(T0) if T0_ok else float("inf")
+    if not np.isfinite(cost_new):
+        return T0 if T0_ok and np.isfinite(cost_old) else None
+    if cost_new > cost_old:
+        return T0
     return candidate
 
 
