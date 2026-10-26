@@ -142,7 +142,7 @@ Three results stand out:
 3. **dsplus and ocam do not define a camera orientation.** Their extra intrinsic terms (sensor tilt for dsplus, an affine image centre for ocam) can trade off against camera rotation. The rays stay correct: held-out reprojection and triangulation match MC-Calib in these runs. DS-MSP flags them with an unbounded or large uncertainty and weak-direction findings.
 
 /// warning | Common mistake
-Choosing dsplus because it gives the lowest reprojection error. For a rig, use the simplest model that represents the lens (kb for fisheye, radtan for pinhole) when you need the extrinsics themselves.
+Choosing dsplus because it gives the lowest reprojection error. For a rig, use the simplest model that represents the lens (kb for fisheye, radtan for pinhole) when you need the extrinsics themselves. DS+ is experimental and not for production ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
 ///
 
 ## Result 5: are the reported uncertainties honest?

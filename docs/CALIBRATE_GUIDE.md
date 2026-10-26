@@ -243,6 +243,11 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 `load_camera` works for every model calibration can produce with `output_format: kalibr`:
 `radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`, and `ocam`.
 
+/// warning | DS+ is experimental
+`dsplus` is for experiments and model research, not for production cameras
+([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
+///
+
 /// note
 `dsplus` and `ocam` use explicitly named DS-MSP extensions. They round-trip through
 DS-MSP, but a stock Kalibr executable does not understand those two camera-model strings.
@@ -302,7 +307,9 @@ included in this repo), the **same physical ChArUco board** was calibrated two w
   warns about — plain-checkerboard detection struggles on wide-FOV fisheye, compounded here by
   the embedded ArUco markers occupying some of the checkerboard's own squares.
 - **DS+ beats KB on every metric on the fair, complete comparison** (ChArUco, all 58 images):
-  RMS 0.447 vs. 0.509, median 0.222 vs. 0.287, max 3.28 vs. 3.76 px.
+  RMS 0.447 vs. 0.509, median 0.222 vs. 0.287, max 3.28 vs. 3.76 px. DS+ is still
+  experimental: do not use it in production, because its tilt terms can absorb camera
+  rotation ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)). Use KB for this lens.
 - Checkerboard's *median* looks competitive but is survivorship bias — it only succeeded on
   the 11 easiest (least-distorted) images. Its RMS (3× worse) and max error (7× worse) show
   that even within that lucky small sample, some detections are quite poor.

@@ -25,6 +25,11 @@ Each scenario runs in three modes:
 Both `dsplus` and `dsplus_seeded` reuse the pre-detected 2D keypoints (`keypoints_path`), so
 only the rig reconstruction and bundle-adjustment math is exercised — not the corner detector.
 
+/// warning | DS+ is experimental
+The DS+ modes are an experiment, not a production recipe. DS+ tilt can absorb camera rotation,
+so its rig extrinsics are not determined ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
+///
+
 These historical tables predate the full-pose evaluator. Two legacy diagnostics recur:
 
 - **`base%GT`** — worst inter-camera **baseline-length** error vs ground truth. This scalar does

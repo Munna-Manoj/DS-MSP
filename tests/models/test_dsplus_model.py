@@ -4,6 +4,7 @@ extra (division + tilt) DOF are zero, and its closed-form inverse round-trips.""
 import warnings
 
 import numpy as np
+import pytest
 
 from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.dsplus_math import _invert_division, dsplus_project, dsplus_unproject
@@ -96,3 +97,25 @@ def test_invert_division_falls_back_when_quartic_has_no_positive_real_root():
         rho = _invert_division(np.array([s]), lambda1, lambda2)
     assert np.isfinite(rho[0])
     assert rho[0] == s                      # no valid root -> falls back to the identity
+
+
+@pytest.mark.req("FR-MODEL-001")
+def test_tilt_reproduces_a_camera_rotation_exactly_in_the_pinhole_limit():
+    # Why DS+ is experimental (ADR-0027): with a perspective core (alpha=0, no
+    # division), tau_y = tan(theta) plus a focal/centre change reproduces a camera
+    # rotation by theta about x exactly, so a rig cannot separate tilt from rotation.
+    theta = np.deg2rad(10.0)
+    c, s, t = np.cos(theta), np.sin(theta), np.tan(theta)
+    fx, fy, cx, cy = 700.0, 690.0, 640.0, 360.0
+    P = sample_forward_points()
+    P = P[P[:, 2] > 0.5 * np.linalg.norm(P, axis=1)]
+    R = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+
+    rotated = DSPlusModel(fx, fy, cx, cy, alpha=0.0)
+    tilted = DSPlusModel(fx / c, fy / c**2, cx, cy - fy * t, alpha=0.0, tau_y=t)
+    uv_rot, ok_rot = rotated.project(P @ R.T)
+    uv_tilt, ok_tilt = tilted.project(P)
+
+    ok = ok_rot & ok_tilt
+    assert ok.sum() > 0.5 * len(P)
+    assert np.abs(uv_rot[ok] - uv_tilt[ok]).max() < 1e-9

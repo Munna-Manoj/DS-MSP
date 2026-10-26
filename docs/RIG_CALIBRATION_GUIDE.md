@@ -284,8 +284,8 @@ every field that matters.
 
 /// tip | Which model?
 Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default; `ds`/`ucm`/`eucm`
-are compact sphere models; **`dsplus` (DS+)** is the most expressive for very wide (≳170°)
-lenses. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
+are compact sphere models. Do not use `dsplus` (DS+) or `ocam` when you need the extrinsics:
+their extra intrinsic terms trade off against camera rotation. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
 and the real-data comparison in [§7](#7-worked-example-robustness-real-8-camera-rig).
 ///
 
@@ -420,7 +420,8 @@ $ ds-msp-calibrate-rig --config calib_param.yml \
 
 </div>
 
-Then reuse the saved keypoints for a second, much faster run — trying a different model:
+Then reuse the saved keypoints for a second, much faster run — trying a different model. The
+example uses the experimental `dsplus` model to compare fits; do not ship its extrinsics:
 
 <div class="termy">
 
@@ -465,6 +466,9 @@ Takeaways (these are *measured*, not asserted):
   ~16 px); switching the *same run* to **`dsplus`** drops it to **~0.55 px**, matching/beating the
   `kb`+`radtan` baseline. When a model under-fits, the residual shows it honestly rather than
   hiding the limitation.
+- **A low residual does not make `dsplus` the right choice.** DS+ is experimental: its tilt terms
+  can absorb camera rotation, so use `kb`/`radtan` for production extrinsics
+  ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
 
 See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick a
 model for *your* lens before you calibrate.

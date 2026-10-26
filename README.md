@@ -212,7 +212,7 @@ A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output fi
 
 It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images.
 
-It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye, `radtan` pinhole, and `dsplus` at any FOV.
+It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye and `radtan` pinhole cameras. Do not use `dsplus` in a rig: its tilt terms absorb camera rotation, so the extrinsics are not determined ([About DS+](#about-ds-experimental)).
 
 ```bash
 pip install ds-msp
@@ -305,19 +305,27 @@ All 7 models live behind one `CameraModel` contract with analytic Jacobians, `co
 | `ucm` | 5 | Unified Camera Model |
 | `eucm` | 6 | Enhanced UCM |
 | `ds` | 6 | **Double Sphere** (Usenko 2018); exact >180° half-space validity |
-| `dsplus` | 9 | **DS+** — best accuracy, closed-form-invertible, differentiable |
+| `dsplus` | 9 | **DS+** — *experimental, not for production*; a DS-MSP research model ([About DS+](#about-ds-experimental)) |
 | `ocam` | 10 | OCamCalib (Scaramuzza) |
 
 #### Rule of thumb (directional, not a guarantee)
 
 - **≥170° FOV** → start with Double Sphere (the cheapest closed form that fits).
-- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB, or DS+ when you need a closed-form inverse.
+- **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB.
 - **Always confirm with the median reprojection error**, not the model class.
 
-#### About DS+
+#### About DS+ (experimental)
 
-- DS+ is the best-accuracy model tested and the only closed-form-invertible model that matches KB on hard lenses (~21% win on a demanding 158° full-FOV lens: 0.224 vs KB 0.285 px). The trade-off: its unproject is **~2× slower than KB** (Ferrari quartic). Pick it when you need a differentiable / closed-form unproject with deterministic latency — not for raw throughput.
-- KB stays the right default when unproject throughput rules and an iterative inverse is acceptable.
+> **Warning**
+> **Do not use DS+ (`dsplus`) in a production system.** It is an experimental model. Use it to study how camera models behave, or as a worked example when you build your own model. For production, use `kb` or `ds` for fisheye lenses and `radtan` for pinhole lenses.
+
+Why it is experimental:
+
+- **Rig extrinsics are not determined.** DS+ sensor tilt (`tau_x`, `tau_y`) reproduces a camera rotation about x or y exactly in the pinhole limit (`tau_y = tan θ`). In 280 MC-Calib rig runs, the 106 DS+ cameras with tilt error above 2° followed `tau_y ≈ −tan(error)` (correlation −0.986).
+- **Rig results are far from the reference.** In 50 rig runs with a DS+ camera, the worst camera pair sat a median 4.6° from MC-Calib, up to 30° and 612 mm. In 57 runs without DS+ or OCam, the median was 0.16°.
+- **It has no `xi` term.** DS+ drops Double Sphere's second-sphere shift, so it fits poorly on lenses that need it.
+
+A low reprojection error does not make DS+ correct: on a real fisheye it fits best (0.31 px vs KB 0.37 px), yet the same freedom moves the camera frame. Evidence and proof: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
 
 → [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study (historical)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
@@ -369,6 +377,6 @@ DS-MSP stands on prior work, and credit stays prominent:
 ## License
 
 MIT-licensed (see [LICENSING.md](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)):
-- **MIT** for the whole project — the generic library, the DS+ model, and the robust calibration/conversion engine.
+- **MIT** for the whole project — the generic library, the experimental DS+ model, and the robust calibration/conversion engine.
 
 SPDX: `MIT`. Please cite via [CITATION.cff](https://github.com/Munna-Manoj/DS-MSP/blob/main/CITATION.cff).

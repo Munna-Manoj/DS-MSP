@@ -5,6 +5,11 @@ DS+ is the Double Sphere model with ``xi`` dropped (the proven near-null directi
 for the target lens) and two extra closed-form-invertible stages added: a Fitzgibbon
 division-model radial layer (``lambda1, lambda2``) and a 2-axis Scheimpflug tilt
 homography (``tau_x, tau_y``). See ``dsplus_math`` for the full derivation.
+
+DS+ is experimental: do not use it in a production system. The tilt homography
+reproduces a camera rotation about x or y exactly in the pinhole limit, so rig
+extrinsics are not determined (ADR-0027). Use it to study camera models or as an
+example when writing a new one.
 """
 
 from __future__ import annotations
@@ -21,7 +26,12 @@ from .dsplus_math import (
 
 
 class DSPlusModel:
-    """DS+ (UCM core + division radial + 2-axis tilt). Satisfies ``CameraModel``."""
+    """DS+ (UCM core + division radial + 2-axis tilt). Satisfies ``CameraModel``.
+
+    Experimental, not for production: the tilt terms can absorb camera rotation, so
+    use ``KannalaBrandtModel`` or ``DoubleSphereModel`` for production cameras. See
+    [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
+    """
 
     name: ClassVar[str] = "dsplus"
     param_names: ClassVar[Tuple[str, ...]] = (
