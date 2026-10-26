@@ -193,25 +193,49 @@ def _coupled_box(n_groups=3):
     return np.r_[0.5, 0.0, np.zeros(n_groups)], residual, linearize, jacobian, clip, lo, hi, opt
 
 
-@pytest.mark.parametrize("solver", ["dense", "schur"])
+def _run_coupled(solver, held, x0=None, **kw):
+    x0_, r, lin, J, clip, lo, hi, opt = _coupled_box()
+    x0 = x0_ if x0 is None else x0
+    mask = (lambda s, g: np.r_[box_active(s[:2], lo, hi, g[:2]),
+                               np.zeros(len(g) - 2, bool)]) if held else None
+    schur_retract = lambda s, ds, dl: clip(s, np.r_[ds, dl[:, 0]])   # noqa: E731
+    schur_kw = dict(n_groups=3, shared_dim=2, local_dim=1, block=1)
+    if solver == "dense":
+        return lm_solve(x0, r, J, clip, block=1, bound_active=mask, **kw), opt
+    if solver == "schur":
+        return schur_lm(x0, r, lin, schur_retract, bound_active=mask, **schur_kw, **kw), opt
+    gkw = {"inner_max_iter": kw.pop("max_iter", 60), **kw}
+    if solver == "gnc_dense":
+        return gnc_tls_solve(x0, r, J, clip, noise_bound=10.0, block=1, bound_active=mask,
+                             **gkw), opt
+    return gnc_tls_schur_solve(x0, r, lin, schur_retract, noise_bound=10.0,
+                               bound_active=mask, **schur_kw, **gkw), opt
+
+
+@pytest.mark.parametrize("solver", ["dense", "schur", "gnc_dense", "gnc_schur"])
 def test_bound_coordinate_is_held_not_clipped(solver):
     """With ``bound_active`` the step is solved on the free coordinates, so a coupled
-    parameter pinned at its bound does not stall the solve."""
-    x0, r, lin, J, clip, lo, hi, opt = _coupled_box()
-
-    def run(held):
-        mask = (lambda s, g: np.r_[box_active(s[:2], lo, hi, g[:2]),
-                                   np.zeros(len(g) - 2, bool)]) if held else None
-        if solver == "dense":
-            return lm_solve(x0, r, J, clip, block=1, max_iter=60, bound_active=mask)
-        return schur_lm(x0, r, lin, lambda s, ds, dl: clip(s, np.r_[ds, dl[:, 0]]),
-                        n_groups=3, shared_dim=2, local_dim=1, block=1, max_iter=60,
-                        bound_active=mask)
-    held = run(True)
-    assert held.status == CONVERGED and held.iterations < 15
+    parameter pinned at its bound does not stall the solve. The GNC solvers forward the mask
+    to their inner solves (noise bound 10: every residual is an inlier)."""
+    held, opt = _run_coupled(solver, True, max_iter=60)
+    clipped, _ = _run_coupled(solver, False, max_iter=60)
     np.testing.assert_allclose(held.state, opt, atol=1e-6)
-    clipped = run(False)
-    assert clipped.iterations > 2 * held.iterations
+    if solver in ("dense", "schur"):
+        assert held.status == CONVERGED and held.iterations < 15
+        assert clipped.iterations > 2 * held.iterations
+    else:
+        assert held.status == CONVERGED
+        assert np.abs(clipped.state - opt).max() > 1e3 * np.abs(held.state - opt).max()
+
+
+def test_schur_and_dense_take_the_same_held_step():
+    """Holding a shared coordinate in the Schur complement equals holding it in the full
+    system: from a state with the slope at its bound, one step of each solver agrees."""
+    x0 = np.r_[1.0, 0.4, 0.1, -0.2, 0.3]                  # a at its upper bound, pushed out
+    dense, _ = _run_coupled("dense", True, x0=x0, max_iter=1, lam_init=1e-3)
+    schur, _ = _run_coupled("schur", True, x0=x0, max_iter=1, lam_init=1e-3)
+    assert dense.state[0] == 1.0 and not np.array_equal(dense.state, x0)
+    np.testing.assert_allclose(schur.state, dense.state, rtol=0, atol=1e-12)
 
 
 def test_box_active_only_exempts_outward_gradients():

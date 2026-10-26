@@ -152,7 +152,7 @@ def bundle_adjust(model_cls,
         out = gnc_tls_schur_solve(state0, residual, linearize, retract,
                                   noise_bound=3.03 * float(noise_bound),   # 2-DoF 99% χ² band
                                   n_groups=n_img, shared_dim=P, local_dim=6, block=2,
-                                  inner_max_iter=max_iter)
+                                  inner_max_iter=max_iter, bound_active=bound_active)
     else:
         out = schur_lm(state0, residual, linearize, retract,
                        n_groups=n_img, shared_dim=P, local_dim=6, block=2,
