@@ -157,8 +157,61 @@ def test_box_constrained_optimum_converges_on_the_projected_gradient():
     assert raw.status == NO_CONVERGENCE                  # raw gradient points out of the box
     kkt = lm_solve(x0, r, J, ret, block=1, max_iter=200,
                    bound_active=lambda s, g: box_active(s, lo, hi, g))
-    np.testing.assert_array_equal(kkt.state, raw.state)  # classification only
+    np.testing.assert_allclose(kkt.state, raw.state, atol=1e-9)  # a, b uncoupled
     assert kkt.status == CONVERGED and kkt.gradient_ratio < 1e-12
+
+
+def _coupled_box(n_groups=3):
+    """y = a·x + b·(x + 0.05) + c_i per group i, with a clipped to [0, 1]. The data want
+    a = 2, b = 0. The two slopes are 0.999 correlated, like EUCM alpha against focal, so a
+    clipped step keeps a large b compensation for the a move that never happens."""
+    x = np.linspace(-1.0, 1.0, 20)
+    ys = [2.0 * x + 0.3 * i for i in range(n_groups)]
+    lo, hi = np.array([0.0, -np.inf]), np.array([1.0, np.inf])
+    feats = np.c_[x, x + 0.05]
+
+    def residual(s):
+        ab, c = s[:2], s[2:]
+        return np.concatenate([feats @ ab + c[i] - ys[i] for i in range(n_groups)])
+
+    def linearize(s):
+        r = residual(s).reshape(n_groups, -1)
+        return list(r), [feats] * n_groups, [np.ones((x.size, 1))] * n_groups
+
+    def jacobian(s):
+        return np.c_[np.tile(feats, (n_groups, 1)), np.kron(np.eye(n_groups), np.ones((x.size, 1)))]
+
+    def clip(s, d):
+        t = s + d
+        t[:2] = np.clip(t[:2], lo, hi)
+        return t
+
+    # constrained optimum: a = 1, then (b, c) by least squares
+    A = jacobian(None)[:, 1:]
+    rhs = np.concatenate(ys) - np.tile(x, n_groups)
+    opt = np.r_[1.0, np.linalg.lstsq(A, rhs, rcond=None)[0]]
+    return np.r_[0.5, 0.0, np.zeros(n_groups)], residual, linearize, jacobian, clip, lo, hi, opt
+
+
+@pytest.mark.parametrize("solver", ["dense", "schur"])
+def test_bound_coordinate_is_held_not_clipped(solver):
+    """With ``bound_active`` the step is solved on the free coordinates, so a coupled
+    parameter pinned at its bound does not stall the solve."""
+    x0, r, lin, J, clip, lo, hi, opt = _coupled_box()
+
+    def run(held):
+        mask = (lambda s, g: np.r_[box_active(s[:2], lo, hi, g[:2]),
+                                   np.zeros(len(g) - 2, bool)]) if held else None
+        if solver == "dense":
+            return lm_solve(x0, r, J, clip, block=1, max_iter=60, bound_active=mask)
+        return schur_lm(x0, r, lin, lambda s, ds, dl: clip(s, np.r_[ds, dl[:, 0]]),
+                        n_groups=3, shared_dim=2, local_dim=1, block=1, max_iter=60,
+                        bound_active=mask)
+    held = run(True)
+    assert held.status == CONVERGED and held.iterations < 15
+    np.testing.assert_allclose(held.state, opt, atol=1e-6)
+    clipped = run(False)
+    assert clipped.iterations > 2 * held.iterations
 
 
 def test_box_active_only_exempts_outward_gradients():

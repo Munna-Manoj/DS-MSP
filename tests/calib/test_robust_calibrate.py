@@ -71,17 +71,20 @@ def test_auto_init_recovers_any_model_subpixel(name, truth, init):
     assert r["p95_px"] < 0.6, (name, r)
 
 
-def test_multistart_rescues_wrong_basin_init():
-    """A wrong-sign DS ξ with an off focal lands a single local refine in a bad basin;
-    model-aware multi-start recovers it (mean & p95 collapse)."""
+@pytest.mark.parametrize("xi,f", [(-0.9, 520), (-0.5, 520), (0.0, 520), (-0.2, 700)])
+def test_wrong_sign_xi_init_reaches_the_optimum(xi, f):
+    """A wrong-sign DS ξ with an off focal drives alpha to its lower bound. Clipping the full
+    step there stalled every single refine here at 0.37-0.62 px mean (optimum 0.12 px), and
+    multi-start only reached 0.26-0.36 px. Holding alpha for the step
+    (``core.optimize._hold_active``) reaches the optimum from a single start."""
     truth = DoubleSphereModel(360, 360, 640, 360, 0.55, 0.62)
     Xs, kps, vis = _dataset(truth)
-    bad = DoubleSphereModel(520, 520, 640, 360, -0.9, 0.05)
-    single = calibrate(bad, Xs, kps, vis, max_nfev=200, multi_start=False)
-    multi = calibrate(bad, Xs, kps, vis, max_nfev=200, multi_start=True)
-    assert multi["mean_px"] < 0.6 * single["mean_px"]
-    assert multi["p95_px"] < 0.6 * single["p95_px"]
-    assert multi["mean_px"] < 0.3 and multi["p95_px"] < 0.8
+    ref = calibrate(truth, Xs, kps, vis, max_nfev=200, multi_start=False)
+    bad = DoubleSphereModel(f, f, 640, 360, xi, 0.05)
+    for multi_start in (False, True):
+        r = calibrate(bad, Xs, kps, vis, max_nfev=200, multi_start=multi_start)
+        assert r["mean_px"] < 1.05 * ref["mean_px"], (multi_start, r, ref)
+        assert r["p95_px"] < 1.05 * ref["p95_px"], (multi_start, r, ref)
 
 
 def test_fronto_parallel_views_do_not_flip():
