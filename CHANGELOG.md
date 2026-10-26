@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.21.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.20.1...v0.21.0) (2026-10-26)
+
+
+### Features
+
+* **rig:** per-stage solver status in the acceptance file and a convergence gate ([d821826](https://github.com/Munna-Manoj/DS-MSP/commit/d821826e266be822f8225bd0d059fc0ff72b79d0))
+* **rig:** per-stage solver status in the acceptance file and a convergence gate ([f8338a6](https://github.com/Munna-Manoj/DS-MSP/commit/f8338a68a7876b66251b145cc851d5eb794dc1a2))
+
+
+### Bug Fixes
+
+* **core:** judge convergence on the projected gradient at box bounds ([06d33b4](https://github.com/Munna-Manoj/DS-MSP/commit/06d33b40ef8079067ecf2af97f6477ac26fec5d7))
+
 ## [0.20.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.20.0...v0.20.1) (2026-10-25)
 
 
