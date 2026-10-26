@@ -117,8 +117,8 @@ runs standalone with no dataset download:
 ```console
 $ python -m docs_src.how_to.calibrate_any_model.bundle_adjust
 True
-0.5768
-DoubleSphereModel(fx=737.994, fy=737.123, cx=951.364, cy=517.716, xi=0.2350, alpha=0.8203)
+0.5767
+DoubleSphereModel(fx=737.946, fy=737.075, cx=951.362, cy=517.718, xi=0.2349, alpha=0.8202)
 ```
 
 </div>
