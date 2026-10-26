@@ -25,6 +25,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .numerics import safe_eigh
+
 
 def equilibrate(H: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Van der Sluis-scale a symmetric PSD ``H`` to unit diagonal.
@@ -73,7 +75,7 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
       are near-indistinguishable. Signed: ``+`` move together, ``-`` trade off.
     """
     Hh, s = equilibrate(H)
-    eigvals, eigvecs = np.linalg.eigh(Hh)
+    eigvals, eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")
     tiny = 1e-300
     med = float(np.median(eigvals))
     thresh = tau_rel * med
@@ -105,7 +107,8 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     pairs = [(int(i), int(j), float(Hh[i, j]))
              for i, j in zip(iu[strong], ju[strong])]
 
-    eig_raw = np.linalg.eigvalsh(0.5 * (np.asarray(H, float) + np.asarray(H, float).T))
+    eig_raw = safe_eigh(0.5 * (np.asarray(H, float) + np.asarray(H, float).T),
+                        where="observability", what="H")[0]
     cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
     cond = float(eigvals[-1] / eigvals[0]) if eigvals[0] > tiny else float("inf")
     return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals,

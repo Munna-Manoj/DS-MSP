@@ -21,7 +21,7 @@ import numpy as np
 
 from ..core.covariance import pixel_whiteners
 from ..core.lie import hat_batch, so3_exp
-from ..core.optimize import OptResult, gnc_tls_schur_solve, schur_lm
+from ..core.optimize import OptResult, box_active, gnc_tls_schur_solve, schur_lm
 
 
 def bundle_adjust(model_cls,
@@ -144,6 +144,10 @@ def bundle_adjust(model_cls,
             t[i] = t[i] + d_local[i, 3:]
         return (params, Rb, t)
 
+    def bound_active(state, g):
+        """Intrinsics held at a bound against the gradient (see ``box_active``)."""
+        return box_active(state[0], lb_i, ub_i, g)
+
     if noise_bound is not None:
         out = gnc_tls_schur_solve(state0, residual, linearize, retract,
                                   noise_bound=3.03 * float(noise_bound),   # 2-DoF 99% χ² band
@@ -153,6 +157,6 @@ def bundle_adjust(model_cls,
         out = schur_lm(state0, residual, linearize, retract,
                        n_groups=n_img, shared_dim=P, local_dim=6, block=2,
                        max_iter=max_iter, robust_kernel=kernel, robust_scale=scale,
-                       gnc_start=gnc_start, gnc_iters=gnc_iters)
+                       gnc_start=gnc_start, gnc_iters=gnc_iters, bound_active=bound_active)
     params, Rb, t = out.state
     return params, Rb, t, out

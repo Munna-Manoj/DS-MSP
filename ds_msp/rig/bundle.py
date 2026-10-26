@@ -28,8 +28,8 @@ from ..core.covariance import (
 )
 from ..core.lie import hat_batch as _skew_batch
 from ..core.lie import so3_exp
-from ..core.numerics import NumericalError, psd_eigvalsh
-from ..core.optimize import gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
+from ..core.numerics import NumericalError, psd_eigvalsh, spd_inverse
+from ..core.optimize import box_active, gnc_tls_schur_solve, gnc_tls_solve, lm_solve, schur_lm
 from ..core.robust import auto_kernel_scale, robust_weight
 from ..geometry.bearing import chordal_bearing_residual_jacobian
 from .types import ObjectObs, RigState
@@ -376,6 +376,17 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 s["intr"][c] = np.clip(state["intr"][c] + d[ic:ic + Pn[c]], lb, ub)
         return s
 
+    def bound_active(state, g):
+        """Intrinsic coordinates the clipping retraction holds at a bound (see
+        :func:`core.optimize.box_active`)."""
+        act = np.zeros(K, bool)
+        if not fix_intrinsics:
+            for c in sorted(rig.cameras):
+                ic = intr_col[c]
+                act[ic:ic + Pn[c]] = box_active(state["intr"][c], *bounds[c], g[ic:ic + Pn[c]])
+        return act
+
+    retract.bound_active = bound_active
     return _state_from_rig(rig), residual, jacobian, retract, K
 
 
@@ -449,7 +460,7 @@ def parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
     if not fix_extrinsics:
         unc = shared_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics, kernel=kernel,
                                 scale=scale, small_cluster_correction=small_cluster_correction)
-        std = np.sqrt(np.maximum(np.diag(unc["cov"]), 0.0))
+        std = _std_from_cov(unc["cov"])
         Pn = {c: len(type(rig.cameras[c]).param_names) for c in rig.cameras}
         cams = {}
         for c in sorted(rig.cameras):
@@ -463,6 +474,19 @@ def parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
                                        fix_extrinsics=fix_extrinsics, kernel=kernel,
                                        scale=scale,
                                        small_cluster_correction=small_cluster_correction)
+
+
+def _std_from_cov(cov: np.ndarray) -> np.ndarray:
+    """Per-parameter σ from a covariance diagonal. A variance below ``-n·eps·max|diag|`` (or
+    non-finite) cannot come from a valid covariance and is reported as ``inf`` (unidentified),
+    never clamped to a falsely confident 0; roundoff-small negatives are 0."""
+    d = np.diag(np.asarray(cov, float)).copy()
+    finite = np.isfinite(d)
+    tol = d.size * np.finfo(float).eps * (float(np.max(np.abs(d[finite]))) if finite.any() else 0.0)
+    std = np.full(d.shape, np.inf)
+    ok = finite & (d >= -tol)
+    std[ok] = np.sqrt(np.maximum(d[ok], 0.0))
+    return std
 
 
 def _dense_parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
@@ -500,7 +524,7 @@ def _dense_parameter_covariance(rig: RigState, object_obs: List[ObjectObs], *,
         rig, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
 
     def _cameras(cov: np.ndarray) -> Dict:
-        std = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        std = _std_from_cov(cov)
         out = {}
         for c in sorted(rig.cameras):
             ext = std[cam_col[c]:cam_col[c] + 6] if c in cam_col else None
@@ -569,11 +593,14 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
                + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_l))
         Gll = (np.einsum("n,nki,nkj->ij", om, Bp, Bp)
                + 2.0 * np.einsum("n,ni,nj->ij", omp, a_l, a_l))
-        Gll = 0.5 * (Gll + Gll.T) + 1e-12 * np.eye(6)
-        try:
-            Gll_inv = np.linalg.inv(Gll)
-        except np.linalg.LinAlgError:                      # a frame pose with a null direction
-            Gll_inv = np.linalg.pinv(Gll, hermitian=True)
+        Gll = 0.5 * (Gll + Gll.T)
+        if not np.isfinite(Gll).all():
+            Gll_inv = np.full((6, 6), np.nan)              # S goes non-finite: fails closed below
+        else:
+            try:
+                Gll_inv, _ = spd_inverse(Gll, where="shared_covariance", what="G_kk")
+            except NumericalError:                         # a frame pose with a null direction:
+                Gll_inv = np.linalg.pinv(Gll, hermitian=True)  # no information along it
         G_ss += Gss
         S += Gss - Gsl @ Gll_inv @ Gsl.T
         psi_s = om @ a_s                                       # Σ_i ω_i J_iᵀ r_i
@@ -948,6 +975,17 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 s["board_k"][key] = state["board_k"][key] + d_shared[o:o + 3]
         return s
 
+    def bound_active(state, g):
+        """Shared intrinsic coordinates held at a bound (see :func:`core.optimize.box_active`)."""
+        act = np.zeros(shared_dim, bool)
+        if not fix_intrinsics:
+            for c in sorted(rig.cameras):
+                ic = intr_col[c]
+                act[ic:ic + Pn[c]] = box_active(state["intr"][c], *bounds[c], g[ic:ic + Pn[c]])
+        return act
+
+    retract.bound_active = bound_active
+
     state0 = _state_from_rig(rig)
     if bases:
         state0["board_R"] = {key: np.eye(3) for key in board_col}
@@ -957,13 +995,26 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
     return state0, residual, linearize, retract, shared_dim, n_groups
 
 
+def solve_record(res, solver: str) -> Dict:
+    """JSON-safe summary of one solver run (:class:`~ds_msp.core.optimize.OptResult`):
+    ``solver``, termination ``status`` and ``stop_reason``, ``iterations``, final ``rms``
+    (block residual units, pixels here) and ``gradient_ratio``. Non-finite numbers are
+    ``None`` so the record can go into strict JSON."""
+    def num(x):
+        return float(x) if x is not None and np.isfinite(x) else None
+    return {"solver": solver, "status": res.status, "stop_reason": res.stop_reason,
+            "iterations": int(res.iterations), "rms": num(res.rms),
+            "gradient_ratio": num(getattr(res, "gradient_ratio", None))}
+
+
 def refine(rig: RigState, object_obs: List[ObjectObs], *,
            fix_intrinsics: bool = True, fix_extrinsics: bool = False, max_iter: int = 60,
            robust_kernel: str = "huber", robust_scale="auto", gnc_iters: int = 0,
            gnc_start: float = 0.0, noise_bound: Optional[float] = None,
            verbose: bool = False, sparse: bool = True,
            residual_mode: str = "pixel", refine_boards: bool = False,
-           bend_boards: bool = False, on_iter=None) -> RigState:
+           bend_boards: bool = False, on_iter=None,
+           log: Optional[List[Dict]] = None) -> RigState:
     """One BA pass. Returns a refined copy of ``rig``.
 
     ``fix_intrinsics=True`` reproduces ``refineCameraGroupAndObjects`` (poses only);
@@ -999,6 +1050,9 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
     real ``RigState`` snapshot of the *current* (mid-solve) cameras/extrinsics/object poses
     instead — reconstructed via :func:`_rig_from_state`, which is cheap (a handful of 4x4s
     per camera/frame, no large-array copies), so this does not measurably slow the solve.
+
+    ``log``, when given, gets one :func:`solve_record` dict appended per solver run (none when
+    there is nothing to refine), so a caller can report every stage's termination status.
     """
     rk = dict(robust_kernel=robust_kernel, robust_scale=robust_scale,
               gnc_iters=gnc_iters, gnc_start=gnc_start)
@@ -1024,7 +1078,9 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
                                 block=3, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=3, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
+        if log is not None:
+            log.append(solve_record(res, "gnc_tls" if barc is not None else "lm"))
         return _rig_from_state(rig, res.state)
     if sparse:
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
@@ -1038,7 +1094,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                           fix_extrinsics=fix_extrinsics, max_iter=max_iter,
                           noise_bound=noise_bound, verbose=verbose, sparse=False,
-                          on_iter=on_iter, **rk)
+                          on_iter=on_iter, log=log, **rk)
         if barc is not None:
             res = gnc_tls_schur_solve(state0, residual, linearize, retract, noise_bound=barc,
                                       n_groups=n_groups, shared_dim=shared_dim, local_dim=6,
@@ -1047,7 +1103,7 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
         else:
             res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
                            shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
     else:
         state0, residual, jacobian, retract, K = build_problem(
             rig, object_obs, fix_intrinsics=fix_intrinsics, fix_extrinsics=fix_extrinsics)
@@ -1058,7 +1114,10 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
                                 block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
-                           on_iter=wrapped_on_iter, **rk)
+                           on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
+    if log is not None:
+        kind = "gnc_tls" if barc is not None else "lm"
+        log.append(solve_record(res, kind + ("_schur" if sparse else "")))
     if verbose:
         print(f"  BA: rms {res.rms:.4f}px iters={res.iterations} "
               f"intr={'free' if not fix_intrinsics else 'fixed'} "

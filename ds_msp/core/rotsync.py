@@ -35,6 +35,7 @@ from typing import Iterable, Tuple
 import numpy as np
 
 from .lie import so3_exp, vee
+from .numerics import safe_eigh
 
 _I3 = np.eye(3)
 
@@ -124,7 +125,7 @@ def certificate(L: np.ndarray, R: np.ndarray) -> Tuple[np.ndarray, float, np.nda
         Bi = LR[3 * i:3 * i + 3] @ Ri.T
         Lam[3 * i:3 * i + 3, 3 * i:3 * i + 3] = 0.5 * (Bi + Bi.T)
     S = L - Lam
-    ev = np.linalg.eigvalsh(0.5 * (S + S.T))
+    ev = safe_eigh(0.5 * (S + S.T), where="rotation certificate", what="S = L - Lambda")[0]
     lam_min = float(ev[0])
     gap = 3 * n * abs(lam_min) if lam_min < 0 else 0.0
     return S, lam_min, ev, gap

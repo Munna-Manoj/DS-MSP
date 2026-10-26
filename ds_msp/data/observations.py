@@ -21,7 +21,7 @@ A rig reprojection composes ``X_cam = T_c_g @ T_g_o @ T_co_b @ X_board``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -160,3 +160,5 @@ class RigState:
     objects: Dict[int, Object3D]                        # holds T_co_b board poses
     img_size: Dict[int, Tuple[int, int]] = field(default_factory=dict)  # cam_id -> (w, h)
     rejected: List[dict] = field(default_factory=list)  # observations hard-dropped, with reason
+    # per-stage solver termination, front-end fits and hand-eye links (rig.calibrate)
+    solver_report: Dict[str, Any] = field(default_factory=dict)

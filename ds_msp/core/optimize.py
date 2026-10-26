@@ -79,8 +79,10 @@ class OptResult:
     stop_reason: str = ""
     #: Scaled gradient ``gᵀ diag(D)⁻¹ g / (2 cost)`` at the last linearisation point (the
     #: returned state unless the final step was accepted): the fraction of the cost a
-    #: steepest-descent step in the damping metric could still remove. ``nan`` when undefined
-    #: (no iteration ran, or zero cost).
+    #: steepest-descent step in the damping metric could still remove. Components the caller's
+    #: ``bound_active`` marks (a parameter held at a bound with the gradient pushing outward)
+    #: are left out: the projected gradient, i.e. the KKT test for box bounds. ``nan`` when
+    #: undefined (no iteration ran, or zero cost).
     gradient_ratio: float = float("nan")
 
 
@@ -106,10 +108,23 @@ def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
 GRADIENT_RATIO_TOL = 1e-6
 
 
-def _gradient_ratio(g: np.ndarray, D: np.ndarray, f: float) -> float:
+def _gradient_ratio(g: np.ndarray, D: np.ndarray, f: float,
+                    active: Optional[np.ndarray] = None) -> float:
     if not (np.isfinite(f) and f > 0.0):
         return float("nan")
+    if active is not None:
+        g = np.where(active, 0.0, g)
     return float(g @ (g / D)) / (2.0 * f)
+
+
+def box_active(x: np.ndarray, lo: np.ndarray, hi: np.ndarray, g: np.ndarray) -> np.ndarray:
+    """Coordinates of a box-bounded parameter vector whose bound is active against the
+    gradient ``g`` of the cost: ``x`` at ``lo`` with ``g > 0``, or at ``hi`` with ``g < 0``
+    (descent along ``-g`` would leave the box). A clipping retraction puts ``x`` exactly on
+    the bound, so the comparison is exact. These are the coordinates the KKT conditions
+    exempt from the stationarity test."""
+    x, lo, hi, g = (np.asarray(a, float) for a in (x, lo, hi, g))
+    return ((x <= lo) & (g > 0.0)) | ((x >= hi) & (g < 0.0))
 
 
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
@@ -228,6 +243,7 @@ def lm_solve(
     studentize: bool = False,
     linear_solve: Optional[Callable[[np.ndarray, np.ndarray, float, np.ndarray], np.ndarray]] = None,
     on_iter: Optional[Callable[[int, int, float, float, Any], None]] = None,
+    bound_active: Optional[Callable[[object, np.ndarray], np.ndarray]] = None,
 ) -> OptResult:
     r"""Minimize ``Σ_i w_i ρ(‖r_i‖²)`` on a manifold by re-basing Levenberg–Marquardt.
 
@@ -276,6 +292,11 @@ def lm_solve(
         understands ``state``'s shape (e.g. ``rig/bundle.py``) can render the actual live
         geometry, not just the scalar trace. This solver never inspects `state`'s contents,
         so passing it adds no coupling here. Side-effect only; does not affect the solve.
+    bound_active(state, g) -> (K,) bool
+        Optional, for a ``retract`` that clips parameters to a box: marks the tangent
+        coordinates held at a bound with the gradient pushing outward (see
+        :func:`box_active`). They are left out of the convergence test, which then checks
+        the projected gradient (KKT). Classification only; the iterations are unchanged.
 
     Returns
     -------
@@ -376,7 +397,8 @@ def lm_solve(
             # rejected, so stopping here returns the same state the old loop did.
             stop_reason = "non_finite"
             break
-        g_ratio = _gradient_ratio(g, D, f)
+        g_ratio = _gradient_ratio(g, D, f,
+                                  None if bound_active is None else bound_active(state, g))
 
         delta = solve(H, g, lam, D)
         if np.isfinite(delta).all():
@@ -624,6 +646,7 @@ def schur_lm(
     gnc_iters: int = 0,
     weights: Optional[np.ndarray] = None,
     on_iter: Optional[Callable[[int, int, float, float, Any], None]] = None,
+    bound_active: Optional[Callable[[object, np.ndarray], np.ndarray]] = None,
 ) -> OptResult:
     r"""Levenberg–Marquardt for **separable** problems: a small block of *shared*
     parameters (``shared_dim``) coupled to ``n_groups`` *independent* per-group local
@@ -661,6 +684,8 @@ def schur_lm(
         graduated solve through the sparse separable solver.
     on_iter(it, max_iter, rms, cost, state)
         Optional per-iteration progress callback — see :func:`lm_solve`.
+    bound_active(state, g_shared) -> (shared_dim,) bool
+        Optional box-bound mask for the shared block — see :func:`lm_solve`.
     """
     if robust_kernel not in VALID_KERNELS:
         raise ValueError(f"robust_kernel must be one of {VALID_KERNELS!r}")
@@ -738,7 +763,8 @@ def schur_lm(
             stop_reason = "non_finite"                 # see lm_solve
             break
         if f > 0.0:
-            q = float(ga @ (ga / Da)) + sum(float(gb @ (gb / Db)) for gb, Db in zip(gbs, Dbs))
+            gq = ga if bound_active is None else np.where(bound_active(state, ga), 0.0, ga)
+            q = float(gq @ (gq / Da)) + sum(float(gb @ (gb / Db)) for gb, Db in zip(gbs, Dbs))
             g_ratio = q / (2.0 * f)
 
         # Schur complement onto the shared block.

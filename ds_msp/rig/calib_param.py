@@ -397,6 +397,7 @@ class RigConfig:
     accuracy_gate: str = "off"
     profile: str = "default"                    # default|production (strict gates, FR-RIG-028)
     uncertainty_gate: str = "warn"              # extrinsic 1-sigma limits: off|warn|refuse
+    convergence_gate: str = "warn"              # final BA stage converged: off|warn|refuse
     max_rotation_sigma_deg: Optional[float] = None
     max_centre_sigma: Optional[float] = None    # scene length units (square_size units)
     reject_outliers: bool = False               # hard-drop board observations > ransac_threshold
@@ -468,7 +469,7 @@ _KNOWN_KEYS = {
     "webviewer", "object_path", "report_covariance", "audit_gate", "certify",
     "accuracy_profile_path", "refine_structure", "structure_prior_sigma", "structure_mode",
     "frame_pattern", "keypoints_pixel_convention", "accuracy_gate", "profile",
-    "uncertainty_gate", "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
+    "uncertainty_gate", "convergence_gate", "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
 }
 #: MC-Calib keys DS-MSP accepts but does not act on, with what happens instead.
 _IGNORED_MCCALIB_KEYS = {
@@ -487,7 +488,8 @@ _IGNORED_MCCALIB_KEYS = {
     "resolution_y_per_board": "board image size is only used to generate printable boards",
 }
 #: ``profile: production`` defaults for fields the config does not set explicitly.
-_PRODUCTION = {"audit_gate": "refuse", "uncertainty_gate": "refuse", "reject_outliers": True}
+_PRODUCTION = {"audit_gate": "refuse", "uncertainty_gate": "refuse", "convergence_gate": "refuse",
+               "reject_outliers": True}
 
 
 def _config_key_warnings(fs, profile: str, overrides: Optional[Dict] = None) -> List[str]:
@@ -568,6 +570,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         accuracy_gate=str(ov.get("accuracy_gate", _scalar(fs, "accuracy_gate", "off"))),
         profile=str(ov.get("profile", _scalar(fs, "profile", "default"))),
         uncertainty_gate=str(ov.get("uncertainty_gate", _scalar(fs, "uncertainty_gate", "warn"))),
+        convergence_gate=str(ov.get("convergence_gate", _scalar(fs, "convergence_gate", "warn"))),
         max_rotation_sigma_deg=ov.get("max_rotation_sigma_deg",
                                       _scalar(fs, "max_rotation_sigma_deg", None)),
         max_centre_sigma=ov.get("max_centre_sigma", _scalar(fs, "max_centre_sigma", None)),
@@ -593,6 +596,8 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
             setattr(cfg, name, v)
     if cfg.uncertainty_gate not in ("off", "warn", "refuse"):
         raise ValueError("uncertainty_gate must be off, warn or refuse")
+    if cfg.convergence_gate not in ("off", "warn", "refuse"):
+        raise ValueError("convergence_gate must be off, warn or refuse")
     if cfg.uncertainty_gate == "refuse" and (cfg.max_rotation_sigma_deg is None
                                              or cfg.max_centre_sigma is None):
         raise ValueError("uncertainty_gate: refuse (and profile: production) needs "
@@ -864,6 +869,7 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              accuracy_profile=accuracy_profile,
                              reproj_gate_px=cfg.ransac_threshold if cfg.reject_outliers else None,
                              uncertainty_gate=cfg.uncertainty_gate,
+                             convergence_gate=cfg.convergence_gate,
                              max_rotation_sigma_deg=cfg.max_rotation_sigma_deg,
                              max_centre_sigma=cfg.max_centre_sigma,
                              config_warnings=cfg.config_warnings, profile=cfg.profile)
