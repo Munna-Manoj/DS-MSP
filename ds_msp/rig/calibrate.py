@@ -232,7 +232,7 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
     board views into one intrinsic fit.
 
     ``fit`` in the result records how the model was obtained: the chosen candidate's solver
-    ``status`` and ``rms_px``, and ``fallback`` -- ``None`` for a fitted model,
+    ``status``, ``rms_px`` and ``excluded`` count, and ``fallback`` -- ``None`` for a fitted model,
     ``"no_correspondences"`` when fewer than 3 views survive the seed (the model-aware seed is
     used unfitted), ``"focal_collapse"`` when every candidate failed the focal check or had a
     non-finite RMS (seed focal, neutral distortion; the global BA fits the rest)."""
@@ -288,13 +288,15 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
         if ok:
             best = min(ok, key=lambda r: r["rms_px"])
             model = best["model"]
-            fit = {"status": best["status"], "rms_px": float(best["rms_px"]), "fallback": None}
+            fit = {"status": best["status"], "rms_px": float(best["rms_px"]),
+                   "excluded": best.get("excluded", 0), "fallback": None}
         else:
             model = _seed_from_K(model_cls, Kp)
-            fit = {"status": None, "rms_px": None, "fallback": "focal_collapse"}
+            fit = {"status": None, "rms_px": None, "excluded": None, "fallback": "focal_collapse"}
     else:
         model = seed_ma
-        fit = {"status": None, "rms_px": None, "fallback": "no_correspondences"}
+        fit = {"status": None, "rms_px": None, "excluded": None,
+               "fallback": "no_correspondences"}
     return dict(model=model, cls=model_cls, fit=fit)
 
 

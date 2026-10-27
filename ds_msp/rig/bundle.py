@@ -16,6 +16,7 @@ count is small at calibration scale (a handful of cameras, hundreds of object po
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -269,13 +270,14 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             out.append((o, Xo, key, Xg, Xc, tb))
         return out
 
-    def _ang_resid(Xc, tb):
-        """Full-sphere chordal residual and ``d(residual)/d(Xc)`` (N,3)/(N,3,3)."""
-        f, fv = tb
+    def _ang_resid(Xc, tb, u):
+        """Full-sphere chordal residual and ``d(residual)/d(Xc)`` (N,3)/(N,3,3) over the
+        points ``u`` the solve uses; NaN where a used point has left the valid domain."""
+        f, _fv = tb
         r, Jp, valid = chordal_bearing_residual_jacobian(Xc, f)
-        valid &= fv
-        r[~valid] = 0.0
-        Jp[~valid] = 0.0
+        r[~(u & valid)] = 0.0
+        Jp[~(u & valid)] = 0.0
+        r[u & ~valid] = np.nan
         return r, Jp
 
     def residual(state):
@@ -287,13 +289,15 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         r = np.zeros(total_rows)
         row = 0
-        for o, Xo, key, Xg, Xc, tb in _project_all(state):
+        for u, (o, Xo, key, Xg, Xc, tb) in zip(use, _project_all(state)):
             if angular:
-                diff, _Jp = _ang_resid(Xc, tb)
+                diff, _Jp = _ang_resid(Xc, tb, u)
             else:
                 uv, valid = m_cache[o.cam_id].project(Xc)
+                valid = np.asarray(valid, bool).ravel()
                 diff = np.zeros_like(o.pts_2d, float)
-                diff[valid] = uv[valid] - o.pts_2d[valid]
+                diff[u] = uv[u] - o.pts_2d[u]
+                diff[u & ~valid] = np.nan
             W = whiteners[id(o)]
             if W is not None:
                 diff = np.einsum('nij,nj->ni', W, diff)
@@ -312,19 +316,19 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
         J = np.zeros((total_rows, K))
         row = 0
-        for o, Xo, key, Xg, Xc, tb in _project_all(state):
+        for u, (o, Xo, key, Xg, Xc, tb) in zip(use, _project_all(state)):
             N = len(Xo)
             cam = o.cam_id
             R_cam = state["cam_R"][cam]
             R_obj = state["obj_R"][key]
             if angular:
                 # ∂(normalize(Xc)-f)/∂Xc; no intrinsic columns (intrinsics fixed).
-                _r, Jp = _ang_resid(Xc, tb)                    # (N,3,3)
+                _r, Jp = _ang_resid(Xc, tb, u)                 # (N,3,3)
                 J_param = None
             else:
                 uv, J_point, J_param, valid = m_cache[cam].project_jacobian(Xc)
-                mask = valid[:, None, None].astype(float)
-                Jp = J_point * mask                              # (N,2,3)
+                mask = (u & np.asarray(valid, bool).ravel())[:, None, None]
+                Jp = np.where(mask, J_point, 0.0)                # (N,2,3); NaN-safe mask
             # object pose: dXc/dω = R_cam @ (-R_obj[Xo]_x); dXc/dt = R_cam
             dXc_dw_o = -np.einsum('ij,njk->nik', R_cam @ R_obj, _skew_batch(Xo))
             Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o)
@@ -344,7 +348,7 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             # intrinsics
             if not fix_intrinsics:
                 ic = intr_col[cam]
-                J[row:row + 2 * N, ic:ic + Pn[cam]] = (J_param * mask).reshape(2 * N, Pn[cam])
+                J[row:row + 2 * N, ic:ic + Pn[cam]] = np.where(mask, J_param, 0.0).reshape(2 * N, Pn[cam])
             W = whiteners[id(o)]
             if W is not None:
                 block = J[row:row + 2 * N].reshape(N, 2, K)
@@ -387,7 +391,20 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
         return act
 
     retract.bound_active = bound_active
-    return _state_from_rig(rig), residual, jacobian, retract, K
+    # The valid domain is a constraint. A point outside it at the start is left out of the
+    # whole solve; a trial step that moves a used point outside it gets a NaN residual, which
+    # the solver rejects (raising λ). A zero residual there would reward leaving the domain.
+    state0 = _state_from_rig(rig)
+    m0 = {c: classes[c].from_params(state0["intr"][c]) for c in rig.cameras}
+    use = []
+    for o, Xo, key, Xg, Xc, tb in _project_all(state0):
+        if angular:
+            valid = chordal_bearing_residual_jacobian(Xc, tb[0])[2] & tb[1]
+        else:
+            valid = m0[o.cam_id].project(Xc)[1]
+        use.append(np.asarray(valid, bool).ravel())
+    residual.excluded = int(sum(int((~u).sum()) for u in use))
+    return state0, residual, jacobian, retract, K
 
 
 def _report_column_layout(rig: RigState, *, fix_intrinsics: bool, fix_extrinsics: bool):
@@ -872,7 +889,9 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 continue
             uv, valid = mc[c].project(Xc[idx])
             valid = np.asarray(valid, bool).ravel()
-            d[idx[valid]] = uv[valid] - p_uv[idx[valid]]
+            u = use[idx]
+            d[idx[u]] = uv[u] - p_uv[idx[u]]
+            d[idx[u & ~valid]] = np.nan
         if p_W is not None:
             d = np.einsum('nij,nj->ni', p_W, d)
         return d.ravel()
@@ -896,11 +915,14 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 continue
             uv, J_point, J_param, valid = mc[c].project_jacobian(Xc[idx])
             valid = np.asarray(valid, bool).ravel()
-            r[idx[valid]] = uv[valid] - p_uv[idx[valid]]
-            Jp[idx] = J_point * valid[:, None, None]
+            u = use[idx]
+            ok = u & valid
+            r[idx[ok]] = uv[ok] - p_uv[idx[ok]]
+            r[idx[u & ~valid]] = np.nan
+            Jp[idx] = np.where(ok[:, None, None], J_point, 0.0)     # NaN-safe mask
             if not fix_intrinsics:
                 ic = intr_col[c]
-                A[idx, :, ic:ic + Pn[c]] = J_param * valid[:, None, None]
+                A[idx, :, ic:ic + Pn[c]] = np.where(ok[:, None, None], J_param, 0.0)
         M = np.einsum('nij,njk->nik', R_cam, R_obj)
         B = np.empty((N, 2, 6))
         B[:, :, :3] = -np.einsum('nij,njk,nkl->nil', Jp, M, _skew_batch(Xo))
@@ -992,19 +1014,30 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         state0["board_t"] = {key: np.zeros(3) for key in board_col}
         state0["board_k"] = {key: np.zeros(3) for key in bend_col}
         state0["board_base"] = bases
+    # The valid domain is a constraint (see build_problem): points outside it at the start
+    # are left out of the solve, and leaving it during the solve gives a NaN residual.
+    mc0 = _models(state0)
+    Xc0 = _geometry(state0)[2]
+    use = np.zeros(N, bool)
+    for c, idx in cam_pts.items():
+        if len(idx):
+            use[idx] = np.asarray(mc0[c].project(Xc0[idx])[1], bool).ravel()
+    residual.excluded = int(N - use.sum())
     return state0, residual, linearize, retract, shared_dim, n_groups
 
 
 def solve_record(res, solver: str) -> Dict:
     """JSON-safe summary of one solver run (:class:`~ds_msp.core.optimize.OptResult`):
     ``solver``, termination ``status`` and ``stop_reason``, ``iterations``, final ``rms``
-    (block residual units, pixels here) and ``gradient_ratio``. Non-finite numbers are
+    (block residual units, pixels here), ``gradient_ratio`` and ``excluded`` (points outside
+    the valid domain at the start, left out of the solve). Non-finite numbers are
     ``None`` so the record can go into strict JSON."""
     def num(x):
         return float(x) if x is not None and np.isfinite(x) else None
     return {"solver": solver, "status": res.status, "stop_reason": res.stop_reason,
             "iterations": int(res.iterations), "rms": num(res.rms),
-            "gradient_ratio": num(getattr(res, "gradient_ratio", None))}
+            "gradient_ratio": num(getattr(res, "gradient_ratio", None)),
+            "excluded": int(getattr(res, "excluded", 0))}
 
 
 def refine(rig: RigState, object_obs: List[ObjectObs], *,
@@ -1081,7 +1114,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             res = lm_solve(state0, residual, jacobian, retract, block=3, max_iter=max_iter,
                            on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
         if log is not None:
-            log.append(solve_record(res, "gnc_tls" if barc is not None else "lm"))
+            log.append(solve_record(replace(res, excluded=residual.excluded),
+                                    "gnc_tls" if barc is not None else "lm"))
         return _rig_from_state(rig, res.state)
     if sparse:
         state0, residual, linearize, retract, shared_dim, n_groups = build_schur_problem(
@@ -1120,7 +1154,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
                            on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
     if log is not None:
         kind = "gnc_tls" if barc is not None else "lm"
-        log.append(solve_record(res, kind + ("_schur" if sparse else "")))
+        log.append(solve_record(replace(res, excluded=residual.excluded),
+                                kind + ("_schur" if sparse else "")))
     if verbose:
         print(f"  BA: rms {res.rms:.4f}px iters={res.iterations} "
               f"intr={'free' if not fix_intrinsics else 'fixed'} "

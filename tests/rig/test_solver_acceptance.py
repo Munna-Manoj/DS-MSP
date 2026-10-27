@@ -144,7 +144,8 @@ def test_front_end_focal_collapse_is_recorded(monkeypatch):
     w, h = img_size[0]
     r = rc._fit_one_camera(RadTanModel, {obj.object_id: obj}, cam0, w, h, None,
                            "soft_l1", 1.0, 30)
-    assert r["fit"] == {"status": None, "rms_px": None, "fallback": "focal_collapse"}
+    assert r["fit"] == {"status": None, "rms_px": None, "excluded": None,
+                        "fallback": "focal_collapse"}
 
 
 @pytest.mark.req("NFR-NUM-012")
