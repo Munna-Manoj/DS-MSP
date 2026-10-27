@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.2](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.1...v0.22.2) (2026-10-27)
+
+
+### Documentation
+
+* warn that OCam does not determine camera roll in a rig ([ae9e560](https://github.com/Munna-Manoj/DS-MSP/commit/ae9e560250ac985edc21e08d1ab18cd3d06b3992))
+
 ## [0.22.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.0...v0.22.1) (2026-10-27)
 
 
