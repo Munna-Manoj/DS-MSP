@@ -22,7 +22,7 @@ value-object class.
 | Double Sphere | `DoubleSphereModel` | `fx, fy, cx, cy, xi, alpha` | wide <abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>, closed-form unprojection |
 | UCM | `UCMModel` | `fx, fy, cx, cy, alpha` | unified (single sphere) = DS with ξ=0 |
 | EUCM | `EUCMModel` | `fx, fy, cx, cy, alpha, beta` | enhanced UCM |
-| DS+ | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt |
+| DS+ (experimental) | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt; not for production |
 | Kannala-Brandt | `KannalaBrandtModel` | `fx, fy, cx, cy, k1..k4` | **= OpenCV `cv2.fisheye`** |
 | RadTan / pinhole | `RadTanModel` | `fx, fy, cx, cy, k1, k2, p1, p2, k3` | **= OpenCV `cv2.projectPoints`** (narrow FOV) |
 | OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial |
@@ -30,6 +30,12 @@ value-object class.
 
 KB project matches `cv2.fisheye` and RadTan matches `cv2.projectPoints` to ~1e-13.
 Every model's analytic Jacobian is gradient-checked against finite differences.
+
+/// warning | DS+ is experimental
+Do not use DS+ in a production system. Its tilt terms reproduce a camera rotation about x or y
+exactly in the pinhole limit, so rig extrinsics are not determined. Use it to study camera models
+or as an example when you write your own. Evidence: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
+///
 
 /// note
 DS+ is DS-MSP's own extension, not part of any external calibration
@@ -48,8 +54,8 @@ distortion they apply along the way:
   shift, `alpha` = blend). Handles >180° FOV with a closed-form unprojection.
 - **UCM** — a single sphere (DS with `xi=0`); one `alpha` controls curvature.
 - **EUCM** — UCM with a `beta` that stretches the radial term, fitting more lenses.
-- **DS+** — a UCM core plus a division-model radial layer and a
-  2-axis tilt homography, for lenses the plain sphere models can't bend to fit.
+- **DS+** (experimental) — a UCM core plus a division-model radial layer and a
+  2-axis tilt homography. A research model, not for production (see the warning above).
 - **Kannala-Brandt** — equidistant: distorts the *angle* `θ` from the axis by an odd
   polynomial `θ + k1θ³ + k2θ⁵ + k3θ⁷ + k4θ⁹`. This is OpenCV's `cv2.fisheye`.
 - **RadTan** — classic pinhole: perspective-divides, then applies Brown radial

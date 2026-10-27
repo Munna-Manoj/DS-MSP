@@ -142,6 +142,25 @@ def box_active(x: np.ndarray, lo: np.ndarray, hi: np.ndarray, g: np.ndarray) -> 
     return ((x <= lo) & (g > 0.0)) | ((x >= hi) & (g < 0.0))
 
 
+def _hold_active(H: np.ndarray, g: np.ndarray,
+                 active: Optional[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Restrict the step system ``(H + λD) δ = -g`` to the free coordinates: rows and columns
+    of the ``active`` ones are replaced by the identity and their ``g`` by 0, so their step is
+    exactly 0 and the free step is ``-(H_FF + λD_F)⁻¹ g_F``. The sign of ``g`` does not matter.
+
+    Clipping the full step after the solve instead keeps, in the free coordinates, the
+    compensation ``-H_FF⁻¹ H_FA δ_A`` for a move of the active ones that never happens. With a
+    strongly coupled bound parameter (UCM/EUCM/DS ``alpha`` against focal) that step can fail
+    at every damping until ``lam_max``. Returns ``(H, g)`` unchanged when nothing is active."""
+    if active is None or not active.any():
+        return H, g
+    H = H.copy()
+    H[active, :] = 0.0
+    H[:, active] = 0.0
+    H[active, active] = 1.0
+    return H, np.where(active, 0.0, g)
+
+
 def _update_lambda(accepted: bool, lam: float, nu: float, *, schedule: str,
                    pred: float, actual: float, lam_min: float,
                    lam_max: float) -> tuple[float, float]:
@@ -310,8 +329,8 @@ def lm_solve(
     bound_active(state, g) -> (K,) bool
         Optional, for a ``retract`` that clips parameters to a box: marks the tangent
         coordinates held at a bound with the gradient pushing outward (see
-        :func:`box_active`). They are left out of the convergence test, which then checks
-        the projected gradient (KKT). Classification only; the iterations are unchanged.
+        :func:`box_active`). They are held for that step (:func:`_hold_active`) and left out
+        of the convergence test, which then checks the projected gradient (KKT).
 
     Returns
     -------
@@ -412,10 +431,11 @@ def lm_solve(
             # rejected, so stopping here returns the same state the old loop did.
             stop_reason = "non_finite"
             break
-        g_ratio = _gradient_ratio(g, D, f,
-                                  None if bound_active is None else bound_active(state, g))
+        act = None if bound_active is None else bound_active(state, g)
+        g_ratio = _gradient_ratio(g, D, f, act)
 
-        delta = solve(H, g, lam, D)
+        H_free, g_free = _hold_active(H, g, act)
+        delta = solve(H_free, g_free, lam, D)
         if np.isfinite(delta).all():
             state_try = retract(state, delta)
             r_try = np.asarray(residual(state_try), float)
@@ -778,8 +798,9 @@ def schur_lm(
                         for V, W, gb in zip(Vs, Ws, gbs))):
             stop_reason = "non_finite"                 # see lm_solve
             break
+        act = None if bound_active is None else bound_active(state, ga)
         if f > 0.0:
-            gq = ga if bound_active is None else np.where(bound_active(state, ga), 0.0, ga)
+            gq = ga if act is None else np.where(act, 0.0, ga)
             q = float(gq @ (gq / Da)) + sum(float(gb @ (gb / Db)) for gb, Db in zip(gbs, Dbs))
             g_ratio = q / (2.0 * f)
 
@@ -796,6 +817,9 @@ def schur_lm(
         # Re-symmetrize: ``S -= Y@W.T`` accumulates float asymmetry, and
         # np.linalg.cholesky silently truncates to the lower triangle otherwise.
         S = 0.5 * (S + S.T)
+        # Holding a shared coordinate in S is exact: the Schur complement of the free
+        # subsystem is S's free-free block, and back-substitution sees δ_shared = 0 there.
+        S, rhs = _hold_active(S, rhs, act)
         try:
             L = np.linalg.cholesky(S)
             d_shared = _cho_solve(L, rhs)

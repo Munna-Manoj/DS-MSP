@@ -1075,7 +1075,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return rig
         if barc is not None:
             res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
-                                block=3, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
+                                block=3, inner_max_iter=max_iter, on_iter=wrapped_on_iter,
+                                bound_active=retract.bound_active)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=3, max_iter=max_iter,
                            on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
@@ -1099,7 +1100,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             res = gnc_tls_schur_solve(state0, residual, linearize, retract, noise_bound=barc,
                                       n_groups=n_groups, shared_dim=shared_dim, local_dim=6,
                                       block=2, inner_max_iter=max_iter,
-                                      on_iter=wrapped_on_iter)
+                                      on_iter=wrapped_on_iter,
+                                      bound_active=retract.bound_active)
         else:
             res = schur_lm(state0, residual, linearize, retract, n_groups=n_groups,
                            shared_dim=shared_dim, local_dim=6, block=2, max_iter=max_iter,
@@ -1111,7 +1113,8 @@ def refine(rig: RigState, object_obs: List[ObjectObs], *,
             return rig
         if barc is not None:
             res = gnc_tls_solve(state0, residual, jacobian, retract, noise_bound=barc,
-                                block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter)
+                                block=2, inner_max_iter=max_iter, on_iter=wrapped_on_iter,
+                                bound_active=retract.bound_active)
         else:
             res = lm_solve(state0, residual, jacobian, retract, block=2, max_iter=max_iter,
                            on_iter=wrapped_on_iter, bound_active=retract.bound_active, **rk)
