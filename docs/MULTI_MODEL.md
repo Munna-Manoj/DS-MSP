@@ -25,7 +25,7 @@ value-object class.
 | DS+ (experimental) | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt; not for production |
 | Kannala-Brandt | `KannalaBrandtModel` | `fx, fy, cx, cy, k1..k4` | **= OpenCV `cv2.fisheye`** |
 | RadTan / pinhole | `RadTanModel` | `fx, fy, cx, cy, k1, k2, p1, p2, k3` | **= OpenCV `cv2.projectPoints`** (narrow FOV) |
-| OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial |
+| OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial; not for rig extrinsics |
 | (test stand-in) | `ds_msp.testing.FakeModel` | `fx, fy, cx, cy` | perfect pinhole, no fisheye math |
 
 KB project matches `cv2.fisheye` and RadTan matches `cv2.projectPoints` to ~1e-13.
@@ -35,6 +35,12 @@ Every model's analytic Jacobian is gradient-checked against finite differences.
 Do not use DS+ in a production system. Its tilt terms reproduce a camera rotation about x or y
 exactly in the pinhole limit, so rig extrinsics are not determined. Use it to study camera models
 or as an example when you write your own. Evidence: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
+///
+
+/// warning | OCam in a rig
+OCam's affine terms reproduce a camera roll about the optical axis exactly, so a rig cannot
+determine that camera's roll. Use OCam for single cameras; for rig extrinsics use KB, DS or RadTan.
+Evidence: [ADR-0028](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0028-ocam-rig-roll.md).
 ///
 
 /// note

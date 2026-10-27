@@ -14,6 +14,11 @@ class OCamModel:
 
     Parameters: centre (cx, cy), affine (c, d, e), world polynomial (a0..a4).
     Has no native fx/fy; ``K`` exposes a pinhole-equivalent focal ~ |a0|.
+
+    Not for rig extrinsics: the affine ``(c, d, e)`` reproduces a camera roll about
+    the optical axis exactly, so a rig cannot determine roll. Use
+    ``KannalaBrandtModel`` or ``DoubleSphereModel`` there. See
+    [ADR-0028](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0028-ocam-rig-roll.md).
     """
 
     name: ClassVar[str] = "ocam"
