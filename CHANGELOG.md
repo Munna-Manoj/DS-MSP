@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.0...v0.22.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **core:** hold bound parameters in the GNC-TLS solves too ([0f7de81](https://github.com/Munna-Manoj/DS-MSP/commit/0f7de815a3a48291926224df4419be204ece4356))
+* **core:** hold bound parameters out of the LM step; mark DS+ experimental ([f0c5f4b](https://github.com/Munna-Manoj/DS-MSP/commit/f0c5f4b0eed376a5a7e6ae1d1b09b8aac8731d07))
+* **core:** hold box-bound parameters out of the LM step ([cc92328](https://github.com/Munna-Manoj/DS-MSP/commit/cc923287d89c0c55f08c7d79cb1aaee363219270))
+
+
+### Documentation
+
+* mark DS+ as experimental, not for production ([fb774a1](https://github.com/Munna-Manoj/DS-MSP/commit/fb774a137c58a25a753340139ce2c6384d997299))
+
 ## [0.22.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.21.0...v0.22.0) (2026-10-26)
 
 
