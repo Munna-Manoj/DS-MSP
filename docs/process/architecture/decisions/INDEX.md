@@ -35,6 +35,7 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0025](ADR-0025-joint-rigid-target-refinement.md) | Joint rigid multi-board target refinement by default | Accepted | Inter-board poses are shared BA parameters with printed shape held (`structure_mode: rigid`); bend/free/off are explicit |
 | [ADR-0026](ADR-0026-production-acceptance.md) | Production acceptance: uncertainty gate, strict configuration, rejection ledger | Accepted | Per-pair extrinsic 1σ from the Schur-marginalised clustered sandwich gates export; production profile refuses weak captures and unknown keys |
 | [ADR-0027](ADR-0027-dsplus-experimental.md) | DS⁺ is an experimental model, not for production | Accepted | DS⁺ tilt absorbs camera x/y rotation, so rig extrinsics are not determined; docs mark it experimental |
+| [ADR-0028](ADR-0028-ocam-rig-roll.md) | OCam does not determine camera roll in a rig | Accepted | The OCam affine absorbs camera roll exactly; OCam stays supported, docs warn against it for rig extrinsics |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the

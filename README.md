@@ -212,7 +212,7 @@ A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output fi
 
 It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images.
 
-It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye and `radtan` pinhole cameras. Do not use `dsplus` in a rig: its tilt terms absorb camera rotation, so the extrinsics are not determined ([About DS+](#about-ds-experimental)).
+It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye and `radtan` pinhole cameras. Do not use `dsplus` in a rig: its tilt terms absorb camera rotation, so the extrinsics are not determined ([About DS+](#about-ds-experimental)). Avoid `ocam` in a rig too: its affine terms absorb camera roll ([About OCam in a rig](#about-ocam-in-a-rig)).
 
 ```bash
 pip install ds-msp
@@ -306,7 +306,7 @@ All 7 models live behind one `CameraModel` contract with analytic Jacobians, `co
 | `eucm` | 6 | Enhanced UCM |
 | `ds` | 6 | **Double Sphere** (Usenko 2018); exact >180° half-space validity |
 | `dsplus` | 9 | **DS+** — *experimental, not for production*; a DS-MSP research model ([About DS+](#about-ds-experimental)) |
-| `ocam` | 10 | OCamCalib (Scaramuzza) |
+| `ocam` | 10 | OCamCalib (Scaramuzza); not for rig extrinsics ([About OCam in a rig](#about-ocam-in-a-rig)) |
 
 #### Rule of thumb (directional, not a guarantee)
 
@@ -326,6 +326,15 @@ Why it is experimental:
 - **It has no `xi` term.** DS+ drops Double Sphere's second-sphere shift, so it fits poorly on lenses that need it.
 
 A low reprojection error does not make DS+ correct: on a real fisheye it fits best (0.31 px vs KB 0.37 px), yet the same freedom moves the camera frame. Evidence and proof: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
+
+#### About OCam in a rig
+
+OCam is fine for a single camera, conversion and undistortion. Do not use it when you need rig extrinsics.
+
+- **Camera roll is not determined.** The affine `[[c, d], [e, 1]]` can represent any 2×2 matrix up to scale, so it reproduces a camera roll about the optical axis exactly. A unit test checks this to 1e-9 px.
+- **The rig cannot report how good it is.** In 120 MC-Calib rig runs, OCam's overall extrinsic error was in the same range as KB/DS/UCM/EUCM; only its roll was slightly worse (0.06–0.09°). But nothing in the data fixes the roll, and all 27 runs with an OCam camera (and no DS+) reported no rotation uncertainty.
+
+Proof and evidence: [ADR-0028](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0028-ocam-rig-roll.md).
 
 → [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study (historical)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
