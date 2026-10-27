@@ -14,6 +14,16 @@ from typing import Tuple
 import numpy as np
 
 
+def _w(alpha: float) -> float:
+    """Half-space coefficient: a point is valid when ``z > -w·d``.
+
+    For ``alpha > 0.5`` the image radius stops growing with the angle from the axis at
+    ``z = -w·d`` and folds back, so the projection is not one-to-one past it; ``den > 0``
+    alone is the weaker ``z > -alpha/(1-alpha)·d``. For ``alpha <= 0.5`` the two agree.
+    """
+    return (1.0 - alpha) / alpha if alpha > 0.5 else alpha / (1.0 - alpha)
+
+
 def eucm_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
                  alpha: float, beta: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Project camera-frame points. Returns ``(u, v, valid)``."""
@@ -21,8 +31,9 @@ def eucm_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: flo
     d = np.sqrt(beta * (x*x + y*y) + z*z)
     den = alpha * d + (1.0 - alpha) * z
 
-    valid = den > 1e-8
-    den = np.maximum(den, 1e-8)
+    # A NaN d (beta < 0) fails both comparisons, so it is masked too.
+    valid = (z > -_w(alpha) * d) & (den > 1e-8)
+    den = np.where(valid, den, 1.0)
     u = fx * x / den + cx
     v = fy * y / den + cy
     return u, v, valid
@@ -63,11 +74,9 @@ def eucm_project_jacobian(points_3d: np.ndarray, fx: float, fy: float,
     x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
     rho2 = x*x + y*y
     d = np.sqrt(beta * rho2 + z*z)
-    d = np.maximum(d, 1e-12)
-    den = alpha * d + (1.0 - alpha) * z
-    valid = den > 1e-8
-
-    den = np.where(np.abs(den) < 1e-12, 1e-12, den)
+    valid = (z > -_w(alpha) * d) & (alpha * d + (1.0 - alpha) * z > 1e-8)
+    d = np.where(valid, np.maximum(d, 1e-12), 1.0)
+    den = np.where(valid, alpha * d + (1.0 - alpha) * z, 1.0)
     inv = 1.0 / den
     inv2 = inv * inv
     u = fx * x * inv + cx

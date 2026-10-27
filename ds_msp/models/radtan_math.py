@@ -44,19 +44,25 @@ def radtan_unproject(points_2d, fx, fy, cx, cy, k1, k2, p1, p2, k3
     a0 = (points_2d[..., 0] - cx) / fx
     b0 = (points_2d[..., 1] - cy) / fy
     a, b = a0.copy(), b0.copy()
-    for _ in range(20):
+    with np.errstate(over="ignore", invalid="ignore"):
+        for _ in range(20):
+            r2 = a*a + b*b
+            radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3))
+            # A radial factor at or below 0 is past the point where distortion folds the
+            # image back; hold such points (they fail the check below) instead of dividing.
+            radial = np.where(radial > 1e-12, radial, np.nan)
+            dx = 2.0*p1*a*b + p2*(r2 + 2.0*a*a)
+            dy = p1*(r2 + 2.0*b*b) + 2.0*p2*a*b
+            a = (a0 - dx) / radial
+            b = (b0 - dy) / radial
+        # validity: forward re-distortion must reproduce the input (NaN compares False)
         r2 = a*a + b*b
         radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3))
-        dx = 2.0*p1*a*b + p2*(r2 + 2.0*a*a)
-        dy = p1*(r2 + 2.0*b*b) + 2.0*p2*a*b
-        a = (a0 - dx) / radial
-        b = (b0 - dy) / radial
-    # validity: forward re-distortion must reproduce the input
-    r2 = a*a + b*b
-    radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3))
-    xp = a*radial + 2.0*p1*a*b + p2*(r2 + 2.0*a*a)
-    yp = b*radial + p1*(r2 + 2.0*b*b) + 2.0*p2*a*b
-    valid = (np.abs(xp - a0) < 1e-6) & (np.abs(yp - b0) < 1e-6)
+        xp = a*radial + 2.0*p1*a*b + p2*(r2 + 2.0*a*a)
+        yp = b*radial + p1*(r2 + 2.0*b*b) + 2.0*p2*a*b
+        valid = (np.abs(xp - a0) < 1e-6) & (np.abs(yp - b0) < 1e-6) & (radial > 0)
+    a = np.where(valid, a, 0.0)
+    b = np.where(valid, b, 0.0)
 
     rays = np.stack([a, b, np.ones_like(a)], axis=-1)
     rays = rays / np.linalg.norm(rays, axis=-1, keepdims=True)

@@ -3,6 +3,7 @@
 import warnings
 
 import numpy as np
+import pytest
 
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.eucm_math import eucm_unproject
@@ -42,3 +43,24 @@ def test_unproject_alpha_one_boundary_ray_is_finite_and_invalid_not_a_warning():
         ray, valid = eucm_unproject(pts, fx, fy, cx, cy, alpha=1.0, beta=1.0)
     assert not valid[0]
     assert np.all(np.isfinite(ray))
+
+
+@pytest.mark.req("NFR-NUM-014")
+def test_points_past_the_fold_are_invalid():
+    # alpha > 0.5: the image radius peaks at z = -w·d (113.0 deg here) and then shrinks,
+    # so a ray at 120 deg shares its pixel with one before the fold.
+    m = EUCMModel(400.0, 400.0, 320.0, 240.0, 0.7, 0.8)
+    a = np.deg2rad([100.0, 112.0, 114.0, 120.0])
+    uv, valid = m.project(np.c_[np.sin(a), np.zeros_like(a), np.cos(a)])
+    assert valid.tolist() == [True, True, False, False]
+    assert np.isfinite(uv).all()
+
+
+@pytest.mark.req("NFR-NUM-014")
+def test_negative_beta_gives_invalid_points_not_nan_pixels():
+    m = EUCMModel(400.0, 400.0, 320.0, 240.0, 0.6, -0.5)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)      # sqrt of a negative
+        uv, valid = m.project(np.array([[3.0, 0.0, 1.0], [0.0, 0.0, 1.0]]))
+    assert valid.tolist() == [False, True]
+    assert np.isfinite(uv).all()

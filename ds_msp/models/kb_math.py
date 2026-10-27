@@ -26,18 +26,37 @@ def _dtheta_d(theta: np.ndarray, k1, k2, k3, k4) -> np.ndarray:
     return 1.0 + t2 * (3*k1 + t2 * (5*k2 + t2 * (7*k3 + t2 * 9*k4)))
 
 
+def _theta_max(k1, k2, k3, k4) -> float:
+    """Largest angle up to which ``theta_d`` grows with ``theta``, capped at pi.
+
+    It is the first positive zero of ``d(theta_d)/d(theta)``. Past it the image radius
+    shrinks again, so two rays share a pixel and the projection cannot be inverted.
+    """
+    # d(theta_d)/d(theta) = 1 + 3k1 s + 5k2 s^2 + 7k3 s^3 + 9k4 s^4 with s = theta^2.
+    roots = np.roots([9.0 * k4, 7.0 * k3, 5.0 * k2, 3.0 * k1, 1.0])
+    s = roots.real[(np.abs(roots.imag) <= 1e-9 * np.abs(roots)) & (roots.real > 0)]
+    return float(min(np.pi, np.sqrt(s.min()))) if s.size else float(np.pi)
+
+
+def _kb_valid(r, z, theta, k1, k2, k3, k4):
+    """Inside the one-to-one range, and not on the axis behind the camera (``theta = pi``)
+    or at the camera centre."""
+    return (theta < _theta_max(k1, k2, k3, k4)) & ((r > 0) | (z > 0))
+
+
 def kb_project(points_3d: np.ndarray, fx, fy, cx, cy, k1, k2, k3, k4
                ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Project camera-frame points. Returns ``(u, v, valid)``."""
     x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
     r = np.sqrt(x*x + y*y)
-    rsafe = np.maximum(r, 1e-12)
     theta = np.arctan2(r, z)
     td = _theta_d(theta, k1, k2, k3, k4)
-    scale = td / rsafe
+    # theta_d / r tends to 1/z on the axis; use that limit within 1e-9 rad of it.
+    ax = r <= 1e-9 * z
+    scale = np.where(ax, 1.0 / np.where(ax, z, 1.0), td / np.where(ax | (r == 0), 1.0, r))
     u = fx * scale * x + cx
     v = fy * scale * y + cy
-    valid = np.isfinite(u) & np.isfinite(v)
+    valid = _kb_valid(r, z, theta, k1, k2, k3, k4) & np.isfinite(u) & np.isfinite(v)
     return u, v, valid
 
 
@@ -49,14 +68,22 @@ def kb_unproject(points_2d: np.ndarray, fx, fy, cx, cy, k1, k2, k3, k4
     ru = np.sqrt(mx*mx + my*my)
     rusafe = np.maximum(ru, 1e-12)
 
-    theta = ru.copy()
-    for _ in range(10):
+    # theta_d rises on [0, theta_max], so the root is bracketed there: Newton steps that
+    # leave the bracket are replaced by bisection, which cannot pick the wrong root.
+    tmax = _theta_max(k1, k2, k3, k4)
+    lo, hi = np.zeros_like(ru), np.full_like(ru, tmax)
+    theta = np.clip(ru, 0.0, tmax)
+    for _ in range(60):
         f = _theta_d(theta, k1, k2, k3, k4) - ru
+        if np.all(np.abs(f) < 1e-14):
+            break
+        lo = np.where(f < 0, theta, lo)
+        hi = np.where(f > 0, theta, hi)
         fp = _dtheta_d(theta, k1, k2, k3, k4)
-        theta = theta - f / np.maximum(np.abs(fp), 1e-12) * np.sign(fp)
-        theta = np.clip(theta, 0.0, np.pi)
+        step = theta - f / np.where(fp > 0, fp, 1.0)
+        theta = np.where((fp > 0) & (step > lo) & (step < hi), step, 0.5 * (lo + hi))
     residual = np.abs(_theta_d(theta, k1, k2, k3, k4) - ru)
-    valid = (residual < 1e-6) & (theta <= np.pi)
+    valid = (residual < 1e-6) & (theta < tmax)
 
     sin_t = np.sin(theta)
     rays = np.stack([sin_t * mx / rusafe, sin_t * my / rusafe, np.cos(theta)], axis=-1)
@@ -75,12 +102,13 @@ def kb_project_jacobian(points_3d: np.ndarray, fx, fy, cx, cy, k1, k2, k3, k4
     Parameter order: ``(fx, fy, cx, cy, k1, k2, k3, k4)``.
     """
     x, y, z = points_3d[..., 0], points_3d[..., 1], points_3d[..., 2]
-    r = np.sqrt(x*x + y*y)
-    r = np.maximum(r, 1e-12)
+    r_true = np.sqrt(x*x + y*y)
+    ax = r_true <= 1e-9 * z                  # on the axis: the formulas below are 0/0
+    r = np.where(ax | (r_true == 0), 1.0, r_true)
     r3 = r * r * r
     d2 = r*r + z*z                       # = x^2+y^2+z^2
     d2 = np.maximum(d2, 1e-12)
-    theta = np.arctan2(r, z)
+    theta = np.arctan2(r_true, z)
     t2 = theta * theta
     td = _theta_d(theta, k1, k2, k3, k4)
     dp = _dtheta_d(theta, k1, k2, k3, k4)
@@ -128,5 +156,22 @@ def kb_project_jacobian(points_3d: np.ndarray, fx, fy, cx, cy, k1, k2, k3, k4
     J_param[..., 1, 6] = fy * h * t7
     J_param[..., 1, 7] = fy * h * t9
 
-    valid = np.isfinite(u) & np.isfinite(v)
+    # On the axis u = fx x/z + cx to second order in r/z, so the limits are exact there.
+    if np.any(ax):
+        za = np.where(ax, z, 1.0)
+        lim = np.zeros_like(J_point)
+        lim[..., 0, 0] = fx / za
+        lim[..., 0, 2] = -fx * x / (za * za)
+        lim[..., 1, 1] = fy / za
+        lim[..., 1, 2] = -fy * y / (za * za)
+        J_point = np.where(ax[..., None, None], lim, J_point)
+        u = np.where(ax, fx * x / za + cx, u)
+        v = np.where(ax, fy * y / za + cy, v)
+        J_param[..., 0, 0] = np.where(ax, x / za, J_param[..., 0, 0])
+        J_param[..., 1, 1] = np.where(ax, y / za, J_param[..., 1, 1])
+        # d theta_d / d k_i = theta^(2i+1), and (x/r)·theta^3 is O(r^2): zero on the axis.
+        J_param[..., 4:] = np.where(ax[..., None, None], 0.0, J_param[..., 4:])
+
+    valid = (_kb_valid(r_true, z, theta, k1, k2, k3, k4)
+             & np.isfinite(u) & np.isfinite(v) & np.isfinite(J_point).all(axis=(-2, -1)))
     return u, v, J_point, J_param, valid

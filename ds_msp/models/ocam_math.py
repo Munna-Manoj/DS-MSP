@@ -41,18 +41,55 @@ def _dpolyw(rho, a1, a2, a3, a4):
     return (a1 + rn*(2*a2 + rn*(3*a3 + rn*4*a4))) / R_REF
 
 
+def _rho_max(a0, a2, a3, a4) -> float:
+    """Image radius up to which the projection is one-to-one; ``inf`` if it never folds.
+
+    A pixel at radius rho unprojects to a ray with cot(angle) = -w(rho)/rho. That falls
+    with rho while rho·w'(rho) - w(rho) > 0, which is -a0 + a2 s^2 + 2 a3 s^3 + 3 a4 s^4
+    with s = rho/R (a1 drops out). Past its first positive zero two rays share a pixel.
+    """
+    if not a0 < 0:
+        return 0.0
+    roots = np.roots([3.0 * a4, 2.0 * a3, a2, 0.0, -a0])
+    s = roots.real[(np.abs(roots.imag) <= 1e-9 * np.abs(roots)) & (roots.real > 0)]
+    return float(R_REF * s.min()) if s.size else np.inf
+
+
 def _solve_rho(m, a0, a1, a2, a3, a4):
-    """Solve w(rho) + m*rho = 0 for rho > 0 by Newton; returns (rho, converged)."""
-    denom = a1 / R_REF + m
-    rho = np.where(np.abs(denom) > 1e-9, -a0 / np.where(denom == 0, 1e-9, denom), np.abs(a0))
-    rho = np.abs(rho)
-    for _ in range(30):
+    """Solve w(rho) + m*rho = 0 on the one-to-one range; returns (rho, converged).
+
+    F(rho) = w(rho) + m*rho has dF/drho = (rho·w' - w)/rho, so F rises from F(0) = a0 < 0
+    over [0, rho_max) and has at most one root there. With a finite rho_max the root
+    exists iff F(rho_max) > 0. Otherwise the bracket is found by growing the radius from
+    1% of |a0| by 1.25x per step. A safeguarded Newton then stays inside the bracket.
+    """
+    m = np.asarray(m, dtype=np.float64)
+    rmax = _rho_max(a0, a2, a3, a4)
+    lo = np.zeros_like(m)
+    if np.isfinite(rmax):
+        hi = np.full_like(m, rmax)
+        found = _polyw(hi, a0, a1, a2, a3, a4) + m * hi > 0
+    else:
+        hi = np.full_like(m, 0.01 * abs(a0))
+        found = _polyw(hi, a0, a1, a2, a3, a4) + m * hi > 0
+        for _ in range(80):                   # 0.01·|a0|·1.25^80 ≈ 5e5·|a0|
+            if found.all():
+                break
+            lo = np.where(found, lo, hi)
+            hi = np.where(found, hi, 1.25 * hi)
+            found = _polyw(hi, a0, a1, a2, a3, a4) + m * hi > 0
+    rho = 0.5 * (lo + hi)
+    for _ in range(60):
         F = _polyw(rho, a0, a1, a2, a3, a4) + m * rho
+        if np.all(np.abs(F[found]) < 1e-12):
+            break
+        lo = np.where(F < 0, rho, lo)
+        hi = np.where(F > 0, rho, hi)
         Fr = _dpolyw(rho, a1, a2, a3, a4) + m
-        rho = rho - F / np.where(np.abs(Fr) < 1e-12, 1e-12, Fr)
-        rho = np.maximum(rho, 0.0)
+        step = rho - F / np.where(Fr > 0, Fr, 1.0)
+        rho = np.where((Fr > 0) & (step > lo) & (step < hi), step, 0.5 * (lo + hi))
     F = _polyw(rho, a0, a1, a2, a3, a4) + m * rho
-    converged = np.abs(F) < 1e-6
+    converged = found & (np.abs(F) < 1e-6) & (rho < rmax)
     return rho, converged
 
 
@@ -71,10 +108,10 @@ def ocam_project(points_3d, cx, cy, c, d, e, a0, a1, a2, a3, a4
     iy = rho * t
     u = c * ix + d * iy + cx
     v = e * ix + iy + cy
-    # on-axis -> centre
+    # on-axis -> centre; valid only in front of the camera (the axis behind it has no pixel)
     u = np.where(onaxis, cx, u)
     v = np.where(onaxis, cy, v)
-    valid = conv | onaxis
+    valid = np.where(onaxis, Z > 0, conv)
     return u, v, valid
 
 
@@ -91,7 +128,7 @@ def ocam_unproject(points_2d, cx, cy, c, d, e, a0, a1, a2, a3, a4
     w = _polyw(rho, a0, a1, a2, a3, a4)
     ray = np.stack([x, y, -w], axis=-1)
     ray = ray / np.maximum(np.linalg.norm(ray, axis=-1, keepdims=True), 1e-12)
-    valid = np.isfinite(ray).all(axis=-1)
+    valid = np.isfinite(ray).all(axis=-1) & (rho < _rho_max(a0, a2, a3, a4))
     ray[~valid] = 0.0
     return ray, valid
 
@@ -165,5 +202,13 @@ def ocam_project_jacobian(points_3d, cx, cy, c, d, e, a0, a1, a2, a3, a4
     J_point[..., 1, 1] = e * dix_dY + diy_dY
     J_point[..., 1, 2] = e * dix_dZ + diy_dZ
 
-    valid = conv | onaxis
+    # On the axis rho -> -a0·|(X, Y)|/Z, so (ix, iy) -> -a0·(X, Y)/Z: the limit is exact there.
+    if np.any(onaxis):
+        k = -a0 / np.where(onaxis & (Z > 0), Z, 1.0)
+        lim = np.zeros_like(J_point)
+        lim[..., 0, 0], lim[..., 0, 1] = c * k, d * k
+        lim[..., 1, 0], lim[..., 1, 1] = e * k, k
+        J_point = np.where(onaxis[..., None, None], lim, J_point)
+
+    valid = np.where(onaxis, Z > 0, conv)
     return u, v, J_point, J_param, valid

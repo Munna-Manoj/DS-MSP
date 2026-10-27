@@ -94,9 +94,10 @@ def test_invert_division_falls_back_when_quartic_has_no_positive_real_root():
     lambda1, lambda2, s = 0.42654310306871945, 0.9179862439359936, 1.6313313494048032
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        rho = _invert_division(np.array([s]), lambda1, lambda2)
+        rho, ok = _invert_division(np.array([s]), lambda1, lambda2)
     assert np.isfinite(rho[0])
     assert rho[0] == s                      # no valid root -> falls back to the identity
+    assert not ok[0]                        # ... and says so
 
 
 @pytest.mark.req("FR-MODEL-001")
@@ -119,3 +120,12 @@ def test_tilt_reproduces_a_camera_rotation_exactly_in_the_pinhole_limit():
     ok = ok_rot & ok_tilt
     assert ok.sum() > 0.5 * len(P)
     assert np.abs(uv_rot[ok] - uv_tilt[ok]).max() < 1e-9
+
+
+@pytest.mark.req("NFR-NUM-014")
+def test_unproject_reports_a_radius_the_division_layer_never_reaches():
+    # Same (lambda1, lambda2, s) as the fallback regression above: no root, so no ray.
+    lambda1, lambda2, s = 0.42654310306871945, 0.9179862439359936, 1.6313313494048032
+    _rays, valid = dsplus_unproject(np.array([[s, 0.0], [0.1, 0.0]]), 1.0, 1.0, 0.0, 0.0,
+                                    0.0, lambda1, lambda2, 0.0, 0.0)
+    assert valid.tolist() == [False, True]
