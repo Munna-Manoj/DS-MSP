@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.3](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.2...v0.22.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **core:** treat the valid projection domain as a BA constraint ([b10a08b](https://github.com/Munna-Manoj/DS-MSP/commit/b10a08b015f6a25f28d6f6bd39eff86a8064e0e4))
+* make the valid projection domain a bundle adjustment constraint ([63c8142](https://github.com/Munna-Manoj/DS-MSP/commit/63c814291e4c877c6d66a8ab2e4a2d8e31f35d4b))
+* **models:** mark a point valid only where the projection is one-to-one ([d1e1eb9](https://github.com/Munna-Manoj/DS-MSP/commit/d1e1eb9900140169f0d850bf7de09b79bf74baba))
+
 ## [0.22.2](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.1...v0.22.2) (2026-10-27)
 
 
