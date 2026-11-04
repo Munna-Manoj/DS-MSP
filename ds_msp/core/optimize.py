@@ -85,6 +85,9 @@ class OptResult:
     #: are left out: the projected gradient, i.e. the KKT test for box bounds. ``nan`` when
     #: undefined (no iteration ran, or zero cost).
     gradient_ratio: float = float("nan")
+    #: Observations left out of the solve because they projected outside the model's valid
+    #: domain at its start. The caller sets this; the solver never sees those rows.
+    excluded: int = 0
 
 
 def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:

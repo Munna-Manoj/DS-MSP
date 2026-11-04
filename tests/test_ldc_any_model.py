@@ -79,8 +79,27 @@ def test_hardware_style_mesh_inverse_matches_closed_form_near_center(name):
     ])
     from_mesh, ok_mesh = hardware.undistort_points(pts)
     closed_form, ok_cf = Undistorter(model, width, height).undistort_points(pts, res["K_new"])
-    assert ok_mesh.all() and ok_cf.all()
-    assert np.allclose(from_mesh, closed_form, atol=0.15)
+    # The fourth point needs 12 iterations on the DS sample, so the 10-iteration inverse
+    # may report it unconverged; every point it does report must match.
+    assert ok_mesh[:3].all() and ok_cf.all()
+    assert np.allclose(from_mesh[ok_mesh], closed_form[ok_mesh], atol=0.15)
+
+
+@pytest.mark.parametrize("name, at", [("ds", (0.22, 0.80)), ("eucm", (0.14, 0.86)),
+                                      ("ucm", (0.14, 0.86))])
+def test_hardware_style_mesh_inverse_flags_points_it_cannot_converge_on(name, at):
+    # After 10 iterations these points are still moving and sit 5-30 px from the closed
+    # form, inside the frame. They used to be reported valid.
+    model = _BY_NAME[name].sample()
+    width, height = _nominal_size(model)
+    res = TI_LDC_MeshGenerator(model).generate_mesh_and_intrinsics(
+        width, height, downsample_factor=STEP_LOG2, balance=1.0
+    )
+    hardware = TI_LDC_PointUndistorter(
+        res["mesh_lut_float"], res["K_new"], STEP_LOG2, width, height
+    )
+    _pts, ok = hardware.undistort_points(np.array([[width * at[0], height * at[1]]]))
+    assert not ok[0]
 
 
 class _FutureModel:

@@ -317,7 +317,7 @@ class TI_LDC_PointUndistorter:
             marked invalid still hold the last iterate, not NaN.
         valid : ndarray of shape (N,), bool
             ``False`` where the fixed-point iterate left the mesh bounds before
-            converging, or the converged result falls outside
+            converging, did not converge within the 10 iterations, or the result falls outside
             ``[0, output_width) x [0, output_height)``.
         """
         pts = np.asarray(points_distorted, dtype=np.float64)
@@ -343,6 +343,7 @@ class TI_LDC_PointUndistorter:
             converged = active & (np.hypot(err[:, 0], err[:, 1]) < 0.01)
             active[converged] = False
 
+        valid[active] = False               # still moving after the last iteration
         # Final estimate must land inside the output (undistorted) image.
         out_of_frame = (
             (guess[:, 0] < 0) | (guess[:, 0] >= self.output_width)

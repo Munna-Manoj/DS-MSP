@@ -31,6 +31,20 @@ def _w(alpha: float) -> float:
     return (1.0 - alpha) / alpha if alpha > 0.5 else alpha / (1.0 - alpha)
 
 
+def _rho2_max(lambda1: float, lambda2: float) -> float:
+    """Squared radius ``rho^2`` up to which the division layer ``rho / g(rho)`` is one-to-one.
+
+    ``d(rho/g)/d(rho) = (1 - l1 rho^2 - 3 l2 rho^4) / g^2``, so the map rises until the
+    numerator or ``g`` itself first reaches 0. Past that, a distorted radius has a second
+    preimage, and the smallest root that unprojection picks is no longer the right one.
+    """
+    ts = []
+    for c in ([-3.0 * lambda2, -lambda1, 1.0], [lambda2, lambda1, 1.0]):
+        r = np.roots(c)
+        ts += [t.real for t in r if abs(t.imag) <= 1e-12 * abs(t) and t.real > 0]
+    return min(ts) if ts else np.inf
+
+
 # ---------------------------------------------------------------------------
 # Forward
 # ---------------------------------------------------------------------------
@@ -51,7 +65,7 @@ def dsplus_project(points_3d: np.ndarray, fx: float, fy: float, cx: float, cy: f
     # Stage D: division radial (Fitzgibbon).
     rho2 = mx * mx + my * my
     g = 1.0 + lambda1 * rho2 + lambda2 * rho2 * rho2
-    valid_d = (g > 1e-9) & (1.0 - lambda1 * rho2 - 3.0 * lambda2 * rho2 * rho2 > 0.0)
+    valid_d = (g > 1e-9) & (rho2 < _rho2_max(lambda1, lambda2))
     gs = np.where(np.abs(g) < 1e-12, 1e-12, g)
     dx, dy = mx / gs, my / gs
 
@@ -95,7 +109,7 @@ def dsplus_project_jacobian(points_3d: np.ndarray, fx: float, fy: float,
     # Stage D: division radial.
     rho2 = mx * mx + my * my
     g = 1.0 + lambda1 * rho2 + lambda2 * rho2 * rho2
-    valid_d = (g > 1e-9) & (1.0 - lambda1 * rho2 - 3.0 * lambda2 * rho2 * rho2 > 0.0)
+    valid_d = (g > 1e-9) & (rho2 < _rho2_max(lambda1, lambda2))
     g = np.where(np.abs(g) < 1e-12, 1e-12, g)
     g2 = g * g
     dx, dy = mx / g, my / g
@@ -205,10 +219,12 @@ def _quartic_real_roots(c2, c1, c0):
     if np.any(bad):
         Qc = np.where(bad, ((D1 - np.sqrt(inner)) / 2.0) ** (1.0 / 3.0), Qc)
     S = 0.5 * np.sqrt((-2.0 / 3.0) * p + (Qc + D0 / Qc) / 3.0 + 0j)
+    # S = 0 only when q = 0 (a biquadratic), where the q/S term vanishes; never divide by 0.
+    qS = q / np.where(S == 0, 1.0, S)
     roots = []
     for s1 in (+1.0, -1.0):
         for s2 in (+1.0, -1.0):
-            term = -4.0 * S * S - 2.0 * p - s1 * (q / S)
+            term = -4.0 * S * S - 2.0 * p - s1 * qS
             roots.append(s1 * S + s2 * 0.5 * np.sqrt(term + 0j))
     return roots
 
@@ -217,17 +233,20 @@ def _invert_division(s, lambda1: float, lambda2: float):
     """Recover undistorted radius ``rho`` solving ``s = rho/(1+l1 rho^2+l2 rho^4)``.
 
     1-term (``lambda2==0``) -> quadratic radical; 2-term -> quartic radical
-    (Ferrari). Picks the real positive root closest to ``s`` (small-distortion
-    branch). Returns ``rho`` (>= 0).
+    (Ferrari). Picks the smallest positive real root (small-distortion branch).
+    Returns ``(rho, ok)``: ``rho >= 0``, and ``ok`` is ``False`` where ``s`` lies beyond the
+    largest radius the division layer reaches, so no root exists. There ``rho`` falls back
+    to ``s`` to stay finite, and the caller must treat the point as invalid.
     """
     s = np.asarray(s, dtype=np.float64)
     nz = s > 1e-12
     if abs(lambda2) < 1e-15:
         if abs(lambda1) < 1e-15:
-            return s.copy()
-        disc = np.maximum(1.0 - 4.0 * lambda1 * s * s, 0.0)
-        rho_nz = (1.0 - np.sqrt(disc)) / (2.0 * lambda1 * np.maximum(s, 1e-300))
-        return np.where(nz, rho_nz, s)
+            return s.copy(), np.ones(s.shape, bool)
+        disc = 1.0 - 4.0 * lambda1 * s * s
+        ok = ~nz | (disc >= 0)
+        rho_nz = (1.0 - np.sqrt(np.maximum(disc, 0.0))) / (2.0 * lambda1 * np.maximum(s, 1e-300))
+        return np.where(nz & ok, rho_nz, s), ok
     # 2-term quartic: lambda2 s rho^4 + lambda1 s rho^2 - rho + s = 0
     # divide by (lambda2 s): rho^4 + (l1/l2) rho^2 - 1/(l2 s) rho + 1/l2 = 0
     c2 = (lambda1 / lambda2) * np.ones_like(s)
@@ -251,8 +270,20 @@ def _invert_division(s, lambda1: float, lambda2: float):
     # real data). Every other branch of this function already falls back to `s` (the small-
     # distortion identity estimate) rather than propagate an unbounded value; without this,
     # rho_q silently stays +inf here and poisons every downstream computation with inf/nan.
-    rho_q = np.where(np.isfinite(rho_q), rho_q, s)
-    return np.where(nz, rho_q, s)
+    found = np.isfinite(rho_q)
+    rho_q = np.where(found, rho_q, s)
+    # The radical loses digits near a double root: polish with two Newton steps on
+    # h(rho) = rho - s·g(rho), then accept the root only if it reproduces s.
+    for _ in range(2):
+        r2 = rho_q * rho_q
+        h = rho_q - s * (1.0 + lambda1 * r2 + lambda2 * r2 * r2)
+        dh = 1.0 - s * (2.0 * lambda1 * rho_q + 4.0 * lambda2 * r2 * rho_q)
+        rho_q = np.where(found & (np.abs(dh) > 1e-12), rho_q - h / np.where(dh == 0, 1.0, dh),
+                         rho_q)
+    r2 = rho_q * rho_q
+    back = rho_q / (1.0 + lambda1 * r2 + lambda2 * r2 * r2)
+    ok = ~nz | (found & (np.abs(back - s) <= 1e-9 * np.maximum(s, 1.0)))
+    return np.where(nz, rho_q, s), ok
 
 
 def dsplus_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy: float,
@@ -274,7 +305,8 @@ def dsplus_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy:
 
     # D^-1 : recover undistorted radius from the distorted radius
     rd = np.hypot(xg, yg)
-    rho = _invert_division(rd, lambda1, lambda2)
+    rho, valid_d = _invert_division(rd, lambda1, lambda2)
+    valid_d &= rho * rho < _rho2_max(lambda1, lambda2)
     scale = np.where(rd > 1e-12, rho / np.maximum(rd, 1e-300), 1.0)
     mx = xg * scale
     my = yg * scale
@@ -295,6 +327,6 @@ def dsplus_unproject(points_2d: np.ndarray, fx: float, fy: float, cx: float, cy:
     ray = np.stack([mx, my, mz], axis=-1)
     norm = np.linalg.norm(ray, axis=-1, keepdims=True)
     ray = ray / np.maximum(norm, 1e-10)
-    valid = valid_s & valid_den & valid_h
+    valid = valid_s & valid_den & valid_h & valid_d
     ray[~valid] = 0.0
     return ray, valid

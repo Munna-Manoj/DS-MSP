@@ -246,7 +246,8 @@ def calibrate(init_model: CameraModel,
     -------
     dict
         The refined ``model``, per-image ``poses`` as ``(rvec, tvec)``, ``success``, the
-        final solve's termination ``status`` (:mod:`ds_msp.core.optimize`), ``n_obs``,
+        final solve's termination ``status`` (:mod:`ds_msp.core.optimize`), ``excluded`` (points
+        outside the model's valid domain at the start, left out of the solve), ``n_obs``,
         and reprojection statistics over valid observations — ``rms_px``, ``mean_px``,
         ``median_px``, ``p95_px``, ``max_px`` (all in pixels, independent of the robust kernel
         so they stay comparable across configurations).
@@ -320,4 +321,5 @@ def calibrate(init_model: CameraModel,
         stats = {"rms_px": nan, "mean_px": nan, "median_px": nan, "p95_px": nan, "max_px": nan}
 
     return {"model": model, "poses": poses, "success": bool(out.success),
-            "status": out.status, "n_obs": int(errs.size), **stats}
+            "status": out.status, "excluded": int(out.excluded), "n_obs": int(errs.size),
+            **stats}

@@ -15,6 +15,7 @@ retraction Jacobian ``J_r(0) = I`` drops out — the extrinsics Jacobian is the 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Sequence, Tuple
 
 import numpy as np
@@ -88,15 +89,23 @@ def bundle_adjust(model_cls,
                                 for w, n in zip(whiteners, sizes)])
     hat_Xw = hat_batch(Xw_all)
 
+    # The valid domain is a constraint: a point outside it at the start is left out of the
+    # whole solve, and a trial step that moves a used point outside it gets a NaN residual,
+    # which the solver rejects (raising λ). A zero residual there would reward leaving it.
+    _params0, _R0, _t0 = state0
+    _uv0, valid0 = cls.from_params(_params0).project(
+        np.einsum('nij,nj->ni', _R0[img], Xw_all) + _t0[img])
+    use = vis_all & np.asarray(valid0, bool).ravel()
+
     def residual(state):
         """Flat ``(2 * sum(sizes),)`` pixel residual ``uv_predicted - uv_observed``, image-major."""
         params, Rb, t = state
         m = cls.from_params(params)
         Xc = np.einsum('nij,nj->ni', Rb[img], Xw_all) + t[img]
         uvp, valid = m.project(Xc)
-        mask = vis_all & np.asarray(valid, bool).ravel()
         diff = np.zeros_like(uv_all)
-        diff[mask] = uvp[mask] - uv_all[mask]
+        diff[use] = uvp[use] - uv_all[use]
+        diff[use & ~np.asarray(valid, bool).ravel()] = np.nan
         if W_all is not None:
             diff = np.einsum('nij,nj->ni', W_all, diff)
         return diff.ravel()
@@ -113,14 +122,17 @@ def bundle_adjust(model_cls,
         R = Rb[img]
         Xc = np.einsum('nij,nj->ni', R, Xw_all) + t[img]
         uvp, J_point, J_param, valid = m.project_jacobian(Xc)
-        mask = vis_all & np.asarray(valid, bool).ravel()
+        valid = np.asarray(valid, bool).ravel()
+        mask = use & valid
         r = np.zeros_like(uv_all)
         r[mask] = uvp[mask] - uv_all[mask]
-        mask3 = mask[:, None, None].astype(np.float64)
+        r[use & ~valid] = np.nan
+        mask3 = mask[:, None, None]
         # δω linearized at 0 ⇒ J_r = I, so ∂Xc/∂δω = -R[Xw]_×; ∂Xc/∂δt = I.
+        # np.where, not a 0/1 product: an invalid point's Jacobian may be NaN.
         J_rvec = -np.einsum('nij,njk,nkl->nil', J_point, R, hat_Xw)
-        J_ext = np.concatenate([J_rvec, J_point], axis=-1) * mask3
-        J_intr = J_param * mask3
+        J_ext = np.where(mask3, np.concatenate([J_rvec, J_point], axis=-1), 0.0)
+        J_intr = np.where(mask3, J_param, 0.0)
         if W_all is not None:
             r = np.einsum('nij,nj->ni', W_all, r)
             J_intr = np.einsum('nij,njk->nik', W_all, J_intr)
@@ -158,5 +170,6 @@ def bundle_adjust(model_cls,
                        n_groups=n_img, shared_dim=P, local_dim=6, block=2,
                        max_iter=max_iter, robust_kernel=kernel, robust_scale=scale,
                        gnc_start=gnc_start, gnc_iters=gnc_iters, bound_active=bound_active)
+    out = replace(out, excluded=int(vis_all.sum() - use.sum()))
     params, Rb, t = out.state
     return params, Rb, t, out
