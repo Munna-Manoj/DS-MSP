@@ -36,6 +36,16 @@ from .calibrate import (
 from .types import RigState
 
 
+#: 2-DoF 99% chi-squared radius in sigmas: the same inlier band the GNC-TLS solve uses.
+TLS_BAND_SIGMAS = 3.03
+#: Lowest share of a camera's corners the estimate may leave unexplained before the coverage
+#: gate acts. On the real-data benchmark the worst camera of 140 model trials is at 0.868 (a
+#: wide lens fitted with RadTan), and of the injected faults that changed the data used, at most
+#: 0.503. These are few lenses, so it only warns by default, also under the production profile,
+#: until it has been checked across fields of view.
+DEFAULT_MIN_CAMERA_COVERAGE = 0.75
+
+
 def random_model_assignment(cam_ids: List[int], *, kind: str = "pinhole",
                             seed: int = 0, allowed=None) -> Dict[int, str]:
     """Assign each camera a random *valid* model name.
@@ -92,6 +102,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        certify: bool = False,
                        accuracy_profile: Optional[AccuracyProfile] = None,
                        uncertainty_gate: str = "warn", convergence_gate: str = "warn",
+                       coverage_gate: str = "warn",
+                       min_camera_coverage: float = DEFAULT_MIN_CAMERA_COVERAGE,
                        max_rotation_sigma_deg: Optional[float] = None,
                        max_centre_sigma: Optional[float] = None,
                        config_warnings: Optional[List[str]] = None,
@@ -143,6 +155,12 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     ``off``) judges the final stage, the one that produced the returned estimate: ``warn``
     raises a ``RuntimeWarning`` when it did not converge, ``refuse`` blocks export. Front-end
     fallbacks and unlinked hand-eye groups always warn.
+
+    ``coverage_gate`` (``warn`` default | ``refuse`` | ``off``) judges each camera's share of
+    observed corners that project validly within the GNC-TLS inlier band
+    (:func:`bundle.camera_coverage`), against ``min_camera_coverage``. Solver status and RMS
+    cannot show a camera or frames lost to the robust solve; this can. Recorded as
+    ``"coverage"`` in the acceptance file.
     Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
     ``"certificate"``/``"uncertainty"`` when enabled).
     """
@@ -156,6 +174,10 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         raise ValueError("accuracy_gate must be off or refuse")
     if convergence_gate not in ("off", "warn", "refuse"):
         raise ValueError(f"convergence_gate must be 'off', 'warn' or 'refuse', got {convergence_gate!r}")
+    if coverage_gate not in ("off", "warn", "refuse"):
+        raise ValueError(f"coverage_gate must be 'off', 'warn' or 'refuse', got {coverage_gate!r}")
+    if not 0.0 <= min_camera_coverage <= 1.0:
+        raise ValueError("min_camera_coverage must be between 0 and 1")
     if structure_prior_sigma is not None and (
             not np.isfinite(structure_prior_sigma) or structure_prior_sigma <= 0):
         raise ValueError("structure_prior_sigma must be positive in target length units")
@@ -182,6 +204,10 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     refined_object = rig.objects.get(scn.object.object_id, scn.object)
     solver = solver_acceptance(rig)
     _gate_solver(solver, convergence_gate)
+    band_px = TLS_BAND_SIGMAS * (float(noise_bound) if noise_bound else 1.0)
+    coverage = bundle.camera_coverage(rig, scn.object_obs, band_px,
+                                      rejected=getattr(rig, "rejected", []))
+    _gate_coverage(coverage, band_px, min_camera_coverage, coverage_gate)
 
     metrics = _scenario_metrics(rig, scn, accuracy_profile=accuracy_profile)
     out = {"rig": rig, "models": {c: rig.cameras[c].name for c in rig.cameras},
@@ -241,6 +267,10 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "extrinsic_uncertainty": uncertainty,
         "convergence_gate": convergence_gate,
         "solver": solver,
+        "coverage_gate": coverage_gate,
+        "min_camera_coverage": min_camera_coverage,
+        "coverage_band_px": band_px,
+        "coverage": {str(c): v for c, v in coverage.items()},
         "outlier_gate_px": reproj_gate_px,
         "rejected_observations": list(getattr(rig, "rejected", [])),
         "config_warnings": list(config_warnings or []),
@@ -325,6 +355,21 @@ def _gate_solver(solver: Dict, convergence_gate: str) -> None:
             raise RuntimeError(f"convergence gate refused this calibration "
                                f"(convergence_gate='refuse'): {msg}")
         warnings.warn(msg, RuntimeWarning, stacklevel=3)
+
+
+def _gate_coverage(coverage: Dict[int, dict], band_px: float, minimum: float, gate: str) -> None:
+    """Warn or refuse when a camera's data is not explained by the estimate."""
+    low = {c: v for c, v in coverage.items() if v["coverage"] < minimum}
+    if not low or gate == "off":
+        return
+    detail = ", ".join(f"camera {c} {v['coverage']:.1%} ({v['n_within']}/{v['n_observed']})"
+                       for c, v in sorted(low.items()))
+    msg = (f"too few observed corners project within {band_px:.2f} px: {detail}; the minimum is "
+           f"{minimum:.0%}. The solve dropped this data or diverged, so its status and RMS do "
+           f"not describe these cameras")
+    if gate == "refuse":
+        raise RuntimeError(f"coverage gate refused this calibration (coverage_gate='refuse'): {msg}")
+    warnings.warn(msg, RuntimeWarning, stacklevel=3)
 
 
 def extrinsic_uncertainty(rig: RigState, object_obs, *, fix_intrinsics: bool,
