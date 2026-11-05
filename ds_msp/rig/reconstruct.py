@@ -32,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from ..calib.lens_seed import MAX_SEED_MEDIAN_PX, calibrate_from_views
 from ..detect.charuco import (BoardSpec, _frame_id_from_name, _validate_frame_association,
                               _validate_frame_names, board_object_points,
                              detect_image, make_detectors)
@@ -243,9 +244,39 @@ def _bootstrap_K(board_obs: List[BoardObs], board_points: Dict[int, np.ndarray],
     return out
 
 
+def _board_level_models(board_obs: List[BoardObs], board_points: Dict[int, np.ndarray],
+                        img_size: Dict[int, Tuple[int, int]], model_spec: Dict[int, object],
+                        skip=()) -> Dict[int, object]:
+    """Each camera's native lens fitted to its printed-board views, without a pinhole bootstrap.
+
+    The boards' own shape is the only geometry used, so this is valid before any inter-board pose
+    exists, and it uses no pinhole bearing, which does not exist past 90 degrees. Cameras without
+    a consistent fit are left out and take the bootstrap path."""
+    from ..models.registry import model_class
+    by_cam: Dict[int, List[BoardObs]] = defaultdict(list)
+    for o in board_obs:
+        if len(o.corner_ids) >= 8:
+            by_cam[o.cam_id].append(o)
+    out: Dict[int, object] = {}
+    for cam, lst in sorted(by_cam.items()):
+        if cam in skip or cam not in model_spec or cam not in img_size:
+            continue
+        spec = model_spec[cam]
+        cls = spec if isinstance(spec, type) else model_class(spec)
+        w, h = img_size[cam]
+        res = calibrate_from_views(cls, [board_points[o.board_id][o.corner_ids].astype(np.float64)
+                                         for o in lst],
+                                   [o.pts_2d.astype(np.float64) for o in lst], w, h)
+        if (res is not None and np.isfinite(res["median_px"])
+                and res["median_px"] <= MAX_SEED_MEDIAN_PX):
+            out[cam] = res["model"]
+    return out
+
+
 def _resect_boards(board_obs: List[BoardObs], specs: List[BoardSpec],
                    img_size: Dict[int, Tuple[int, int]],
-                   init_models: Optional[Dict[int, object]]) -> Dict[int, np.ndarray]:
+                   init_models: Optional[Dict[int, object]],
+                   model_spec: Optional[Dict[int, object]] = None) -> Dict[int, np.ndarray]:
     """Resect every board in-place (fills each ``BoardObs`` ``.T_c_b`` / ``.valid`` by PnP)
     and return the ``board_id -> (n_corners, 3)`` board-frame corner clouds. Shared by the
     single- and multi-object reconstruction entry points.
@@ -254,6 +285,10 @@ def _resect_boards(board_obs: List[BoardObs], specs: List[BoardSpec],
     **native model** via robust model-aware PnP (correct for wide-FOV fisheye); cameras
     without an init model fall back to the ``cv2.calibrateCamera`` Brown/pinhole bootstrap."""
     board_points = {b: board_object_points(specs[b]) for b in range(len(specs))}
+    if model_spec:
+        init_models = dict(init_models or {})
+        init_models.update(_board_level_models(board_obs, board_points, img_size, model_spec,
+                                               skip=set(init_models)))
     boot_cams = [o.cam_id for o in board_obs
                  if not (init_models and o.cam_id in init_models)]
     Kd = (_bootstrap_K([o for o in board_obs if o.cam_id in set(boot_cams)],
@@ -279,7 +314,8 @@ def _resect_boards(board_obs: List[BoardObs], specs: List[BoardSpec],
 
 def reconstruct_objects(board_obs: List[BoardObs], specs: List[BoardSpec],
                         img_size: Dict[int, Tuple[int, int]], *,
-                        init_models: Optional[Dict[int, object]] = None
+                        init_models: Optional[Dict[int, object]] = None,
+                        model_spec: Optional[Dict[int, object]] = None
                         ) -> Tuple[List[Object3D], List[ObjectObs]]:
     """Resect every board (-> ``T_c_b``) and fuse the boards into **all** rigid
     :class:`Object3D` covisibility components — one object per component, none dropped.
@@ -291,7 +327,7 @@ def reconstruct_objects(board_obs: List[BoardObs], specs: List[BoardSpec],
     resects each board with the camera's native model (see :func:`_resect_boards`).
 
     Raises ``ValueError`` if no board resects successfully."""
-    board_points = _resect_boards(board_obs, specs, img_size, init_models)
+    board_points = _resect_boards(board_obs, specs, img_size, init_models, model_spec)
     valid = [o for o in board_obs if o.valid and o.T_c_b is not None]
     objects = build_objects(valid, board_points)
     if not objects:
@@ -441,7 +477,8 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
                                     *, cam_prefix: str = "Cam_", legacy: bool = True,
                                     min_corners: int = 6,
                                     init_models: Optional[Dict[int, object]] = None,
-                                    progress_cb=None, frame_pattern: Optional[str] = None
+                                    progress_cb=None, frame_pattern: Optional[str] = None,
+                                    model_spec: Optional[Dict[int, object]] = None
                                     ) -> Tuple[List[Object3D], List[ObjectObs],
                                                Dict[int, Tuple[int, int]]]:
     """Raw image folder -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
@@ -452,13 +489,15 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
         root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
         min_corners=min_corners, progress_cb=progress_cb,
         frame_pattern=frame_pattern)
-    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
+    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models,
+                                       model_spec=model_spec)
     return objects, obs, img_size
 
 
 def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
                                        init_models: Optional[Dict[int, object]] = None,
-                                       pixel_convention: Optional[str] = None
+                                       pixel_convention: Optional[str] = None,
+                                       model_spec: Optional[Dict[int, object]] = None
                                        ) -> Tuple[List[Object3D], List[ObjectObs],
                                                   Dict[int, Tuple[int, int]]]:
     """Pre-detected keypoints -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
@@ -466,5 +505,6 @@ def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpe
     :func:`reconstruct_from_keypoints`. ``init_models`` resects boards with the native
     per-camera model (see :func:`reconstruct_objects`)."""
     board_obs, img_size = detect_board_obs_keypoints(keypoints_path, pixel_convention)
-    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models)
+    objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models,
+                                       model_spec=model_spec)
     return objects, obs, img_size

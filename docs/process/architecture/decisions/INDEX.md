@@ -42,3 +42,4 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 > date the record was written, not the date the code first shipped. **ADR-0007 onward** are decisions
 > recorded as they are made (ADR-0007: a convert-robustness fix found by real-data study).
 | [ADR-0029](ADR-0029-rig-frame-pose-recovery.md) | Preserve supplied lenses and recover unsupported frame poses | Accepted | Guarded resection without discarded observations; final-state support audit |
+| [ADR-0030](ADR-0030-board-level-lens-seed.md) | Seed lenses from printed boards with the radial constraint | Accepted | Target and extrinsic seeds stop depending on a pinhole bootstrap; fallback retained |

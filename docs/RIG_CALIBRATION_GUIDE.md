@@ -404,6 +404,10 @@ seconds with different models / intrinsics / options on the *same* detections.
 - **Reuse:** point `keypoints_path` at that saved file and set `root_path: "None"`. No image
   detection runs — only the rig math. For multi-board rigs also pass `object_path` so the fused
   object geometry is identical across runs.
+- **Reconstruct from the keypoints:** a `calibrated_objects_data.yml` in the same folder as
+  `keypoints_path` is loaded even without `object_path`, and the target is then not rebuilt. The
+  run prints a warning when this happens. To compare code versions or settings that change the
+  target, copy the keypoints file to an empty folder first.
 
 A ready-made reuse config: [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml)
 (save a local copy — e.g. `reuse.yml` — from that link, or copy it out of your installed

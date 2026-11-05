@@ -15,7 +15,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from .averaging import average_transform
+from .averaging import robust_average_transform
 from .graph import connected_components, covis_weights, shortest_path
 from .types import BoardObs, Object3D
 
@@ -55,7 +55,9 @@ def build_objects(board_obs: List[BoardObs],
     """
     seen_boards = sorted({o.board_id for o in board_obs if o.valid})
     samples, counts = _pair_transforms(board_obs)
-    inter = {pair: average_transform(Ts) for pair, Ts in samples.items()}
+    # Pairs seen in few images include far, oblique boards whose planar pose can land on the other
+    # branch, so select a consensus rather than averaging every sample (as the camera graph does).
+    inter = {pair: robust_average_transform(Ts) for pair, Ts in samples.items()}
     weights = covis_weights(counts)
     comps = connected_components(seen_boards, weights)
 
