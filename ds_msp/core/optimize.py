@@ -76,7 +76,7 @@ class OptResult:
     #: Why the loop stopped: ``"step_tol"``, ``"lambda_max"``, ``"max_iter"``,
     #: ``"non_finite"``, ``"function_tol"`` (:func:`schur_lm` only), or
     #: for a graduated solve ``"binary"`` / ``"cost_stable"`` /
-    #: ``"max_outer"``.
+    #: ``"max_outer"`` / ``"no_inliers"``.
     stop_reason: str = ""
     #: Scaled gradient ``gᵀ diag(D)⁻¹ g / (2 cost)`` at the last linearisation point (the
     #: returned state unless the final step was accepted): the fraction of the cost a
@@ -90,19 +90,28 @@ class OptResult:
     excluded: int = 0
 
 
-def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
+def _status(stop_reason: str, gradient_ratio: float, f: float,
+            rms: float = float("nan")) -> str:
     """Map a dense/Schur LM stop to a termination status.
 
-    Converged when the step test passed, when :func:`schur_lm` stopped on its statistical
-    function test, when the scaled gradient left is negligible against the cost
-    (``gradient_ratio <= GRADIENT_RATIO_TOL``, whatever stopped the loop: a damping stall or
-    the iteration budget), or when the cost is exactly zero, the global minimum of a
+    Converged when the step test passed, when the scaled gradient left is negligible against
+    the cost (``gradient_ratio <= GRADIENT_RATIO_TOL``, whatever stopped the loop: a damping
+    stall or the iteration budget), or when the cost is exactly zero, the global minimum of a
     non-negative cost.
+
+    :func:`schur_lm`'s statistical function test also needs a small gradient. It scales with
+    the cost, so it assumes the cost is at noise level: on a diverged state (RMS 5e5 px) a step
+    that changes the cost little meets it with ``gradient_ratio`` 0.2. On the real-data
+    benchmark, genuine function-test stops end at ``<= 4e-8``.
+
+    A fit at rounding level (``rms <= RMS_ROUNDING_FLOOR``) has converged whatever stopped it:
+    ``gradient_ratio`` divides rounding noise by rounding noise there and reads about 1.
     """
     if stop_reason == "non_finite":
         return NUMERICAL_FAILURE
-    if (stop_reason in ("step_tol", "function_tol") or f == 0.0
-            or gradient_ratio <= GRADIENT_RATIO_TOL):
+    if (stop_reason == "step_tol" or f == 0.0 or rms <= RMS_ROUNDING_FLOOR
+            or gradient_ratio <= GRADIENT_RATIO_TOL
+            or (stop_reason == "function_tol" and np.isnan(gradient_ratio))):
         return CONVERGED
     return NO_CONVERGENCE
 
@@ -112,6 +121,11 @@ def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
 #: Ceres' default ``function_tolerance``). On the real-data benchmark, damping stalls end at
 #: ``<= 4e-17`` and deliberately truncated solves at ``1e-3``..``4``, so 1e-6 separates them.
 GRADIENT_RATIO_TOL = 1e-6
+
+#: Residual RMS, in the residuals' units (pixels here), below which a fit is at rounding level.
+#: Double-precision pixel coordinates near 1e3 round at about 1e-13, and no measurement is this
+#: precise, so only noise-free data reaches it and a diverged state cannot.
+RMS_ROUNDING_FLOOR = 1e-9
 
 #: :func:`schur_lm` statistical stopping rule. With ``M`` residuals at cost ``f``, ``2f/M``
 #: estimates the residual variance, so a cost change ``Δf`` is ``Δχ² ≈ M·Δf/f``, and a solve
@@ -475,7 +489,7 @@ def _finish(state: object, r: np.ndarray, f: float, it: int, lam: float, stop_re
     rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
     if stop_reason != "non_finite" and not (np.isfinite(f) and np.isfinite(r).all()):
         stop_reason = "non_finite"
-    status = _status(stop_reason, g_ratio, f)
+    status = _status(stop_reason, g_ratio, f, rms)
     return OptResult(state=state, cost=f, rms=rms, iterations=it,
                      success=status == CONVERGED, converged=stop_reason == "step_tol",
                      final_lambda=lam, status=status, stop_reason=stop_reason,
@@ -646,11 +660,16 @@ def _gnc_tls_graduate(
 def _gnc_result(state: object, s: np.ndarray, w: np.ndarray, outer: int, last: OptResult,
                 stop_reason: str) -> OptResult:
     """Graduated-solve :class:`OptResult`. Converged when the graduation ended on its own test
-    (binary weights or a stable cost). Each level's inner solve is deliberately short
-    (``inner_max_iter``), so its budget is not a failure; a non-finite inner solve is."""
+    (binary weights or a stable cost) with at least one inlier: rejecting every block also
+    gives binary weights and zero cost, but it estimates nothing. Each level's inner solve is
+    deliberately short (``inner_max_iter``), so its budget is not a failure; a non-finite inner
+    solve is. This judges the solve as a whole: whether each sensor kept its data is the
+    caller's check (:func:`ds_msp.rig.bundle.camera_coverage`)."""
+    if stop_reason in ("binary", "cost_stable") and not np.any(w > 0.0):
+        stop_reason = "no_inliers"
     if stop_reason == "non_finite":
         status = NUMERICAL_FAILURE
-    elif stop_reason == "max_outer":
+    elif stop_reason in ("max_outer", "no_inliers"):
         status = NO_CONVERGENCE
     else:
         status = CONVERGED

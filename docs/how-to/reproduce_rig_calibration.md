@@ -397,6 +397,13 @@ earlier stages are warm starts, and an unconverged warm start is not a problem b
 (default) warns when the final stage did not converge; `"refuse"` (the production default)
 blocks export.
 
+Solver status and RMS cannot show data the solve lost, because dropping corners lowers RMS. So
+`calibration_acceptance.json` also records `coverage`: for each camera, the share of its observed
+corners that project validly within 3.03 × `noise_bound` px. `coverage_gate: "warn"` (default,
+also under `profile: production`) warns when a camera falls below `min_camera_coverage` (default
+0.75), and `"refuse"` blocks export. A camera flipped 180° reads 0% here while its stage reports
+`CONVERGED`.
+
 `Observation`, `BoardObs` and `ObjectObs` accept optional per-corner `pixel_covariances`.
 Board fusion, object remapping, single-camera and rig bundle adjustment preserve these values.
 DS-MSP keypoint caches preserve them in an optional `pixel_covariances` sequence parallel to

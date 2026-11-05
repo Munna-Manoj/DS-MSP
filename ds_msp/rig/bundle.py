@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Iterable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1405,6 +1405,40 @@ def reprojection_rms(rig: RigState, object_obs: List[ObjectObs]) -> Dict[int, fl
     """Per-camera reprojection RMS (px) over all observations."""
     return {c: float(np.sqrt(np.mean(e ** 2))) if len(e) else float("nan")
             for c, e in _per_obs_errors(rig, object_obs).items()}
+
+
+def camera_coverage(rig: RigState, object_obs: List[ObjectObs], band_px: float,
+                    rejected: Iterable[dict] = ()) -> Dict[int, dict]:
+    """How much of each camera's data the estimate explains: ``coverage`` is the fraction of
+    observed corners that project validly within ``band_px`` of their detection.
+
+    The denominator is every corner the camera observed: corners outside the model's domain,
+    corners in frames with no pose, and corners in ``rejected`` ledger records all count as
+    unexplained. RMS over the valid corners cannot show this, because losing data lowers it.
+    """
+    out: Dict[int, dict] = {}
+
+    def entry(cam: int) -> dict:
+        return out.setdefault(int(cam), {"n_observed": 0, "n_valid": 0, "n_within": 0})
+
+    for rec in rejected:
+        entry(rec["cam_id"])["n_observed"] += int(rec["corners"])
+    for o in object_obs:
+        e = entry(o.cam_id)
+        e["n_observed"] += len(o.point_rows)
+        key = (o.object_id, o.frame_id)
+        if o.cam_id not in rig.cameras or key not in rig.object_poses:
+            continue
+        T = rig.T_c_g[o.cam_id] @ rig.object_poses[key]
+        Xc = rig.objects[o.object_id].pts_3d[o.point_rows] @ T[:3, :3].T + T[:3, 3]
+        uv, valid = rig.cameras[o.cam_id].project(Xc)
+        valid = np.asarray(valid, bool).ravel()
+        e["n_valid"] += int(valid.sum())
+        err = np.linalg.norm(uv[valid] - o.pts_2d[valid], axis=1)
+        e["n_within"] += int(np.sum(err <= band_px))
+    for e in out.values():
+        e["coverage"] = e["n_within"] / e["n_observed"] if e["n_observed"] else 0.0
+    return out
 
 
 def reprojection_metrics(rig: RigState, object_obs: List[ObjectObs],

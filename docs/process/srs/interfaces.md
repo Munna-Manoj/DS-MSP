@@ -49,7 +49,9 @@ unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration add
 `free`), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
 `frame` group), `accuracy_gate` (`off` or `refuse`), `uncertainty_gate` (`off`, `warn`, `refuse`)
 with `max_rotation_sigma_deg` / `max_centre_sigma`, `convergence_gate` (`off`, `warn`,
-`refuse`; judges the final BA stage), `reject_outliers`, and `profile`
+`refuse`; judges the final BA stage), `coverage_gate` (`off`, `warn`, `refuse`) with
+`min_camera_coverage` (default 0.75; the share of each camera's corners within the GNC-TLS inlier
+band), `reject_outliers`, and `profile`
 (`default` or `production`). MC-Calib `boards_index` sets marker-id offsets. Unknown keys warn
 (production refuses them). Refusal gates run before calibration export, and
 `calibration_acceptance.json` records the physical acceptance status, per-pair extrinsic 1σ,
