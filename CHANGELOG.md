@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.4](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.3...v0.22.4) (2026-11-05)
+
+
+### Bug Fixes
+
+* **rig:** stop reporting false success on diverged and lost cameras ([6aed1ae](https://github.com/Munna-Manoj/DS-MSP/commit/6aed1ae993bfac2491889a63ea313bc03de3cd8a))
+* **rig:** stop reporting false success on diverged and lost cameras ([0adbe6a](https://github.com/Munna-Manoj/DS-MSP/commit/0adbe6a3c93f8dfdc65af7951ea49aa5307ca732))
+* **rig:** treat a fit at rounding level as converged ([8ec6c44](https://github.com/Munna-Manoj/DS-MSP/commit/8ec6c4433b65478bd60fddefb95517798c174a62))
+
+
+### Documentation
+
+* **traceability:** regenerate matrix for the rounding-level test ([2a47d27](https://github.com/Munna-Manoj/DS-MSP/commit/2a47d27de34131fec5ee0fcc4055ea4127ec01c0))
+
 ## [0.22.3](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.2...v0.22.3) (2026-11-04)
 
 
