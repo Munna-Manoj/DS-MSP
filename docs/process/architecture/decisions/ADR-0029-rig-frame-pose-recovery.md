@@ -5,9 +5,10 @@
 
 ## Context
 
-A complete supplied lens model was being recalibrated by the front end before
-the fixed/free bundle policy took effect. Sparse camera chains also composed
-noncommuting camera transforms in the wrong order. Separately, redescending
+Partial supplied camera maps were treated as complete by the front end. The
+scenario CLI reconstructed every fixed lens as RadTan, and malformed explicitly
+named models could silently fall back to another model family. Sparse camera
+chains also composed noncommuting camera transforms in the wrong order. Separately, redescending
 robust loss can suppress all correct corners of a poorly initialized frame;
 continuing the same local solve need not recover its pose. Dropping those
 corners would conceal the initialization failure.
