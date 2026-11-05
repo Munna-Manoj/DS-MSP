@@ -22,6 +22,7 @@ still reducing it.
 | RSK-06 | Requirements and tests drift out of sync | process | M | M | **mitigated** | CI traceability gate (`check_traceability.py`) fails on orphan/dangling links and an out-of-date generated matrix |
 | RSK-07 | A release ships without real-data validation | process | L | H | **planned** | Structural check + a required manual reference-environment dispatch fail on all-skipped evidence; `release.yml` does not yet consume that result automatically |
 | RSK-08 | Third-party dependency CVE (numpy/opencv/scipy/pyyaml) | security | L | M | **planned** | Pinned dev deps; `SECURITY.md` reporting; dependency review |
+| RSK-09 | Robust loss suppresses correct corners of a wrong frame pose | technical | M | H | **mitigated** | Guarded resection before rejection and after refinement; final support audit (FR-RIG-029 / ADR-0029). Coherent wrong correspondences still require independent validation |
 
 ## Notes on the open risks
 

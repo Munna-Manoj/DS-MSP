@@ -55,8 +55,11 @@ number_camera: 8
 # initial intrinsics yml (optional). With reuse you typically leave this "None" and estimate, or
 # pass a previous run's calibrated_cameras_data.yml to seed/hold intrinsics. See
 # configs/camera_intrinsics.template.yml for the per-model schema and the matching/convert rules.
+# Supplied complete models seed PnP directly; only missing cameras are calibrated
+# from scratch. Free BA may change every supplied lens parameter. Fixed mode needs
+# a model for every observed camera and keeps all its parameters unchanged.
 cam_params_path: "None"
-fix_intrinsic: "false"      # false => estimate+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
+fix_intrinsic: "false"      # false => initialize+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
 
 ######################################## Images Parameters ###################################################
 # REUSE MODE: keypoints_path is set, root_path is "None" -> no image detection.

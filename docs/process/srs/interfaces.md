@@ -59,3 +59,34 @@ each BA stage's solver termination status, front-end fallbacks, hand-eye links, 
 ledger and config warnings. A numerical failure in any BA stage always refuses export. Filename-based rig ingestion uses the trailing frame
 number (or `frame_pattern`), rejects timestamp-like and trailing-camera-id names, collisions
 within a camera, and cameras that share no frame index.
+
+
+## Rig initialization and support diagnostics (IFC-03)
+
+Complete `init_cameras` / `cam_params_path` models initialize PnP directly; only
+missing cameras are calibrated from scratch. `fix_intrinsics=True` (configuration
+`fix_intrinsic: true`) requires every observed camera and holds its full parameter
+vector. Free mode initializes from the supplied models but may refine all their
+parameters. A malformed explicitly named model raises `ValueError`; legacy
+unnamed files retain distortion-type/vector inference. Scenario CLI
+`--fix-intrinsics` reads native models from `Results/calibrated_cameras_data.yml`
+and refuses missing camera models.
+
+The additive acceptance-file fields below appear under `solver` (FR-RIG-029):
+
+- `pose_recovery`: list of attempted object-frame replacements, with `stage`,
+  integer `object_id` / `frame_id`, `threshold_px`, `before` / `after` summaries,
+  boolean `accepted`, `reason`, candidate/failure counts and optional `source`.
+  Reasons are `recovered`, `no_supported_candidate`, or `too_few_corners`.
+  Summaries contain `n_observed`, `n_valid`, `n_supported`, `support_fraction`,
+  and `truncated_cost` (sum of squared pixel errors capped at the squared band).
+- `frame_support`: final-state audit of every nonempty observed object-frame,
+  with IDs, the same summary fields, `threshold_px`, `min_support`, and boolean
+  `supported`. Missing poses/models and invalid projections count as unsupported.
+
+Support pools corners across cameras. The pipeline uses 75% and the existing
+`3.03 * noise_bound` band (3.03 pixels by default). Recovery does not discard
+observations; the separate optional rejection stage can do so, and its removals
+remain in the rejection ledger. Final support describes the observations retained
+at the end. Unresolved frames warn even if an earlier recovery succeeded; these
+fields are diagnostic and do not replace physical acceptance or uncertainty gates.

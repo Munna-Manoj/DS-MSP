@@ -1,8 +1,8 @@
 """Calibrate a multi-camera rig on an MC-Calib dataset and write MC-Calib-format output.
 
 The DS-MSP analogue of MC-Calib's ``apps/calibrate``: pick a camera model per camera (like
-the config's ``camera_models`` / ``distortion_per_camera``), optimize extrinsics-only or
-intrinsics+extrinsics (``--fix-intrinsics``), and save ``calibrated_cameras_data.yml`` +
+the config's ``camera_models`` / ``distortion_per_camera``), optimize intrinsics+extrinsics or
+extrinsics-only (``--fix-intrinsics``), and save ``calibrated_cameras_data.yml`` +
 ``calibrated_objects_data.yml`` + ``calibrated_objects_pose_data.yml`` in MC-Calib's exact
 schema. Reuses MC-Calib's detected keypoints (identical 2D inputs) so the rig *math* is what
 is exercised.
@@ -43,7 +43,7 @@ import dataclasses
 import importlib.resources
 import os
 
-from ..io.mccalib import load_scenario, radtan_from_cameragt
+from ..io.mccalib import load_scenario
 from . import provenance as prov
 from . import report as rpt
 from .accuracy import load_accuracy_profile
@@ -183,7 +183,8 @@ def main():
                    help="assign a random valid model per camera")
     ap.add_argument("--seed", type=int, default=0, help="RNG seed for --random")
     ap.add_argument("--fix-intrinsics", action="store_true",
-                    help="optimize extrinsics only; seed intrinsics from GroundTruth (RadTan)")
+                    help="hold native intrinsics from Results/calibrated_cameras_data.yml; "
+                         "model selection flags apply only when intrinsics are optimized")
     ap.add_argument("--save-dir", default=None,
                     help="output dir (default <scenario>/Results_dsmsp)")
     ap.add_argument("--save-reprojection", action="store_true",
@@ -231,6 +232,10 @@ def main():
         raise SystemExit(res["exit_code"])
     if not args.scenario:
         ap.error("provide a scenario directory or --config calib_param.yml")
+    if args.fix_intrinsics and not os.path.isfile(os.path.join(
+            args.scenario, "Results", "calibrated_cameras_data.yml")):
+        ap.error("--fix-intrinsics needs Results/calibrated_cameras_data.yml "
+                 "with calibrated intrinsics for every observed camera")
 
     # Launch the live view before loading the scenario, not once its geometry already exists
     # -- see WebLive3DAnimator's class docstring for why (this mirrors the --config entry
@@ -243,17 +248,23 @@ def main():
     accuracy_profile = (load_accuracy_profile(args.accuracy_profile)
                         if args.accuracy_profile else None)
     animator.bind_scene(scn.object, scn.object_obs)
-    spec = _resolve_spec(args, scn.cam_ids)
+    spec = None if args.fix_intrinsics else _resolve_spec(args, scn.cam_ids)
     save_dir = args.save_dir or os.path.join(args.scenario, "Results_dsmsp")
 
     init_cameras = None
     if args.fix_intrinsics:
-        # fixed-intrinsic mode needs prior intrinsics; use MC-Calib's calibrated values
-        # (the realistic "intrinsics already known, solve extrinsics only" case), RadTan/Brown.
-        init_cameras = {c: radtan_from_cameragt(scn.mccalib[c]) for c in scn.cam_ids}
+        from .calib_param import _source_model
+        missing = [c for c in scn.cam_ids if c not in scn.mccalib or scn.mccalib[c].K is None]
+        if missing:
+            ap.error("--fix-intrinsics needs calibrated intrinsics for every observed camera "
+                     f"in Results/calibrated_cameras_data.yml; missing cameras: {missing}")
+        # Preserve the calibrated lens model and every parameter. Ground truth is
+        # reserved for evaluation; it must not initialize the calibration.
+        init_cameras = {c: _source_model(scn.mccalib[c]) for c in scn.cam_ids}
+        spec = {c: model.name for c, model in init_cameras.items()}
 
     print(f"=== {scn.name}: {len(scn.cam_ids)} cameras, {len(scn.object_obs)} object-obs ===")
-    print(f"model spec: {spec if not args.fix_intrinsics else 'fixed-intrinsic (RadTan, MC-Calib K)'}")
+    print(f"model spec: {spec}")
     image_root = os.path.join(args.scenario, "Images") if args.save_reprojection else None
     with rpt.Stage("calibrating", verbose=not args.quiet):
         res = calibrate_scenario(scn, spec, fix_intrinsics=args.fix_intrinsics,

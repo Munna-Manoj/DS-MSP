@@ -100,6 +100,8 @@ def test_render_report_notes_blunders_only_when_gross_present():
                                    message="ok", color=False)
     assert "note:" in text_dirty
     assert "DOWN-WEIGHTED" in text_dirty
+    assert "bad frame poses" in text_dirty
+    assert "likely mis-detections" not in text_dirty
     assert "0.636" in text_dirty                        # points the reader at inl_rms, not rms
 
 
