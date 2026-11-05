@@ -160,3 +160,11 @@ def test_config_defaults_and_production_profile(tmp_path):
     p.write_text(base + "min_camera_coverage: 2.0\n")
     with pytest.raises(ValueError, match="min_camera_coverage"):
         load_config(str(p))
+
+
+@pytest.mark.req("NFR-NUM-015")
+def test_noise_free_fit_at_rounding_level_is_converged_whatever_stopped_it():
+    # Noise-free data, seen on numpy 2.2: f 6e-25, gradient ratio 1.1 is rounding over rounding.
+    assert _status("function_tol", 1.1, 6e-25, rms=1e-13) == CONVERGED
+    assert _status("function_tol", 0.2, 1e15, rms=5e5) == NO_CONVERGENCE
+    assert _status("function_tol", 0.2, 1.0, rms=1e-3) == NO_CONVERGENCE

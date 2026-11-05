@@ -90,7 +90,8 @@ class OptResult:
     excluded: int = 0
 
 
-def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
+def _status(stop_reason: str, gradient_ratio: float, f: float,
+            rms: float = float("nan")) -> str:
     """Map a dense/Schur LM stop to a termination status.
 
     Converged when the step test passed, when the scaled gradient left is negligible against
@@ -102,10 +103,14 @@ def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
     the cost, so it assumes the cost is at noise level: on a diverged state (RMS 5e5 px) a step
     that changes the cost little meets it with ``gradient_ratio`` 0.2. On the real-data
     benchmark, genuine function-test stops end at ``<= 4e-8``.
+
+    A fit at rounding level (``rms <= RMS_ROUNDING_FLOOR``) has converged whatever stopped it:
+    ``gradient_ratio`` divides rounding noise by rounding noise there and reads about 1.
     """
     if stop_reason == "non_finite":
         return NUMERICAL_FAILURE
-    if (stop_reason == "step_tol" or f == 0.0 or gradient_ratio <= GRADIENT_RATIO_TOL
+    if (stop_reason == "step_tol" or f == 0.0 or rms <= RMS_ROUNDING_FLOOR
+            or gradient_ratio <= GRADIENT_RATIO_TOL
             or (stop_reason == "function_tol" and np.isnan(gradient_ratio))):
         return CONVERGED
     return NO_CONVERGENCE
@@ -116,6 +121,11 @@ def _status(stop_reason: str, gradient_ratio: float, f: float) -> str:
 #: Ceres' default ``function_tolerance``). On the real-data benchmark, damping stalls end at
 #: ``<= 4e-17`` and deliberately truncated solves at ``1e-3``..``4``, so 1e-6 separates them.
 GRADIENT_RATIO_TOL = 1e-6
+
+#: Residual RMS, in the residuals' units (pixels here), below which a fit is at rounding level.
+#: Double-precision pixel coordinates near 1e3 round at about 1e-13, and no measurement is this
+#: precise, so only noise-free data reaches it and a diverged state cannot.
+RMS_ROUNDING_FLOOR = 1e-9
 
 #: :func:`schur_lm` statistical stopping rule. With ``M`` residuals at cost ``f``, ``2f/M``
 #: estimates the residual variance, so a cost change ``Δf`` is ``Δχ² ≈ M·Δf/f``, and a solve
@@ -479,7 +489,7 @@ def _finish(state: object, r: np.ndarray, f: float, it: int, lam: float, stop_re
     rms = float(np.sqrt((bn ** 2).mean())) if bn.size else float("nan")
     if stop_reason != "non_finite" and not (np.isfinite(f) and np.isfinite(r).all()):
         stop_reason = "non_finite"
-    status = _status(stop_reason, g_ratio, f)
+    status = _status(stop_reason, g_ratio, f, rms)
     return OptResult(state=state, cost=f, rms=rms, iterations=it,
                      success=status == CONVERGED, converged=stop_reason == "step_tol",
                      final_lambda=lam, status=status, stop_reason=stop_reason,
