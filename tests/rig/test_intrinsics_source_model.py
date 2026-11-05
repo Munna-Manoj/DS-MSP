@@ -9,6 +9,8 @@ from ds_msp.io.mccalib import CameraGT
 from ds_msp.rig.calib_param import _resolve_init_intrinsics, _source_model
 
 
+pytestmark = pytest.mark.req("FR-RIG-003")
+
 def _camera(dist, model_name=None):
     return CameraGT(
         K=np.array([[420., 0., 320.], [0., 421., 240.], [0., 0., 1.]]),

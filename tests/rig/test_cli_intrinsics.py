@@ -10,6 +10,8 @@ from ds_msp.io.mccalib import CameraGT
 from ds_msp.rig import cli
 
 
+pytestmark = pytest.mark.req("FR-RIG-003")
+
 def _scenario_cli(tmp_path, monkeypatch, cameras):
     result_dir = tmp_path / "Results"
     result_dir.mkdir()

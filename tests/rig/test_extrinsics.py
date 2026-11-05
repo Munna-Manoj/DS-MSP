@@ -8,6 +8,8 @@ from ds_msp.rig.extrinsics import init_camera_groups
 from ds_msp.rig.types import ObjectObs
 
 
+pytestmark = pytest.mark.req("FR-RIG-001")
+
 def _pose(angles, translation):
     transform = np.eye(4)
     transform[:3, :3] = Rotation.from_euler("xyz", angles, degrees=True).as_matrix()
