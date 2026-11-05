@@ -52,3 +52,14 @@ The Jacobian speedup **grows with the number of images** (more views → more pa
 more finite-difference residual evaluations per iteration), so larger calibrations benefit
 even more. The derivative's correctness is independently gradient-checked in the test suite
 (`pytest -m jac`).
+
+## KB acquisition coverage
+
+`kb_coverage_study.py` compares equal observation budgets for central and peripheral
+board acquisition. It fits the full eight-parameter KB model and unknown board poses
+for two nonzero highest-order distortion coefficients. It needs no external dataset.
+Write outputs outside the tracked tree (for example under `reports/`).
+
+The statistical assertions live in `tests/calib/test_kb_acquisition.py`; mathematical
+assumptions and limits are in [the lens-information guide](../docs/learn/rig_intrinsics_and_pose_recovery.md).
+A finite seeded experiment is a regression check, not a guarantee for arbitrary lenses.

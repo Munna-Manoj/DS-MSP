@@ -41,7 +41,7 @@ def _rel_extrinsic(rig):
     return baseline_m, ang_deg
 
 
-pytestmark = [pytest.mark.realdata, pytest.mark.req("FR-RIG-017")]
+pytestmark = [pytest.mark.realdata, pytest.mark.req("FR-RIG-001", "FR-RIG-017", "FR-RIG-029")]
 
 
 def test_non_overlapping_seltos_rig_calibrates_both_cameras(tmp_path):
@@ -68,3 +68,34 @@ def test_non_overlapping_seltos_rig_calibrates_both_cameras(tmp_path):
     baseline_m, ang_deg = _rel_extrinsic(rig)
     assert abs(baseline_m - 1.192) < 0.10, f"baseline {baseline_m:.3f}m far from ~1.192m"
     assert abs(ang_deg - 178.6) < 3.0, f"rotation {ang_deg:.1f}deg far from ~178.6deg"
+
+    # The final support ledger must describe the actual returned real-pixel rig,
+    # even when no recovery was necessary on this acquisition.
+    from ds_msp.rig.pose_recovery import frame_support
+    recorded = rig.solver_report["frame_support"]
+    assert recorded
+    recomputed = frame_support(rig, res["scenario"].object_obs, threshold_px=recorded[0]["threshold_px"])
+    assert recorded == recomputed
+
+    # Exercise recovery on real detected pixels with one deliberately damaged
+    # initialization. This tests resection, not independent physical pose truth.
+    import copy
+    from ds_msp.rig.pose_recovery import recover_frame_poses
+    selected = max((r for r in recorded if r["supported"]), key=lambda r: r["n_observed"])
+    key = (selected["object_id"], selected["frame_id"])
+    damaged = copy.deepcopy(rig)
+    damaged.object_poses[key][:3, 3] += [500, 500, 500]  # scene units: mm
+    observations = res["scenario"].object_obs
+    before = [(o.point_rows.copy(), o.pts_2d.copy()) for o in observations]
+    recovered, attempts = recover_frame_poses(
+        damaged, observations, threshold_px=selected["threshold_px"])
+    attempt = next(r for r in attempts if (r["object_id"], r["frame_id"]) == key)
+    assert attempt["accepted"]
+    assert attempt["after"]["support_fraction"] >= .75
+    assert attempt["after"]["n_observed"] == selected["n_observed"]
+    for obs, (rows, pixels) in zip(observations, before):
+        np.testing.assert_array_equal(obs.point_rows, rows)
+        np.testing.assert_array_equal(obs.pts_2d, pixels)
+    for camera in rig.cameras:
+        np.testing.assert_array_equal(recovered.cameras[camera].params, rig.cameras[camera].params)
+        np.testing.assert_array_equal(recovered.T_c_g[camera], rig.T_c_g[camera])

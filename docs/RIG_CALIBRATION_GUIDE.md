@@ -530,3 +530,29 @@ match the scene's up-direction to your own setup, exactly like the live view.
 - [`ds_msp/rig/configs/calib_param.keypoints.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/calib_param.keypoints.template.yml) — keypoints-reuse config
 - [`ds_msp/rig/configs/camera_intrinsics.template.yml`](https://github.com/Munna-Manoj/DS-MSP/blob/main/ds_msp/rig/configs/camera_intrinsics.template.yml) — initial-intrinsics schema (all models)
 - [`docs/learn/`](learn/README.md) — the geometry curriculum (camera models, robust detection, evaluation)
+
+
+## Independent intrinsics and unsupported frames
+
+Supply independently calibrated lenses through `cam_params_path`. Complete models
+initialize frame poses directly; the front end calibrates only missing cameras.
+Free mode may refine all lens parameters. Fixed mode requires a model for every
+observed camera and preserves every parameter, including high-order distortion.
+For recognized explicit model labels, malformed parameter vectors are rejected
+rather than reinterpreted.
+
+Capture varied board tilt, distance and peripheral coverage, and validate on held-out
+views. Supplying a good seed alone does not preserve that sequence's information
+when the rig observations constrain a smaller image region. See
+[lens information and frame-pose recovery](learn/rig_intrinsics_and_pose_recovery.md)
+for the fixed-intrinsic tradeoff and the assumptions behind joint information retention.
+
+Before optional rejection and after target refinement, the pipeline attempts
+model-aware resection of missing or poorly supported frame poses. Accepted poses
+must improve whole-frame support and truncated cost without invalidating previously
+valid projections. Recovery never drops detections and preserves the chosen
+intrinsic policy. `solver.pose_recovery` in `calibration_acceptance.json` records
+attempts; `solver.frame_support` independently audits the last returned solve.
+An unresolved frame warns and needs inspection. These diagnostics measure training
+support, not independent physical accuracy; see the
+[interface contract](process/srs/interfaces.md#rig-initialization-and-support-diagnostics-ifc-03).

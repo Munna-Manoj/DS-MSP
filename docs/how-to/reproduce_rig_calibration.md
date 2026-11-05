@@ -409,3 +409,8 @@ Board fusion, object remapping, single-camera and rig bundle adjustment preserve
 DS-MSP keypoint caches preserve them in an optional `pixel_covariances` sequence parallel to
 `pts_2d`; legacy caches without that field retain unit weights. Other MC-Calib consumers may
 ignore this extension. See the [calibration API](../reference/calib.md) for units and validation.
+
+For independent lens calibration, fixed versus free intrinsics, and recovery of frames
+suppressed by a robust loss, see
+[lens information and frame-pose recovery](../learn/rig_intrinsics_and_pose_recovery.md).
+The recovery ledger appears in `calibration_acceptance.json` under `solver.pose_recovery`.

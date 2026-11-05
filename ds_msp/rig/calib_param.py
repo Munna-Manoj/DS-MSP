@@ -114,16 +114,16 @@ def _model_from_K_dist(name: str, K, dist):
 def _source_model(cam):
     """The camera model the provided intrinsics are stored in, built exactly from the file.
 
-    Honors the model the file states (any of the DS-MSP models); falls back to the KB/RadTan
-    length heuristic for a plain MC-Calib file. If the stated model and the distortion-vector
-    length disagree (a malformed / mismatched intrinsics entry) the reconstruction raises, and
-    for the safe default models we degrade to the heuristic rather than fail hard."""
+    An explicitly stated model is authoritative: malformed parameters raise instead of
+    silently reinterpreting the lens. Only a legacy file with no model statement uses the
+    KB/RadTan length heuristic and historical RadTan coefficient padding/truncation."""
     name = _provided_model_name(cam)
     try:
         return _model_from_K_dist(name, cam.K, cam.dist)
     except (ValueError, KeyError):
-        # A plain file labeled only by distortion_type can still be consistently read by length;
-        # keep the legacy KB/RadTan behavior so existing MC-Calib outputs never regress.
+        if getattr(cam, "model_name", None):
+            raise
+        # Preserve historical behavior only when the file did not state a model.
         d = np.asarray(cam.dist, float).ravel() if cam.dist is not None else np.zeros(5)
         if d.size == 4:
             return KannalaBrandtModel(cam.K[0, 0], cam.K[1, 1], cam.K[0, 2], cam.K[1, 2], *d[:4])

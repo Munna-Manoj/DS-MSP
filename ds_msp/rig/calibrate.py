@@ -29,6 +29,7 @@ from ..models.registry import seed_from_K as _seed_from_K
 from . import bundle
 from .extrinsics import init_camera_groups
 from .pose_init import (average_object_pose_in_group, robust_pose_irls)
+from .pose_recovery import frame_support, recover_frame_poses
 from .types import Object3D, ObjectObs, RigState
 
 
@@ -647,6 +648,7 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     structure_mode = resolve_structure_mode(structure_mode, refine_structure)
     stages: List[Dict] = []
     links: List[Dict] = []
+    recovery: List[Dict] = []
 
     def _label(name, start):
         for rec in stages[start:]:
@@ -758,6 +760,19 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
                     noise_bound=noise_bound, verbose=verbose, on_iter=on_iter, log=stages)
     _label("c_global_joint", n0)
 
+    # Redescending losses can give a badly initialized frame almost no influence.
+    # Try a new pose against the whole frame before treating its pixels as outliers.
+    band_px = 3.03 * noise_bound if noise_bound is not None else 3.03
+    rig, recovered = recover_frame_poses(rig, object_obs, threshold_px=band_px)
+    recovery.extend(dict(r, stage="c4_pose_recovery") for r in recovered)
+    if any(r["accepted"] for r in recovered):
+        n0 = len(stages)
+        rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                            robust_kernel="cauchy", robust_scale="auto", gnc_iters=gnc_iters,
+                            gnc_start=gnc_start, noise_bound=noise_bound, verbose=verbose,
+                            on_iter=on_iter, log=stages)
+        _label("c4_after_pose_recovery", n0)
+
     #    (c.5) gross-outlier rejection (MC-Calib's ``ransac_threshold``). The robust BA above
     #        recovers the correct rig even with mis-detections, but a *self-consistent* blunder —
     #        e.g. a ChArUco board a different OpenCV build mis-decodes (wrong corner ids -> a
@@ -829,8 +844,24 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
             if prev - cur < 0.003 * prev:           # converged -> stop early
                 break
             prev = cur
+    # Board/lens refinement can change which frames are supported. Check the
+    # returned geometry as well, and polish the same parameterization if repaired.
+    rig, recovered = recover_frame_poses(rig, object_obs, threshold_px=band_px)
+    recovery.extend(dict(r, stage="e_pose_recovery") for r in recovered)
+    if any(r["accepted"] for r in recovered):
+        n0 = len(stages)
+        rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                            robust_kernel="cauchy", robust_scale="auto",
+                            refine_boards=multi_board and structure_mode in ("rigid", "bend"),
+                            bend_boards=multi_board and structure_mode == "bend",
+                            noise_bound=noise_bound, gnc_iters=gnc_iters, gnc_start=gnc_start,
+                            verbose=verbose,
+                            on_iter=on_iter, log=stages)
+        _label("e_after_pose_recovery", n0)
     fe_report = getattr(fe, "report", None)
     rig.solver_report = {"stages": stages, "links": links,
+                         "pose_recovery": recovery,
+                         "frame_support": frame_support(rig, object_obs, threshold_px=band_px),
                          "front_end": ({str(c): v for c, v in fe_report.items()}
                                        if fe_report is not None else None)}
     return rig

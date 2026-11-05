@@ -62,10 +62,11 @@ def random_model_assignment(cam_ids: List[int], *, kind: str = "pinhole",
 
 
 def make_fixed_intrinsic_front_end(cameras: Dict[int, object]):
-    """Front-end for ``fix_intrinsic=true``: use the *given* per-camera intrinsics and only
-    estimate per-frame object poses (robust gated PnP). No intrinsic calibration — the
-    global BA then refines extrinsics with these intrinsics held fixed, mirroring MC-Calib's
-    fixed-intrinsic mode (which needs initial intrinsics and never refines them)."""
+    """Use given per-camera intrinsics and estimate object poses with robust gated PnP.
+
+    This front-end never recalibrates the supplied lens models. Subsequent bundle
+    adjustment may hold or refine them according to the caller's ``fix_intrinsics``.
+    """
     def front_end(obj, obs_by_cam, img_size):
         """Seed per-frame object poses by robust PnP; intrinsics are the fixed ``cameras``.
 
@@ -80,6 +81,31 @@ def make_fixed_intrinsic_front_end(cameras: Dict[int, object]):
             for o in obs:
                 o.T_c_o = _gated_pnp(model, objs[o.object_id].pts_3d[o.point_rows], o.pts_2d)
         return {c: cameras[c] for c in obs_by_cam}
+    return front_end
+
+
+def make_initialized_front_end(cameras: Dict[int, object], model_spec, *, init_K=None):
+    """Use complete supplied lenses; calibrate only cameras missing from the file.
+
+    Supplying a lens is initialization, not a constraint on subsequent bundle
+    adjustment. The caller still controls that with ``fix_intrinsics``. Keeping
+    the two subsets separate also prevents a focal-consensus reset from replacing
+    an independently calibrated lens in a heterogeneous rig.
+    """
+    supplied = make_fixed_intrinsic_front_end(cameras)
+    estimated = make_bundle_front_end(model_spec, init_K=init_K)
+
+    def front_end(obj, obs_by_cam, img_size):
+        known = {c: obs for c, obs in obs_by_cam.items() if c in cameras}
+        missing = {c: obs for c, obs in obs_by_cam.items() if c not in cameras}
+        result = supplied(obj, known, img_size) if known else {}
+        report = {c: {"source": "supplied"} for c in known}
+        if missing:
+            result.update(estimated(obj, missing, img_size))
+            report.update(getattr(estimated, "report", {}))
+        front_end.report = report
+        return result
+
     return front_end
 
 
@@ -111,8 +137,9 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
-    ``fix_intrinsics=True`` requires ``init_cameras`` (per-camera models with the intrinsics
-    to hold fixed) and optimizes extrinsics only. ``init_K`` (``{cam_id: 3x3}``) seeds the
+    ``fix_intrinsics=True`` requires ``init_cameras`` for every observed camera and
+    optimizes extrinsics only. Otherwise a partial ``init_cameras`` map uses the supplied
+    full lens models and calibrates missing cameras from scratch. ``init_K`` (``{cam_id: 3x3}``) seeds the
     refining front-end's focal / principal point from a known intrinsics file (MC-Calib's
     ``cam_params_path`` initialization) — essential for a real strong-fisheye / mixed-resolution
     rig. When ``image_root`` is given, MC-Calib-style reprojection overlay images are written
@@ -184,14 +211,18 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     structure_mode = resolve_structure_mode(structure_mode, refine_structure)
     if accuracy_gate == "refuse" and accuracy_profile is None:
         raise ValueError("accuracy_gate='refuse' requires an accuracy profile and independent truth")
-    if init_cameras is not None:
+    if fix_intrinsics:
+        missing = sorted({o.cam_id for o in scn.object_obs} - set(init_cameras or {}))
+        if init_cameras is None or missing:
+            raise ValueError("fix_intrinsics=True needs init_cameras (initial intrinsics) "
+                             f"for every observed camera; missing: {missing}")
+        front_end = make_fixed_intrinsic_front_end(init_cameras)
+    elif init_cameras:
         # Start from the provided per-camera models (MC-Calib's cam_params_path init): the
         # front-end uses them directly instead of a from-scratch re-fit — essential for a
         # wide-FOV fisheye, whose from-scratch model fit can diverge. ``fix_intrinsics`` then
         # decides only whether the joint BA refines these intrinsics or holds them.
-        front_end = make_fixed_intrinsic_front_end(init_cameras)
-    elif fix_intrinsics:
-        raise ValueError("fix_intrinsics=True needs init_cameras (initial intrinsics)")
+        front_end = make_initialized_front_end(init_cameras, model_spec, init_K=init_K)
     else:
         front_end = make_bundle_front_end(model_spec, init_K=init_K)
     rig = calibrate_rig(scn.object, scn.object_obs, scn.img_size,
@@ -330,6 +361,8 @@ def solver_acceptance(rig: RigState) -> Dict:
                                 if f.get("fallback")},
         "unlinked_groups": [ln["group"] for ln in rep.get("links", []) if not ln["linked"]],
         "stages": stages, "front_end": front, "links": list(rep.get("links", [])),
+        "pose_recovery": list(rep.get("pose_recovery", [])),
+        "frame_support": list(rep.get("frame_support", [])),
     }
 
 
@@ -345,6 +378,12 @@ def _gate_solver(solver: Dict, convergence_gate: str) -> None:
         warnings.warn("front-end intrinsics fell back for camera(s) "
                       + ", ".join(f"{c} ({r})" for c, r in solver["front_end_fallbacks"].items())
                       + "; the global BA starts these cameras from a seed, not a fit",
+                      RuntimeWarning, stacklevel=3)
+    unresolved = [r for r in solver.get("frame_support", []) if not r["supported"]]
+    if unresolved:
+        warnings.warn(f"{len(unresolved)} object-frame pose(s) remain below the recovery "
+                      "support threshold; inspect solver.frame_support before accepting "
+                      "the rig. A small global median does not validate these frames.",
                       RuntimeWarning, stacklevel=3)
     if solver["final_status"] not in (None, CONVERGED) and convergence_gate != "off":
         msg = (f"the final BA stage ({solver['final_stage']}) ended {solver['final_status']} "

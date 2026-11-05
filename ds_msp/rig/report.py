@@ -548,18 +548,17 @@ def render_report(models: Dict[int, str], per_cam: Dict[int, ErrorStats], overal
         f"{overall.p95:>7.3f} {overall.max:>7.3f} {overall.rms:>7.3f} "
         f"{overall.inlier_rms:>8.3f} {100 * overall.inlier_frac:>7.2f}%")
     lines.append("")
-    # If gross outliers are present, say so plainly: they inflate max/rms but were down-weighted
-    # to ~zero in the solve, so the calibration is governed by median/inl_rms, not the tail. This
-    # turns an alarming-looking (but correct) result into an explained one.
+    # A large residual does not identify its cause. A correct detection attached
+    # to a bad frame pose can be suppressed by a redescending loss as well.
     gross = {c: per_cam[c].n_gross for c in sorted(per_cam) if per_cam[c].n_gross}
     if gross:
         detail = ", ".join(f"cam {c}: {n}" for c, n in gross.items())
         lines.append(
             f"note: {overall.n_gross} corner(s) reproject > {GROSS_PX:.0f}px ({detail}) — "
-            f"likely mis-detections (e.g. a ChArUco board a different OpenCV build mis-decodes).")
+            "possible bad frame poses, model error, or mis-detections.")
         lines.append(
-            f"      they are DOWN-WEIGHTED in the solve, not fitted; judge training fit by median / "
-            f"inl_rms ({overall.inlier_rms:.3f}px), not max / rms.")
+            "      these corners may be DOWN-WEIGHTED by robust losses. Inspect frame support and "
+            "raw RMS as well as median / inl_rms before accepting the calibration.")
         lines.append("")
     badge = _c(_COLOR.get(level, "0"), f" {level} ", enabled=color)
     lines.append(f"training-fit verdict:{badge} {message}")
@@ -809,9 +808,10 @@ def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
     if gross:
         detail = ", ".join(f"cam {c}: {n}" for c, n in gross.items())
         gp = data.get("gross_outlier_px", GROSS_PX)
-        L.append(f"note: {o['n_gross']} corner(s) reproject > {gp:.0f}px ({detail}) — likely "
-                 f"mis-detections; they are DOWN-WEIGHTED in the solve, not fitted. Judge "
-                 f"training fit by median / inl_rms, not max / rms.")
+        L.append(f"note: {o['n_gross']} corner(s) reproject > {gp:.0f}px ({detail}) — possible "
+                 "bad frame poses, model error, or mis-detections. These corners may be "
+                 "DOWN-WEIGHTED by robust losses; inspect frame support and raw RMS as well as "
+                 "median / inl_rms before accepting the calibration.")
     v = data.get("fit") or data.get("verdict", {"level": "FAIL", "message": "missing fit"})
     badge = _c(_COLOR.get(v["level"], "0"), f" {v['level']} ", enabled=color)
     L.append(f"training-fit verdict:{badge} {v['message']}")

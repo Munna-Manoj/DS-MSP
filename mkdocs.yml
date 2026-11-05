@@ -137,6 +137,7 @@ nav:
       - Capstone — calibrate a real camera: learn/capstone_calibrating_a_real_camera.md
       - "Companion: AprilGrid detection": learn/robust_aprilgrid_detection.md
       - "Companion: robust losses & evaluation": learn/robust_losses_and_evaluation.md
+      - "Companion: rig intrinsics & pose recovery": learn/rig_intrinsics_and_pose_recovery.md
       - "Companion: stereo extrinsics": learn/stereo_extrinsics_calibration.md
       - "Companion: sphere/cylinder/pinhole": learn/spherical_and_cylindrical_reprojection.md
       - 8 · Two-view geometry on rays: learn/08_two_view_geometry_on_rays.md

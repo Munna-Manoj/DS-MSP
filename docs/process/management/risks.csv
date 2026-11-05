@@ -7,3 +7,4 @@ RSK-05,Architecture erodes (cycles / cv2 in math path) as features are added,pro
 RSK-06,Requirements and tests drift out of sync,process,medium,medium,CI traceability gate fails on orphan/dangling links and an out-of-date generated matrix,mitigated
 RSK-07,A release ships without real-data validation,process,low,high,Structural release check plus a required manual reference-environment dispatch that fails on all-skipped evidence; release.yml consumption of that result remains to be wired,planned
 RSK-08,Third-party dependency CVE (numpy/opencv/scipy/pyyaml),security,low,medium,Pinned dev deps; SECURITY.md reporting; dependency review,planned
+RSK-09,Robust loss suppresses correct corners of an incorrectly initialized frame,technical,medium,high,Guarded model-aware pose recovery before rejection and after refinement plus final support audit (FR-RIG-029); independent accuracy checks remain necessary,mitigated

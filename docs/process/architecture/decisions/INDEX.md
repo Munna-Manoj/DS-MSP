@@ -41,3 +41,4 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 > the governance system is demonstrated against real architecture from day one. Adoption date is the
 > date the record was written, not the date the code first shipped. **ADR-0007 onward** are decisions
 > recorded as they are made (ADR-0007: a convert-robustness fix found by real-data study).
+| [ADR-0029](ADR-0029-rig-frame-pose-recovery.md) | Preserve supplied lenses and recover unsupported frame poses | Accepted | Guarded resection without discarded observations; final-state support audit |

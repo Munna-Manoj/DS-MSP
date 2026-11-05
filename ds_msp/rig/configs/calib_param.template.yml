@@ -53,8 +53,11 @@ min_perc_pts: 0.5          # [IGNORED by DS-MSP — uses a fixed min_corners=8 p
 # stated (see configs/camera_intrinsics.template.yml; emit one with --init-intrinsics PATH).
 # When given: the model stated for each camera must match (fix_intrinsic=true) or is converted
 # with a warning into (fix_intrinsic=false) the model chosen above (camera_models / distortion_model).
+# Supplied complete models seed PnP directly; only missing cameras are calibrated
+# from scratch. Free BA may change every supplied lens parameter. Fixed mode needs
+# a model for every observed camera and keeps all its parameters unchanged.
 cam_params_path: "None"
-fix_intrinsic: "false"      # false => estimate+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
+fix_intrinsic: "false"      # false => initialize+refine intrinsics  //  true => hold intrinsics fixed (needs cam_params_path)
 
 ######################################## Images Parameters ###################################################
 root_path: "../data/Images"   # folder of per-camera subfolders <cam_prefix><camID+1:03d>/ (e.g. Cam_001/)
