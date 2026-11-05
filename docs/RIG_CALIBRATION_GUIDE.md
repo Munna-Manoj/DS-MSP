@@ -538,7 +538,8 @@ Supply independently calibrated lenses through `cam_params_path`. Complete model
 initialize frame poses directly; the front end calibrates only missing cameras.
 Free mode may refine all lens parameters. Fixed mode requires a model for every
 observed camera and preserves every parameter, including high-order distortion.
-Malformed explicitly named models are rejected rather than reinterpreted.
+For recognized explicit model labels, malformed parameter vectors are rejected
+rather than reinterpreted.
 
 Capture varied board tilt, distance and peripheral coverage, and validate on held-out
 views. Supplying a good seed alone does not preserve that sequence's information

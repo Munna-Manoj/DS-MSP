@@ -67,8 +67,9 @@ Complete `init_cameras` / `cam_params_path` models initialize PnP directly; only
 missing cameras are calibrated from scratch. `fix_intrinsics=True` (configuration
 `fix_intrinsic: true`) requires every observed camera and holds its full parameter
 vector. Free mode initializes from the supplied models but may refine all their
-parameters. A malformed explicitly named model raises `ValueError`; legacy
-unnamed files retain distortion-type/vector inference. Scenario CLI
+parameters. A recognized explicit model label with a malformed parameter vector
+raises `ValueError`; legacy unnamed files retain distortion-type/vector inference.
+Unknown model strings still follow the importer's existing unnamed-model handling. Scenario CLI
 `--fix-intrinsics` reads native models from `Results/calibrated_cameras_data.yml`
 and refuses missing camera models.
 

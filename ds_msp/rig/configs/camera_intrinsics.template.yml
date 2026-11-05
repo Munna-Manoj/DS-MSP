@@ -18,8 +18,8 @@
 #     ray<->pixel pairs) before the bundle adjustment refines it.
 #   * A supplied model initializes frame PnP directly; it is not re-estimated by the
 #     front end. Free rig BA can change every parameter; only missing cameras receive
-#     a fresh front-end calibration. A named model with malformed parameters is an
-#     error, never an invitation to reinterpret the coefficients as another model.
+#     a fresh front-end calibration. A recognized model label with malformed
+#     parameters is an error, never reinterpreted as another model.
 #   * No `cam_params_path` at all: every camera initializes from scratch (front-end estimate),
 #     except fix_intrinsic=true which then errors (nothing to hold fixed).
 #
