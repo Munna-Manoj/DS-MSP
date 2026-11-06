@@ -306,15 +306,14 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             row += rows
         return r
 
-    def jacobian(state):
-        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
-
-        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
-        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
-        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
-        """
+    def _obs_blocks(state):
+        """Per-observation Jacobian blocks of :func:`residual` at ``state``: yields
+        ``(row, n_rows, [(col, block), ...])`` where each ``block`` is ``(n_rows, width)`` over
+        the columns ``col:col+width`` this observation touches (its object pose, its camera
+        extrinsic unless it is the reference, its intrinsics when free). Every other column of
+        those rows is zero. :func:`jacobian` scatters these into the dense matrix and
+        ``jacobian.normal_matrix`` sums ``JᵀWJ`` from them without forming ``J``."""
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
-        J = np.zeros((total_rows, K))
         row = 0
         for u, (o, Xo, key, Xg, Xc, tb) in zip(use, _project_all(state)):
             N = len(Xo)
@@ -329,32 +328,60 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 uv, J_point, J_param, valid = m_cache[cam].project_jacobian(Xc)
                 mask = (u & np.asarray(valid, bool).ravel())[:, None, None]
                 Jp = np.where(mask, J_point, 0.0)                # (N,2,3); NaN-safe mask
+            point_dim = 3 if angular else 2
+            n = point_dim * N
             # object pose: dXc/dω = R_cam @ (-R_obj[Xo]_x); dXc/dt = R_cam
             dXc_dw_o = -np.einsum('ij,njk->nik', R_cam @ R_obj, _skew_batch(Xo))
             Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o)
             Jt_o = np.einsum('nij,jc->nic', Jp, R_cam)
-            point_dim = 3 if angular else 2
-            c0 = obj_col[key]
-            J[row:row + point_dim * N, c0:c0 + 3] = Jw_o.reshape(point_dim * N, 3)
-            J[row:row + point_dim * N, c0 + 3:c0 + 6] = Jt_o.reshape(point_dim * N, 3)
+            blocks = [(obj_col[key], np.concatenate([Jw_o.reshape(n, 3), Jt_o.reshape(n, 3)], 1))]
             # camera extrinsic (skip ref): dXc/dω = -R_cam[Xg]_x; dXc/dt = I
             if cam in cam_col:
                 dXc_dw_c = -np.einsum('ij,njk->nik', R_cam, _skew_batch(Xg))
                 Jw_c = np.einsum('nij,njc->nic', Jp, dXc_dw_c)
                 Jt_c = Jp                                        # J_point @ I
-                cc = cam_col[cam]
-                J[row:row + point_dim * N, cc:cc + 3] = Jw_c.reshape(point_dim * N, 3)
-                J[row:row + point_dim * N, cc + 3:cc + 6] = Jt_c.reshape(point_dim * N, 3)
+                blocks.append((cam_col[cam],
+                               np.concatenate([Jw_c.reshape(n, 3), Jt_c.reshape(n, 3)], 1)))
             # intrinsics
             if not fix_intrinsics:
-                ic = intr_col[cam]
-                J[row:row + 2 * N, ic:ic + Pn[cam]] = np.where(mask, J_param, 0.0).reshape(2 * N, Pn[cam])
+                blocks.append((intr_col[cam],
+                               np.where(mask, J_param, 0.0).reshape(2 * N, Pn[cam])))
             W = whiteners[id(o)]
             if W is not None:
-                block = J[row:row + 2 * N].reshape(N, 2, K)
-                J[row:row + 2 * N] = np.einsum('nij,njk->nik', W, block).reshape(2 * N, K)
-            row += point_dim * N
+                blocks = [(c, np.einsum('nij,njk->nik', W, B.reshape(N, 2, -1)).reshape(2 * N, -1))
+                          for c, B in blocks]
+            yield row, n, blocks
+            row += n
+
+    def jacobian(state):
+        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
+
+        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
+        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
+        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
+        """
+        J = np.zeros((total_rows, K))
+        for row, n, blocks in _obs_blocks(state):
+            for c, B in blocks:
+                J[row:row + n, c:c + B.shape[1]] = B
         return J
+
+    def normal_matrix(state, row_weights=None):
+        """``JᵀWJ`` ``(K, K)`` at ``state`` with ``W = diag(row_weights)`` (all ones when
+        ``None``), summed one observation at a time over the columns it touches, so peak memory
+        is ``K²`` plus one observation's block instead of the ``total_rows x K`` dense ``J``.
+        Equal to ``(J * row_weights[:, None]).T @ J`` up to summation order."""
+        w_all = np.ones(total_rows) if row_weights is None else np.asarray(row_weights, float)
+        if w_all.shape != (total_rows,):
+            raise ValueError(f"row_weights must have shape ({total_rows},), got {w_all.shape}")
+        H = np.zeros((K, K))
+        for row, n, blocks in _obs_blocks(state):
+            idx = np.concatenate([np.arange(c, c + B.shape[1]) for c, B in blocks])
+            Bl = np.concatenate([B for _c, B in blocks], 1)
+            H[np.ix_(idx, idx)] += (Bl * w_all[row:row + n, None]).T @ Bl
+        return H
+
+    jacobian.normal_matrix = normal_matrix  # type: ignore[attr-defined]
 
     def retract(state, d):
         """Apply a tangent-space update ``d`` (K,) to ``state``: SO(3) retraction

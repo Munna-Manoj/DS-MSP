@@ -260,8 +260,9 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
               tilt_deg_min: float = 15.0, periphery_frac_min: float = 0.02) -> Dict:
     """Observability audit of a (converged) rig fit: named weak directions + coverage.
 
-    Assembles the same gauge-fixed dense Jacobian the BA uses
-    (:func:`bundle.build_problem`), weights it with the same robust-kernel weights the final
+    Assembles ``H = JᵀWJ`` from the same gauge-fixed Jacobian the BA uses
+    (:func:`bundle.build_problem`), summed one observation at a time so the dense ``J`` is
+    never stored, weights it with the same robust-kernel weights the final
     BA stage applies (``kernel``/``scale``, auto-estimated from the final residuals when
     ``scale=None`` — so the audit reflects the information matrix of the solve actually
     performed), equilibrates ``H = JᵀWJ`` to remove the mixed-units artefact
@@ -285,12 +286,11 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     board fixed); a ``global_gauge`` finding therefore indicates a bug, and the audit's own
     test suite verifies it *would* fire by deliberately unfixing the reference camera.
 
-    Cost: one dense ``eigh`` of a K x K matrix (K ~ 200-500 at calibration scale) — well
-    under a single BA iteration, which factors same-size systems repeatedly.
+    Cost: one dense ``eigh`` of a K x K matrix (K ~ 200-500 at calibration scale, ~2,300 at
+    100 cameras x 150 frames) — well under a single BA iteration. Memory is ``K²`` for ``H``.
     """
     state0, residual, jacobian, _retract, K = bundle.build_problem(
         rig, object_obs, fix_intrinsics=fix_intrinsics)
-    J = np.asarray(jacobian(state0), float)
     r = np.asarray(residual(state0), float)
 
     bn = np.linalg.norm(r.reshape(-1, 2), axis=1)
@@ -301,7 +301,8 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     else:
         scale, w = 1.0, np.ones_like(bn)
     W_row = np.repeat(w, 2)
-    H = (J * W_row[:, None]).T @ J
+    # Summed per observation: the dense J (rows x K, ~60 GB at 100 cameras) is never formed.
+    H = jacobian.normal_matrix(state0, W_row)
 
     ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh)
     labels = _column_labels(rig, fix_intrinsics=fix_intrinsics)
