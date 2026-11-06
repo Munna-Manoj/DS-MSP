@@ -642,6 +642,10 @@ def _try_load_object(cfg: RigConfig):
                  os.path.join(os.path.dirname(cfg.keypoints_path or ""), "calibrated_objects_data.yml")
                  if cfg.keypoints_path else None):
         if cand and os.path.exists(cand):
+            if cand != cfg.object_path:
+                # Easy to trigger by pointing at an earlier run's output, and it changes the result.
+                _warn(f"using the target in {cand} found next to keypoints_path; reconstruction is "
+                      f"skipped. Set object_path or move the keypoints to reconstruct from them.")
             return _load_object(cand)
     return None
 
@@ -711,16 +715,20 @@ def _reconstruct(cfg: RigConfig, *, animator=None):
         cams = _load_cameras(cfg.cam_params_path)[0]
         init_models = {c: _source_model(cams[c]) for c in range(cfg.number_camera)
                        if c in cams and cams[c].K is not None}
+    # The configured lens of each camera, so boards are resected with it and not with a pinhole.
+    model_spec = {c: cfg.camera_models[c] if c < len(cfg.camera_models) else cfg.camera_models[-1]
+                  for c in range(cfg.number_camera)}
     if cfg.keypoints_path:
         objects, obs, img_size = reconstruct_objects_from_keypoints(
             cfg.keypoints_path, cfg.boards, init_models=init_models,
-            pixel_convention=cfg.keypoints_pixel_convention)
+            pixel_convention=cfg.keypoints_pixel_convention, model_spec=model_spec)
     elif cfg.root_path:
         cam_ids = list(range(cfg.number_camera))
         progress_cb = _compose_progress(cfg, animator)
         objects, obs, img_size = reconstruct_objects_from_images(
             cfg.root_path, cam_ids, cfg.boards, cam_prefix=cfg.cam_prefix,
-            init_models=init_models, progress_cb=progress_cb, frame_pattern=cfg.frame_pattern)
+            init_models=init_models, progress_cb=progress_cb, frame_pattern=cfg.frame_pattern,
+            model_spec=model_spec)
     else:
         raise ValueError("config has neither keypoints_path nor root_path")
     return objects, obs, img_size

@@ -140,6 +140,7 @@ def test_front_end_focal_collapse_is_recorded(monkeypatch):
     def nan_fit(*a, **k):                                  # every candidate fit diverges
         return dict(real(*a, **k), rms_px=float("nan"))
     monkeypatch.setattr(rc, "_calibrate_single", nan_fit)
+    monkeypatch.setattr(rc, "_fit_from_boards", lambda *a, **k: None)
     cam0 = [o for o in obs if o.cam_id == 0]
     w, h = img_size[0]
     r = rc._fit_one_camera(RadTanModel, {obj.object_id: obj}, cam0, w, h, None,

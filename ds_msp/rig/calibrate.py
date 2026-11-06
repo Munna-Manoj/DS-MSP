@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from ..calib.bundle import calibrate as _calibrate_single
+from ..calib.lens_seed import MAX_SEED_MEDIAN_PX, calibrate_from_views
 from ..geometry.bearing import projection_bearing_whiteners
 from ..geometry.resection import gnc_pnp_bearings, intrinsics_seed
 from ..core.contracts import CameraModel
@@ -223,6 +224,46 @@ def _model_aware_seed(model_cls, Kp, ge6, objs, *, return_covariances=False):
     return (seed, Xcal, uvcal, covcal) if return_covariances else (seed, Xcal, uvcal)
 
 
+def _board_views(objs, obs, min_points: int = 8):
+    """Split a camera's object observations into one planar view per printed board.
+
+    A printed board's shape is known exactly, while the inter-board poses of a fused object are
+    estimates, so fitting a lens to board-level views keeps any inter-board error out of the lens.
+    Returns parallel lists ``(object_points, pixels, covariances)``; each board view gets its own
+    pose in the fit, including when two boards share an image."""
+    points, pixels, covs = [], [], []
+    for o in obs:
+        obj = objs[o.object_id] if isinstance(objs, dict) else objs
+        rows = np.asarray(o.point_rows, int)
+        boards = np.asarray(obj.pts_obj_2_board, int)[rows, 0] if len(rows) else np.zeros(0, int)
+        for bid in np.unique(boards):
+            m = boards == bid
+            if m.sum() >= min_points:
+                points.append(obj.pts_3d[rows[m]].astype(np.float64))
+                pixels.append(np.asarray(o.pts_2d, float)[m])
+                covs.append(None if o.pixel_covariances is None
+                            else np.asarray(o.pixel_covariances)[m])
+    return points, pixels, covs
+
+
+def _fit_from_boards(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
+    """Fit from printed boards with the lens-independent seed; ``None`` if it does not apply."""
+    points, pixels, covs = _board_views(objs, obs)
+    if len(points) < 3:
+        return None
+    pp = None if init_K_cam is None else (float(init_K_cam[0, 2]), float(init_K_cam[1, 2]))
+    res = calibrate_from_views(model_cls, points, pixels, w, h, principal_point=pp, loss=loss,
+                               f_scale=f_scale, max_nfev=max_nfev, pixel_covariances=covs)
+    if (res is None or not np.isfinite(res["median_px"])
+            or res["median_px"] > MAX_SEED_MEDIAN_PX):
+        return None
+    return dict(model=res["model"], cls=model_cls,
+                fit={"status": res["status"], "rms_px": float(res["rms_px"]),
+                     "excluded": res.get("excluded", 0), "fallback": None,
+                     "seed": "radial_boards", "views": len(res["view_indices"]),
+                     "basins": res["basins"]})
+
+
 def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_nfev):
     """One camera's independent intrinsic pre-calibration — the front-end's parallelizable
     unit of work (no dependency on any other camera). Returns ``dict(model=.., cls=..)``,
@@ -237,6 +278,9 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
     ``"no_correspondences"`` when fewer than 3 views survive the seed (the model-aware seed is
     used unfitted), ``"focal_collapse"`` when every candidate failed the focal check or had a
     non-finite RMS (seed focal, neutral distortion; the global BA fits the rest)."""
+    fitted = _fit_from_boards(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_nfev)
+    if fitted is not None:
+        return fitted
     ge6 = [o for o in obs if len(o.point_rows) >= 6]   # views usable for intrinsics
     objpts = [_obs_points(objs, o).astype(np.float32) for o in ge6]
     imgpts = [o.pts_2d.astype(np.float32) for o in ge6]
@@ -443,7 +487,10 @@ def make_bundle_front_end(model_spec, *, loss: str = "soft_l1", f_scale: float =
             for cam_id, r in raw.items():
                 report[cam_id] = dict(r["fit"])
                 fx, fy = feff[cam_id]
+                # A board-level fit stands on known target geometry; a rig median cannot correct it,
+                # and across mixed lenses the median is meaningless (it would reset a correct lens).
                 if (cam_id not in seeded and len(raw) >= 2
+                        and r["fit"].get("seed") != "radial_boards"
                         and (abs(fx - med_fx) > 0.25 * med_fx
                              or abs(fy - med_fy) > 0.25 * med_fy)):
                     w, h = img_size[cam_id]

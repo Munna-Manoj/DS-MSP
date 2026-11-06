@@ -33,7 +33,9 @@ def _count_calibrate_single_calls(model_name, model_factory, n_frame=10, seed=0)
         calls["n"] += 1
         return orig(*a, **kw)
 
-    with patch.object(rc, "_calibrate_single", side_effect=counting):
+    # The two-start step is the fallback for when the board-level fit does not apply.
+    with patch.object(rc, "_calibrate_single", side_effect=counting), \
+            patch.object(rc, "_fit_from_boards", return_value=None):
         fe = make_bundle_front_end(model_name)
         fe(obj, obs_by_cam, img)
     return calls["n"]

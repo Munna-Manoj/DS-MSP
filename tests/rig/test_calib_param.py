@@ -537,3 +537,30 @@ def test_try_load_object_ignores_stray_file_in_save_path(tmp_path):
         object_path=None,
     )
     assert _try_load_object(cfg) is None
+
+
+@pytest.mark.req("FR-RIG-004")
+def test_try_load_object_warns_on_target_next_to_keypoints(tmp_path, monkeypatch, capsys):
+    """Reusing the target found next to ``keypoints_path`` is the documented opt-in, but it skips
+    reconstruction, and pointing at an earlier run's output folder triggers it by accident. The
+    run must say so. An explicit ``object_path`` is a deliberate choice and stays silent."""
+    import ds_msp.rig.calib_param as cp
+
+    kp = tmp_path / "detected_keypoints_data.yml"
+    kp.write_text("")
+    target = tmp_path / "calibrated_objects_data.yml"
+    target.write_text("")
+    monkeypatch.setattr(cp, "_load_object", lambda path: path)
+    base = dict(boards=[], number_camera=1, camera_models=["radtan"], root_path=None,
+                cam_prefix="Cam_", fix_intrinsic=False, cam_params_path=None,
+                save_path=str(tmp_path / "out"), camera_params_file_name="", save_detection=False,
+                save_reprojection=False, ransac_threshold=10.0, number_iterations=1000,
+                he_approach=0)
+
+    assert cp._try_load_object(cp.RigConfig(**base, keypoints_path=str(kp), object_path=None)) \
+        == str(target)
+    assert "reconstruction is skipped" in capsys.readouterr().err
+
+    assert cp._try_load_object(cp.RigConfig(**base, keypoints_path=str(kp),
+                                            object_path=str(target))) == str(target)
+    assert "WARNING" not in capsys.readouterr().err
