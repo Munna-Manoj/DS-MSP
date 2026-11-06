@@ -1,33 +1,32 @@
-"""Sphere-sweep planar-depth recovery on the OCam and DS+ camera models.
+"""Sphere-sweep planar-depth recovery on the Kannala-Brandt and EUCM camera models.
 
 Mirrors ``tests/stereo/test_sphere_sweep.py`` (which renders a textured plane through a
 ``DoubleSphereModel`` and checks the sweep recovers the known depth), but for the polynomial
-OCam (Scaramuzza) and DS+ (UCM core + division + tilt) models — the two absent from the stereo
-suite. The plane is rendered exactly through each model's own ``unproject`` (so at a pixel's true
+Kannala-Brandt and the EUCM sphere model — the two absent from the stereo suite. The plane is rendered exactly through each model's own ``unproject`` (so at a pixel's true
 depth the reference and source sample the same plane point and the photo-cost is zero there); the
-sweep must then recover that depth. Same 5%-median / 85%-within-10% bar as the DS test; measured
-median relative error is ~0.6% for both models (no tolerance loosened).
+sweep must then recover that depth. Same 5%-median / 85%-within-10% bar as the DS test; no tolerance
+loosened.
 """
 
 import numpy as np
 import pytest
 
 from ds_msp.stereo import inverse_depth_samples, sphere_sweep, sweep_to_points
-from ds_msp.models.ocam import OCamModel
-from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.eucm import EUCMModel
+from ds_msp.models.kb import KannalaBrandtModel
 
 H = W = 120
 PLANE_Z = 5.0
 BASELINE = 0.6
 
 
-def _ocam():
-    """OCam sized for a 120x120 fisheye (centre W/2,H/2; focal ~ |a0|=60)."""
-    return OCamModel(60.0, 60.0, 1.0, 0.0, 0.0, -60.0, 0.0, 6.0, -1.5, 0.25)
+def _kb():
+    """KB sized for a 120x120 fisheye (centre W/2,H/2; equidistant, 90 deg at the edge)."""
+    return KannalaBrandtModel(38.0, 38.0, W / 2, H / 2, 0.0, 0.0, 0.0, 0.0)
 
 
-def _dsplus():
-    return DSPlusModel(130.0, 130.0, W / 2, H / 2, alpha=0.55)
+def _eucm():
+    return EUCMModel(130.0, 130.0, W / 2, H / 2, 0.55, 1.0)
 
 
 def _texture(x, y):
@@ -49,7 +48,7 @@ def _render(cam, center_ref):
     return img
 
 
-@pytest.mark.parametrize("factory", [_ocam, _dsplus], ids=["ocam", "dsplus"])
+@pytest.mark.parametrize("factory", [_kb, _eucm], ids=["kb", "eucm"])
 def test_sphere_sweep_recovers_planar_depth(factory):
     cam = factory()
     ref_img = _render(cam, np.zeros(3))                   # reference at origin
@@ -73,7 +72,7 @@ def test_sphere_sweep_recovers_planar_depth(factory):
     assert (rel < 0.10).mean() > 0.85                     # the vast majority are close
 
 
-@pytest.mark.parametrize("factory", [_ocam, _dsplus], ids=["ocam", "dsplus"])
+@pytest.mark.parametrize("factory", [_kb, _eucm], ids=["kb", "eucm"])
 def test_sweep_to_points_back_projects_consistently(factory):
     cam = factory()
     img = _render(cam, np.zeros(3))

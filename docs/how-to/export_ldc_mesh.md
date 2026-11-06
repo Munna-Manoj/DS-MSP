@@ -13,7 +13,7 @@ SoC, see [Undistort a fisheye image](undistort_images.md).
 
 - `ds_msp` installed (`numpy` comes with it).
 - A calibrated camera — **any** DS-MSP `CameraModel` (`DoubleSphereModel`, `UCMModel`,
-  `EUCMModel`, `KannalaBrandtModel`, `RadTanModel`, `OCamModel`, `DSPlusModel`, the legacy
+  `EUCMModel`, `KannalaBrandtModel`, `RadTanModel`, the legacy
   `DoubleSphereCamera`, or a model you add later). The generator only calls `project()` and
   reads `K`, so every model that implements the contract works with no exporter changes.
   `width`/`height` on the model are **not** required by the mesh generator — it uses the
@@ -214,12 +214,12 @@ flags points that are not.
 
 Nothing above is specific to Double Sphere. `TI_LDC_MeshGenerator` calls only the
 `CameraModel` contract — `project()` for each node's distorted source location and `K` for
-the focal that seeds `K_new` — so a Kannala-Brandt fisheye, an OCam polynomial camera, or a
+the focal that seeds `K_new` — so a Kannala-Brandt fisheye, an EUCM camera, or a
 model added to DS-MSP next year all export through the same code path. `K_new` is the same
 matrix `Undistorter` builds for that model and `balance`, so the mesh and the software
 undistorter always share one rectified frame.
 
-{* docs_src/how_to/export_ldc_mesh/any_model.py hl[17:18,26] *}
+{* docs_src/how_to/export_ldc_mesh/any_model.py hl[18:20,29] *}
 
 <div class="termy">
 
@@ -228,9 +228,9 @@ $ python3 -m docs_src.how_to.export_ldc_mesh.any_model
 kb (31, 41, 2) int16 True
 192.3 kb
 [[320.0, 240.0], [441.83, 179.28]] [True, True]
-ocam (31, 41, 2) int16 True
-132.0 ocam
-[[320.0, 240.0], [436.57, 181.71]] [True, True]
+eucm (31, 41, 2) int16 True
+144.0 eucm
+[[320.0, 240.0], [462.44, 168.78]] [True, True]
 ```
 
 </div>

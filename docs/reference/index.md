@@ -10,7 +10,7 @@ see [Learn](../learn/README.md); for the *why* behind a design, see
 | Module | What it covers |
 |---|---|
 | [`ds_msp.core`](core.md) | The `CameraModel` protocol and shared data conventions every other module depends on. |
-| [`ds_msp.models`](models.md) | The eight camera models — Double Sphere, EUCM, Kannala-Brandt, OCam, RadTan, UCM, and their `+` extensions. |
+| [`ds_msp.models`](models.md) | The five camera models — Double Sphere, EUCM, Kannala-Brandt, RadTan and UCM. |
 | [`ds_msp.calib`](calib.md) | Single-camera intrinsics calibration — board targets, detection, bundle adjustment. |
 | [`ds_msp.detect`](detect.md) | Board/tag detection front ends (checkerboard, ChArUco, AprilGrid). |
 | [`ds_msp.adapt`](adapt.md) | Converting a calibrated model from one camera family to another. |

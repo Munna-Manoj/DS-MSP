@@ -1,7 +1,7 @@
 """The LDC mesh recipe is the same for every camera model.
 
 `TI_LDC_MeshGenerator` uses only the `CameraModel` contract (`project()` and `K`), so a
-Kannala-Brandt fisheye and an OCam polynomial camera go through exactly the code path a
+Kannala-Brandt fisheye and an EUCM camera go through exactly the code path a
 Double Sphere camera does -- and so will any model added later. Keypoints are undistorted
 with the model-agnostic closed form at the same `K_new`.
 """
@@ -9,12 +9,14 @@ with the model-agnostic closed form at the same `K_new`.
 import numpy as np
 
 from ds_msp.ldc import TI_LDC_MeshGenerator
-from ds_msp.models import KannalaBrandtModel, OCamModel
+from ds_msp.models import EUCMModel, KannalaBrandtModel
 from ds_msp.ops.undistort import Undistorter
 
 
 def main() -> None:
-    for cam in (KannalaBrandtModel.sample(), OCamModel.sample()):
+    # A 640x480 EUCM fisheye beside the KB sample, so both share one image size.
+    eucm = EUCMModel(240.0, 240.0, 320.0, 240.0, 0.6, 1.1)
+    for cam in (KannalaBrandtModel.sample(), eucm):
         gen = TI_LDC_MeshGenerator(cam)   # any CameraModel -- no model-specific code
         res = gen.generate_mesh_and_intrinsics(640, 480, downsample_factor=4, balance=0.5)
 

@@ -11,16 +11,12 @@ and asserts:
     K to a tight tolerance (``test_intrinsics_recovered_per_camera``), and
   * **Self-conversion is an exact fixed point of ``convert()``**
     (``test_convert_self_is_exact_per_camera``): converting a from-scratch fit back into its
-    own class reproduces its *projection* to machine precision, for both DS+ and KB
+    own class reproduces its *projection* to machine precision, for both Double Sphere and KB
     (independent real fits from the same detected corners).
 
-The broader "DS+ is a faithful conversion target for any real fisheye fit" claim is verified
-*synthetically* (``tests/adapt/test_convert_robustness.py::test_dsplus_is_faithful_universal_target``,
-sub-pixel across UCM/EUCM/DS/KB ground truth). On this dataset's real ~158-170 deg lenses, a
-from-scratch KB fit converted into DS+ was measured to diverge past sub-pixel at the periphery
-(up to ~1.5px RMS at 50-70 deg ray angle) — a genuine cross-family gap between DS+'s sphere
-parameterization and KB's polynomial one on this data, not asserted here pending a dedicated
-follow-up experiment.
+K recovery is asserted on the KB fit, whose ``fx, fy, cx, cy`` mean the same as the
+reference's OpenCV-fisheye camera matrix. (Until ADR-0031 it was asserted on DS+, which was
+removed.)
 
 Camera 0 here is the same physical lens used as the reference checkerboard elsewhere in the
 project; cameras 2 and 4 are distinct cameras (different K and reference reprojection).
@@ -46,7 +42,7 @@ from ds_msp.adapt import convert
 from ds_msp.adapt.evaluate import reprojection_report
 from ds_msp.calib import calibrate
 from ds_msp.detect.charuco import BoardSpec, detect_image, make_detectors
-from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.kb import KannalaBrandtModel
 
 CAMERAS = (0, 2, 4)
@@ -104,7 +100,7 @@ _CACHE: dict[int, dict] = {}
 
 
 def _fit_camera(cam: int) -> dict:
-    """Detect + calibrate DS+ and KB from a generic init, plus the two conversions.
+    """Detect + calibrate Double Sphere and KB from a generic init, plus the two conversions.
 
     Cached per camera so every test/parametrization reuses one fit.
     """
@@ -118,14 +114,14 @@ def _fit_camera(cam: int) -> dict:
         Xs, kps, vis, _ = _detect_cam(cam_dir)
         assert len(Xs) >= 30, f"cam{cam}: only {len(Xs)} usable views detected"
         f0 = W / np.pi
-        dsp = calibrate(DSPlusModel(f0, f0, W / 2, H / 2, 0.5, 0, 0, 0, 0),
+        ds = calibrate(DoubleSphereModel(f0, f0, W / 2, H / 2, 0.0, 0.5),
                         Xs, kps, vis, max_nfev=200)
         kb = calibrate(KannalaBrandtModel(f0, f0, W / 2, H / 2, 0, 0, 0, 0),
                        Xs, kps, vis, max_nfev=200)
         # convert(): self-conversions, must be an exact fixed point for both models.
-        dsp_self, _ = convert(dsp["model"], DSPlusModel, width=W, height=H)
+        ds_self, _ = convert(ds["model"], DoubleSphereModel, width=W, height=H)
         kb_self, _ = convert(kb["model"], KannalaBrandtModel, width=W, height=H)
-    out = dict(dsp=dsp, kb=kb, dsp_self=dsp_self, kb_self=kb_self,
+    out = dict(ds=ds, kb=kb, ds_self=ds_self, kb_self=kb_self,
                refK=refK, ref_reproj=ref_reproj, W=W, H=H,
                n_views=len(Xs), n_corners=sum(len(x) for x in Xs))
     _CACHE[cam] = out
@@ -148,12 +144,12 @@ def test_intrinsics_recovered_per_camera(fitted, cam):
     """Each real fisheye calibrates sub-pixel from a generic init and recovers the
     reference camera matrix K."""
     r = fitted(cam)
-    dsp, refK = r["dsp"], r["refK"]
-    assert dsp["success"], (cam, dsp)
-    assert dsp["median_px"] < 0.40, (cam, dsp["median_px"])
-    assert dsp["mean_px"] < 0.45, (cam, dsp["mean_px"])
-    assert dsp["p95_px"] < 1.0, (cam, dsp["p95_px"])
-    got = _K4(dsp["model"])
+    fit, refK = r["kb"], r["refK"]
+    assert fit["success"], (cam, fit)
+    assert fit["median_px"] < 0.40, (cam, fit["median_px"])
+    assert fit["mean_px"] < 0.45, (cam, fit["mean_px"])
+    assert fit["p95_px"] < 1.0, (cam, fit["p95_px"])
+    got = _K4(fit["model"])
     assert np.allclose(got[:2], refK[:2], rtol=0.01), (cam, got, refK)   # focal within 1%
     assert np.allclose(got[2:], refK[2:], atol=8.0), (cam, got, refK)    # centre within 8 px
 
@@ -161,12 +157,12 @@ def test_intrinsics_recovered_per_camera(fitted, cam):
 @pytest.mark.parametrize("cam", CAMERAS)
 def test_convert_self_is_exact_per_camera(fitted, cam):
     """A from-scratch calibration is a fixed point of convert(): a model -> its own class
-    reproduces the source *projection* to machine precision. Checked for BOTH DS+ and KB.
+    reproduces the source *projection* to machine precision. Checked for BOTH DS and KB.
     Exactness is measured by reprojection RMS, not parameter distance: when alpha sits at its
     bound the parameterization is degenerate (equivalent param sets project identically), so
     projection equivalence is the meaningful contract."""
     r = fitted(cam)
-    rms_ds = reprojection_report(r["dsp"]["model"], r["dsp_self"], r["W"], r["H"])["rms_px"]
+    rms_ds = reprojection_report(r["ds"]["model"], r["ds_self"], r["W"], r["H"])["rms_px"]
     rms_kb = reprojection_report(r["kb"]["model"], r["kb_self"], r["W"], r["H"])["rms_px"]
-    assert rms_ds < 1e-3, (cam, "dsplus", rms_ds)
+    assert rms_ds < 1e-3, (cam, "ds", rms_ds)
     assert rms_kb < 1e-3, (cam, "kb", rms_kb)

@@ -8,7 +8,7 @@ independent **shape** degrees of freedom each model exposes in its radial profil
 r(theta). Expand the normalised profile as ``r/r'(0) = theta + c3 theta^3 +
 c5 theta^5 + ...``; the map (shape params) -> (c3, c5, c7, ...) has image
 dimension equal to the shape-parameter count: UCM 1, Double Sphere 2, EUCM 2,
-OCam 4, Kannala-Brandt 4. A Kannala-Brandt source fixes four independent
+Kannala-Brandt 4. A Kannala-Brandt source fixes four independent
 coefficients (k1..k4); a model with fewer shape dof generically cannot reach that
 point, so its *global* optimum carries a strictly positive residual (tens of
 pixels for a strongly-distorted lens). This is geometry of the model family, not
@@ -20,9 +20,8 @@ term (i.e. they lie on the DS image).
 tries a capability-ordered ladder of target models and returns the **simplest one
 that meets a reprojection-RMS tolerance** (Occam's razor — prefer the fewest
 parameters that suffice). If none meet the tolerance it returns the best
-available and says so. The default ladder ends in OCam (a polynomial radial map),
-which can reproduce any Kannala-Brandt lens — itself a radial polynomial — to
-well under a pixel.
+available and says so. The default ladder ends in Kannala-Brandt, the most
+capable shipped model (four shape dof, a polynomial in the incidence angle).
 
 This module is allowed to depend on concrete models (it provides a default
 ladder); ``convert`` itself stays model-free.
@@ -38,10 +37,10 @@ from .convert import convert
 
 def default_ladder() -> Tuple[Type[CameraModel], ...]:
     """Capability-ordered target models, simplest (fewest params) first."""
-    from ..models import DoubleSphereModel, EUCMModel, OCamModel, UCMModel
-    # UCM(5) < DS(6) = EUCM(6) < OCam(10). DS before EUCM keeps the namesake
+    from ..models import DoubleSphereModel, EUCMModel, KannalaBrandtModel, UCMModel
+    # UCM(5) < DS(6) = EUCM(6) < KB(8). DS before EUCM keeps the namesake
     # sphere model preferred when a 2-extra-param sphere fit suffices.
-    return (UCMModel, DoubleSphereModel, EUCMModel, OCamModel)
+    return (UCMModel, DoubleSphereModel, EUCMModel, KannalaBrandtModel)
 
 
 def convert_best(source: CameraModel, *, width: int, height: int,

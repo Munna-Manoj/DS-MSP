@@ -1,6 +1,6 @@
 """Front-end intrinsic pre-calibration should not re-solve an identical deterministic problem
 twice. Verifies NFR-PERF-002: for a model whose ``initialize_from_correspondences`` is a
-neutral-distortion no-op (RadTan, OCam), the model-aware seed and the plain from-``K`` seed are
+neutral-distortion no-op (RadTan), the model-aware seed and the plain from-``K`` seed are
 byte-identical, so the "Two-start" step must skip the duplicate solve; a model with a genuine
 closed-form distortion seed (KB, DS/UCM/EUCM sphere models) must keep both starts.
 """
@@ -70,7 +70,7 @@ def test_the_skipped_candidate_is_a_true_duplicate_not_an_approximation():
     """The dedup is only correct if the two Two-start seeds are genuinely byte-identical on
     real correspondence data (not just in the zero-ray edge case) — i.e. skipping the second
     solve cannot change the result, because it would have converged to what the first solve
-    already found. RadTan/OCam: identical (skip is lossless). KB/DS: genuinely different
+    already found. RadTan: identical (skip is lossless). KB/DS: genuinely different
     (skip would be lossy, so the front-end must keep both)."""
     def fac(cam_id, rng):
         fx = 700.0 * rng.uniform(0.98, 1.02)

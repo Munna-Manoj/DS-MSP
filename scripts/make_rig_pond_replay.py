@@ -13,6 +13,11 @@ gzip-compressed. Measured on this exact recording: 16.3 MB raw -> 8.0 MB rounded
 0.38 MB gzip-compressed, with all frames kept (no subsampling). A browser can decompress this
 client-side with the native ``DecompressionStream('gzip')`` Web API -- no external JS library.
 
+Note (ADR-0031): the shipped replay was recorded with the DS+ model, which DS-MSP no
+longer ships, so this script cannot reproduce it as is. To regenerate, point CONFIG_PATH
+at a config that keeps the cameras' own KB/RadTan models (plain DS cannot represent these
+~170 deg lenses).
+
 Uses the cameras' real, pre-provided original intrinsics (KB for the 6 fisheye cameras,
 RadTan for the 2 pinhole cameras) seeded from the dataset's own ground-truth
 calibrated_cameras_data.yml, converting kb->dsplus for the fisheye cameras (radtan stays

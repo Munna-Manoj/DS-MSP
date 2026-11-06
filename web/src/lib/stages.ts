@@ -36,16 +36,6 @@ const MIDDLE: Record<string, Stage> = {
     eq: "x′ = a(1 + k₁r² + k₂r⁴ + …) + tangential",
     detail: "Perspective divide by Z, then bend the rays radially & tangentially.",
   },
-  ocam: {
-    title: "Scaramuzza polynomial",
-    eq: "solve  w(ρ) + (Z / √(X²+Y²))·ρ = 0",
-    detail: "Fit the lens's radius curve directly — no focal length at all.",
-  },
-  dsplus: {
-    title: "DS⁺ — UCM + division + tilt",
-    eq: "den = α‖P‖ + (1−α)Z,   ÷(1 + λ₁r² + λ₂r⁴),   tilt τ",
-    detail: "UCM sphere, then a Fitzgibbon division (θ³,θ⁵) and a Scheimpflug tilt — each stage closed-form invertible.",
-  },
 };
 
 export function stagesFor(model: CameraModel): Stage[] {

@@ -50,9 +50,9 @@ def random_model_assignment(cam_ids: List[int], *, kind: str = "pinhole",
                             seed: int = 0, allowed=None) -> Dict[int, str]:
     """Assign each camera a random *valid* model name.
 
-    ``kind="pinhole"`` draws from {radtan, ucm, eucm, ds, ocam} (KB excluded — it is
-    fisheye-only); ``kind="fisheye"`` from {kb, ucm, eucm, ds, ocam} (RadTan excluded — it
-    cannot represent a fisheye). The sphere/polynomial models handle both. Pass ``allowed``
+    ``kind="pinhole"`` draws from {radtan, ucm, eucm, ds} (KB excluded — it is
+    fisheye-only); ``kind="fisheye"`` from {kb, ucm, eucm, ds} (RadTan excluded — it
+    cannot represent a fisheye). The sphere models handle both. Pass ``allowed``
     to restrict the pool.
     """
     pool = list(allowed) if allowed is not None else list(

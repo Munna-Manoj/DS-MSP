@@ -12,7 +12,7 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0002](ADR-0002-protocol-camera-models.md) | One `CameraModel` protocol for all interchangeable models | Accepted | Drop-in model substitution |
 | [ADR-0003](ADR-0003-analytic-jacobians.md) | Hand-derived analytic Jacobians, finite-difference-checked (no autodiff) | Accepted | Speed, stability, portability |
 | [ADR-0004](ADR-0004-cv2-scipy-free-foundation.md) | The math foundation is cv2/scipy-free | Accepted | Portable solver path |
-| [ADR-0005](ADR-0005-dsplus-eucmplus.md) | DS⁺ / EUCM⁺ closed-form-invertible camera models | Partially superseded by ADR-0010, ADR-0027 | Sub-0.3px fit with a closed-form inverse |
+| [ADR-0005](ADR-0005-dsplus-eucmplus.md) | DS⁺ / EUCM⁺ closed-form-invertible camera models | Superseded by ADR-0010, ADR-0031 | Sub-0.3px fit with a closed-form inverse |
 | [ADR-0006](ADR-0006-synthetic-real-release-gate.md) | Synthetic-then-real-data release gate | Accepted | No public release without real-data validation |
 | [ADR-0007](ADR-0007-deterministic-convert-seeding.md) | Deterministic shape-parameter sweep in model conversion | Accepted | Reproducible, exact self-conversion (no restart lottery) |
 | [ADR-0008](ADR-0008-noncommercial-engine-scope.md) | Noncommercial license covers the robust calibrate/convert engine, not just the Plus models | Superseded by ADR-0010 | Protect the real IP, not just published math |
@@ -34,8 +34,8 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0024](ADR-0024-pixel-centre-corner-convention.md) | One pixel-centre convention for every detector | Accepted | ChArUco corners lose OpenCV 4.x's +0.5 px offset; keypoint caches are labeled and legacy caches migrate explicitly |
 | [ADR-0025](ADR-0025-joint-rigid-target-refinement.md) | Joint rigid multi-board target refinement by default | Accepted | Inter-board poses are shared BA parameters with printed shape held (`structure_mode: rigid`); bend/free/off are explicit |
 | [ADR-0026](ADR-0026-production-acceptance.md) | Production acceptance: uncertainty gate, strict configuration, rejection ledger | Accepted | Per-pair extrinsic 1σ from the Schur-marginalised clustered sandwich gates export; production profile refuses weak captures and unknown keys |
-| [ADR-0027](ADR-0027-dsplus-experimental.md) | DS⁺ is an experimental model, not for production | Accepted | DS⁺ tilt absorbs camera x/y rotation, so rig extrinsics are not determined; docs mark it experimental |
-| [ADR-0028](ADR-0028-ocam-rig-roll.md) | OCam does not determine camera roll in a rig | Accepted | The OCam affine absorbs camera roll exactly; OCam stays supported, docs warn against it for rig extrinsics |
+| [ADR-0027](ADR-0027-dsplus-experimental.md) | DS⁺ is an experimental model, not for production | Superseded by ADR-0031 | DS⁺ tilt absorbs camera x/y rotation, so rig extrinsics are not determined; docs mark it experimental |
+| [ADR-0028](ADR-0028-ocam-rig-roll.md) | OCam does not determine camera roll in a rig | Superseded by ADR-0031 | The OCam affine absorbs camera roll exactly; OCam stays supported, docs warn against it for rig extrinsics |
 
 > The first six ADRs are **retrofits**: they record decisions already embodied in the codebase, so
 > the governance system is demonstrated against real architecture from day one. Adoption date is the
@@ -43,3 +43,4 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 > recorded as they are made (ADR-0007: a convert-robustness fix found by real-data study).
 | [ADR-0029](ADR-0029-rig-frame-pose-recovery.md) | Preserve supplied lenses and recover unsupported frame poses | Accepted | Guarded resection without discarded observations; final-state support audit |
 | [ADR-0030](ADR-0030-board-level-lens-seed.md) | Seed lenses from printed boards with the radial constraint | Accepted | Target and extrinsic seeds stop depending on a pinhole bootstrap; fallback retained |
+| [ADR-0031](ADR-0031-remove-dsplus-and-ocam.md) | Remove the DS⁺ and OCam camera models | Accepted | Both leave rig extrinsics unobservable; deleted with no deprecation window; old files fail with the reason |

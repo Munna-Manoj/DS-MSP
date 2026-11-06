@@ -1,9 +1,9 @@
-"""Wide-FOV forward-hemisphere PnP recovery, exercised on the two polynomial models.
+"""Wide-FOV forward-hemisphere PnP recovery, exercised on the KB and EUCM models.
 
 The polymorphic PnP suite (``test_ops_polymorphic.py``) uses a small planar target near
 the optical axis. These tests push a genuinely wide, *non-coplanar* forward-hemisphere point
-cloud (bearings out to ~70-75° off axis) through the OCam (Scaramuzza polynomial) and DS+
-(UCM core + division + tilt) models, then recover the camera pose from bearing rays via
+cloud (bearings out to ~70-75° off axis) through the Kannala-Brandt (polynomial) and EUCM
+(sphere) models, then recover the camera pose from bearing rays via
 ``solve_pnp`` / ``solve_pnp_ransac``. This proves the model-agnostic pose ops work on the two
 models that are otherwise absent from the task-level suites — not just on Double Sphere.
 
@@ -18,11 +18,11 @@ import pytest
 
 from ds_msp.ops import solve_pnp, solve_pnp_ransac
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.models.ocam import OCamModel
-from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.eucm import EUCMModel
+from ds_msp.models.kb import KannalaBrandtModel
 
-# DS kept alongside OCam/DS+ so this file also asserts parity with the reference model.
-MODELS = [DoubleSphereModel.sample, OCamModel.sample, DSPlusModel.sample]
+# DS kept alongside KB/EUCM so this file also asserts parity with the reference model.
+MODELS = [DoubleSphereModel.sample, KannalaBrandtModel.sample, EUCMModel.sample]
 
 
 def _wide_fov_cloud(seed: int = 3, n: int = 90):

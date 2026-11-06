@@ -6,8 +6,7 @@
 
 ## When
 
-You need a projection model that isn't one of the existing seven (DS, UCM, EUCM, KB, RadTan, OCam,
-DS⁺).
+You need a projection model that isn't one of the existing five (DS, UCM, EUCM, KB, RadTan).
 
 ## Steps
 

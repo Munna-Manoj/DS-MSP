@@ -5,15 +5,13 @@ import pytest
 
 from ds_msp.io.kalibr import to_kalibr_cam, from_kalibr_cam, save_kalibr, load_kalibr
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
-from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 
 MODELS = [DoubleSphereModel.sample, EUCMModel.sample, KannalaBrandtModel.sample,
-          RadTanModel.sample, UCMModel.sample, DSPlusModel.sample, OCamModel.sample]
+          RadTanModel.sample, UCMModel.sample]
 
 
 @pytest.mark.parametrize("factory", MODELS, ids=lambda f: f().name)
@@ -76,20 +74,14 @@ def test_ucm_omni_xi_mapping_roundtrips(tmp_path):
     assert np.isclose(back.alpha, 0.62)
 
 
-def test_dsplus_is_a_ds_msp_extension_with_no_kalibr_native_equivalent():
-    """DS+ has no camera_model in a real Kalibr installation -- this is a DS-MSP
-    extension (see the module docstring), analogous to how ds_msp.rig already extends
-    MC-Calib's own format. Only asserts DS-MSP's own round-trip; a real Kalibr cannot read
-    ds_plus."""
-    m = DSPlusModel(996.1, 995.9, 1276.6, 875.3, 0.7226, -0.2795, 0.1122, -0.0014, 0.0020)
-    block = to_kalibr_cam(m, 2592, 1800)
-    assert block["camera_model"] == "ds_plus"
-    assert block["intrinsics"][0] == m.alpha           # alpha first, then fx,fy,cx,cy
-    assert block["intrinsics"][1:] == [m.fx, m.fy, m.cx, m.cy]
-    assert block["distortion_coeffs"] == [m.lambda1, m.lambda2, m.tau_x, m.tau_y]
-    back = from_kalibr_cam(block)
-    assert isinstance(back, DSPlusModel)
-    assert np.allclose(back.params, m.params)
+@pytest.mark.parametrize("cm", ["ds_plus", "ocam"])
+def test_removed_extension_model_is_rejected_with_reason(cm):
+    """DS+ and OCam were DS-MSP-only Kalibr extensions, removed by ADR-0031. An old stanza
+    must fail with the reason, not be read as another model."""
+    block = dict(camera_model=cm, intrinsics=[0.5, 300.0, 300.0, 640.0, 480.0],
+                 distortion_model="none", distortion_coeffs=[], resolution=[1280, 960])
+    with pytest.raises(ValueError, match="ADR-0031"):
+        from_kalibr_cam(block)
 
 
 def test_calib_load_camera_reexports_load_kalibr():

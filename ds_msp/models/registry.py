@@ -16,10 +16,8 @@ import numpy as np
 
 from ..core.contracts import CameraModel
 from .double_sphere import DoubleSphereModel
-from .dsplus import DSPlusModel
 from .eucm import EUCMModel
 from .kb import KannalaBrandtModel
-from .ocam import OCamModel
 from .radtan import RadTanModel
 from .ucm import UCMModel
 
@@ -30,8 +28,6 @@ _BY_NAME: Dict[str, Type[CameraModel]] = {
     "ucm": UCMModel,
     "eucm": EUCMModel,
     "kb": KannalaBrandtModel,
-    "ocam": OCamModel,
-    "dsplus": DSPlusModel,
 }
 
 #: Accepted aliases (MC-Calib strings + legacy ints) -> canonical DS-MSP name.
@@ -39,29 +35,28 @@ _ALIAS: Dict[str, str] = {
     "double_sphere": "ds", "doublesphere": "ds",
     "kannala": "kb", "kannala_brandt": "kb", "fisheye": "kb",
     "brown": "radtan", "perspective": "radtan", "opencv": "radtan",
-    "ocam_calib": "ocam", "ocamcalib": "ocam", "scaramuzza": "ocam",
-    "ds+": "dsplus", "ds_plus": "dsplus", "doublespheres_plus": "dsplus",
     "0": "radtan", "1": "kb",                      # legacy distortion_model ints
 }
 
 #: DS-MSP name -> the string MC-Calib writes in calibrated_cameras_data.yml.
 _TO_MCCALIB: Dict[str, str] = {
     "radtan": "radtan", "ds": "double_sphere", "ucm": "ucm",
-    "eucm": "eucm", "kb": "kb", "ocam": "ocam", "dsplus": "dsplus",
+    "eucm": "eucm", "kb": "kb",
 }
 
 #: Models valid for a (forward-facing) pinhole camera, and for a fisheye camera, used by the
 #: random model-of-choice assignment. KB is fisheye-only; RadTan/Brown is pinhole-only; UCM /
-#: EUCM / Double-Sphere handle both. OCam is intentionally *not* in these auto pools: it is
-#: fully selectable by name (``model_class("ocam")``) and writes/reads in MC-Calib format, but
-#: its from-scratch front-end initialization (a forward projection polynomial seeded from
-#: pinhole bearings) is not yet robust on every real camera, so it is opt-in rather than part
-#: of the validated random sweep.
+#: EUCM / Double-Sphere handle both.
 PINHOLE_MODELS = ("radtan", "ucm", "eucm", "ds")
 FISHEYE_MODELS = ("kb", "ucm", "eucm", "ds")
-#: Full validity sets including OCam (for explicit selection / capability listing).
-PINHOLE_MODELS_ALL = ("radtan", "ucm", "eucm", "ds", "ocam")
-FISHEYE_MODELS_ALL = ("kb", "ucm", "eucm", "ds", "ocam")
+
+
+#: Models removed by ADR-0031: both leave rig extrinsics unobservable. Named here so
+#: an old config or calibration file fails with the reason instead of "unknown model".
+_REMOVED = {
+    "ocam": "OCam", "ocam_calib": "OCam", "ocamcalib": "OCam", "scaramuzza": "OCam",
+    "dsplus": "DS+", "ds+": "DS+", "ds_plus": "DS+", "doublespheres_plus": "DS+",
+}
 
 
 def canonical_name(name) -> str:
@@ -71,6 +66,11 @@ def canonical_name(name) -> str:
         return s
     if s in _ALIAS:
         return _ALIAS[s]
+    if s in _REMOVED:
+        raise KeyError(f"camera model {name!r} ({_REMOVED[s]}) was removed from DS-MSP: "
+                       f"its extra terms are indistinguishable from camera rotation in a rig "
+                       f"(ADR-0031). Use one of {sorted(_BY_NAME)}; KB or DS fit the same "
+                       f"wide-angle lenses.")
     raise KeyError(f"unknown camera model {name!r}; "
                    f"known: {sorted(_BY_NAME)} (+ aliases {sorted(_ALIAS)})")
 
@@ -87,14 +87,11 @@ def mccalib_name(name) -> str:
 
 # Neutral seed values per intrinsic parameter name — a generic, GT-free starting point for
 # from-scratch calibration of any model. Distortion/shape params not listed here seed to 0.0
-# (see seed_from_K), so any model — including DS+ whose extra terms (lambda1/lambda2
-# division-distortion, tau_x/tau_y tilt) are neutral at 0 — is supported without enumerating
-# every parameter name. Moved here (from ds_msp.rig.calibrate, its original home) rather than
+# (see seed_from_K), so any model is supported without enumerating every parameter name. Moved here (from ds_msp.rig.calibrate, its original home) rather than
 # ds_msp.geometry.resection: this is trivial, mechanical plumbing (instantiate model_cls with
 # neutral defaults, no cv2/scipy) that belongs with the other model-registry helpers.
 _NEUTRAL = {"alpha": 0.5, "xi": 0.0, "beta": 1.0, "k1": 0.0, "k2": 0.0, "k3": 0.0,
-            "k4": 0.0, "p1": 0.0, "p2": 0.0,
-            "lambda1": 0.0, "lambda2": 0.0, "tau_x": 0.0, "tau_y": 0.0}
+            "k4": 0.0, "p1": 0.0, "p2": 0.0}
 
 
 def seed_from_K(model_cls: Type[CameraModel], K: np.ndarray) -> CameraModel:
@@ -103,8 +100,7 @@ def seed_from_K(model_cls: Type[CameraModel], K: np.ndarray) -> CameraModel:
     ``ds_msp.rig`` (per-camera intrinsics front-end) and ``ds_msp.calib`` (single-camera
     calibration)."""
     if not set(model_cls.param_names) >= {"fx", "fy"}:
-        # Non-pinhole-parameterized model (e.g. OCam: cx,cy + projection polynomial). It
-        # has no fx/fy; seed cx,cy + a focal-scaled leading polynomial term and let
+        # A model without fx/fy (none ship today): seed the principal point only and let
         # `initialize_from_correspondences` fit the rest from rays.
         return model_cls(K[0, 2], K[1, 2])
     vals = {"fx": K[0, 0], "fy": K[1, 1], "cx": K[0, 2], "cy": K[1, 2], **_NEUTRAL}

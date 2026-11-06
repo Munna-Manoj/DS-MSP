@@ -55,8 +55,8 @@ from ds_msp.rig.pose_init import robust_pose_irls                         # noqa
 from ds_msp.rig.reconstruct import (detect_board_obs_images,              # noqa: E402
                                     object_obs_from_board_obs_multi)
 
-PINHOLE = ["radtan", "kb", "ucm", "eucm", "ds", "dsplus", "ocam"]
-FISHEYE = ["kb", "ucm", "eucm", "ds", "dsplus", "ocam"]          # radtan: negative control
+PINHOLE = ["radtan", "kb", "ucm", "eucm", "ds"]
+FISHEYE = ["kb", "ucm", "eucm", "ds"]          # radtan: negative control
 N_MIXED = 13
 MM_PER_UNIT = 10.0
 _FRAME = re.compile(r"(\d+)\D*$")

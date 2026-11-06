@@ -129,13 +129,10 @@ def _load_mccalib(
                 f"{layout}, artifact has {distortion.size}"
             )
         kwargs = dict(zip(layout, distortion.tolist()))
-        if selected == "ocam":
-            kwargs.update(cx=float(matrix[0, 2]), cy=float(matrix[1, 2]))
-        else:
-            kwargs.update(
-                fx=float(matrix[0, 0]), fy=float(matrix[1, 1]),
-                cx=float(matrix[0, 2]), cy=float(matrix[1, 2]),
-            )
+        kwargs.update(
+            fx=float(matrix[0, 0]), fy=float(matrix[1, 1]),
+            cx=float(matrix[0, 2]), cy=float(matrix[1, 2]),
+        )
         model = model_class(selected)(**kwargs)
     return LoadedCalibration(
         model, _resolution_or_override((width, height), resolution),

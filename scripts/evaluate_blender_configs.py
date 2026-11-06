@@ -11,7 +11,7 @@ Two modes are run for every scenario, mirroring the two questions a user asks of
   * **given**  — *use the default given intrinsics, no intrinsics optimization.*
                  ``camera_models: radtan`` + ``cam_params_path`` (the scenario's prior
                  MC-Calib intrinsics) + ``fix_intrinsic: true``. Extrinsics-only solve.
-  * **dsplus** — *calibrate from scratch with DS+.* ``camera_models: dsplus`` +
+  * **ds** — *calibrate from scratch with Double Sphere.* ``camera_models: ds`` +
                  ``cam_params_path: None`` + ``fix_intrinsic: false``. Intrinsics + extrinsics
                  estimated from scratch.
 
@@ -48,14 +48,14 @@ SCENARIOS = {
 
 # mode -> (camera model, fix_intrinsic, whether to pass the given intrinsics file)
 #  given         : authors' original intrinsics (radtan) held fixed; extrinsics-only.
-#  dsplus        : DS+ from scratch, no given intrinsics; intrinsics + extrinsics.
-#  dsplus_seeded : authors' original intrinsics provided BUT camera type = DS+ and optimize ON
-#                  -> convert() seeds DS+ from the original radtan lens, then intrinsics +
+#  ds            : Double Sphere from scratch, no given intrinsics; intrinsics + extrinsics.
+#  ds_seeded : authors' original intrinsics provided BUT camera type = Double Sphere and optimize ON
+#                  -> convert() seeds Double Sphere from the original radtan lens, then intrinsics +
 #                  extrinsics are refined jointly. Directly comparable to `given` on extrinsics.
 MODES = {
     "given":         dict(model="radtan", fix="true", use_params=True),
-    "dsplus":        dict(model="dsplus", fix="false", use_params=False),
-    "dsplus_seeded": dict(model="dsplus", fix="false", use_params=True),
+    "ds":            dict(model="ds", fix="false", use_params=False),
+    "ds_seeded": dict(model="ds", fix="false", use_params=True),
 }
 
 _CFG_TMPL = """%YAML:1.0
@@ -139,7 +139,7 @@ def mccalib_focal_vs_gt(scn_dir):
     """Worst paraxial-focal error (%) of the scenario's *own prior* MC-Calib calibration vs
     ground truth — the reference the `given` mode holds fixed. Contextualizes any large
     `foc%GT`: a camera whose focal MC-Calib itself cannot recover from its views is inherently
-    unobservable, and DS+ from scratch is expected to land at the same gap, not closer."""
+    unobservable, so a from-scratch fit cannot be expected to close that gap."""
     gt = _load_groundtruth(os.path.join(scn_dir, "GroundTruth.yml"))
     mc_path = os.path.join(scn_dir, "Results", "calibrated_cameras_data.yml")
     if not os.path.exists(mc_path):
@@ -267,8 +267,8 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
          "Two modes per scenario:", "",
          "* **given** — use the default *given* intrinsics with **no intrinsics optimization** "
          "(`camera_models: radtan`, `cam_params_path` set, `fix_intrinsic: true`); extrinsics-only.",
-         "* **dsplus** — calibrate **from scratch with DS+** "
-         "(`camera_models: dsplus`, `cam_params_path: None`, `fix_intrinsic: false`); "
+         "* **ds** — calibrate **from scratch with Double Sphere** "
+         "(`camera_models: ds`, `cam_params_path: None`, `fix_intrinsic: false`); "
          "intrinsics + extrinsics estimated jointly.", "",
          "Both reuse the pre-detected 2D keypoints (`keypoints_path`) so the rig reconstruction "
          "+ bundle-adjustment math is what is exercised. `base%GT` = worst inter-camera baseline "
@@ -293,47 +293,47 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
     # reprojection tracks the reference per camera, and explains any scenario with elevated RMS
     # (it is outlier-driven in the shared corners, identical in MC-Calib's own result).
     if any(mc_rms.values()):
-        L += ["", "## Reference parity — DS-MSP[dsplus] vs MC-Calib's own published reprojection",
+        L += ["", "## Reference parity — DS-MSP[ds] vs MC-Calib's own published reprojection",
               "", "Same 2D corners; `MC rms`/`MC med` are from each scenario's shipped "
               "`Results/reprojection_error_data.yml`. Our per-camera RMS matches MC-Calib's, "
               "including the cameras whose RMS is inflated by a few outlier corners (low median, "
               "high RMS) present in the shared detections.", "",
               "| dataset | cam | ours rms px | MC rms px | ours/MC | MC median px |",
               "|---|---|---|---|---|---|"]
-        ours = {(r["scn"], r["cam"]): r["rms"] for r in detail if r["mode"] == "dsplus"}
+        ours = {(r["scn"], r["cam"]): r["rms"] for r in detail if r["mode"] == "ds"}
         for scn in mc_rms:
             for c in sorted(mc_rms[scn]):
                 o = ours.get((scn, c), float("nan"))
                 rms, med, _ = mc_rms[scn][c]
                 ratio = o / rms if rms > 1e-9 else float("nan")
                 L.append(f"| {scn} | {c} | {o:.3f} | {rms:.3f} | {ratio:.2f}× | {med:.3f} |")
-    # Focused comparison: does choosing DS+ and *optimizing* intrinsics
+    # Focused comparison: does choosing Double Sphere and *optimizing* intrinsics
     # (seeded from the authors' original intrinsics via convert()) change baseline length
     # vs holding those original intrinsics fixed (the `given` run)?
     by = {(s["scn"], s["mode"]): s for s in summary}
-    scns = [s for s in SCENARIOS if (s, "given") in by and (s, "dsplus_seeded") in by]
+    scns = [s for s in SCENARIOS if (s, "given") in by and (s, "ds_seeded") in by]
     if scns:
-        L += ["", "## Extrinsics: original intrinsics *held fixed* vs DS+ *seeded-from-original + "
+        L += ["", "## Extrinsics: original intrinsics *held fixed* vs Double Sphere *seeded-from-original + "
               "optimized*", "",
               "Both runs start from the **same authors' original intrinsics**. `given` holds them "
-              "fixed (radtan, `fix_intrinsic: true`) and solves extrinsics only; `dsplus_seeded` "
-              "selects DS+ with `fix_intrinsic: false`, so `convert()` seeds DS+ from that original "
+              "fixed (radtan, `fix_intrinsic: true`) and solves extrinsics only; `ds_seeded` "
+              "selects Double Sphere with `fix_intrinsic: false`, so `convert()` seeds Double Sphere from that original "
               "lens and the bundle adjustment then refines intrinsics **and** extrinsics. "
               "`base%GT` = worst inter-camera baseline-length error vs ground truth "
               "(lower = better).", "",
-              "| dataset | given base%GT (fixed) | dsplus_seeded base%GT (optimized) | Δ base%GT "
-              "| given max rms | dsplus_seeded max rms |",
+              "| dataset | given base%GT (fixed) | ds_seeded base%GT (optimized) | Δ base%GT "
+              "| given max rms | ds_seeded max rms |",
               "|---|---|---|---|---|---|"]
         for s in scns:
-            g, d = by[(s, "given")], by[(s, "dsplus_seeded")]
+            g, d = by[(s, "given")], by[(s, "ds_seeded")]
             delta = d["worst_base"] - g["worst_base"]
             L.append(f"| {s} | {g['worst_base']:.3f} | {d['worst_base']:.3f} | "
                      f"{delta:+.3f} | {g['max_rms']:.3f} | {d['max_rms']:.3f} |")
         gmax = max(by[(s, "given")]["worst_base"] for s in scns)
-        dmax = max(by[(s, "dsplus_seeded")]["worst_base"] for s in scns)
+        dmax = max(by[(s, "ds_seeded")]["worst_base"] for s in scns)
         L += ["", f"Worst baseline-length error vs GT — original-fixed: **{gmax:.3f}%**, "
-              f"DS+-seeded-optimized: **{dmax:.3f}%**. Both stay far below the 1% bar; optimizing "
-              f"intrinsics in DS+ (seeded from the original lens) keeps this scalar diagnostic "
+              f"DS-seeded-optimized: **{dmax:.3f}%**. Both stay far below the 1% bar; optimizing "
+              f"intrinsics in Double Sphere (seeded from the original lens) keeps this scalar diagnostic "
               f"similar. It does not establish equal full-pose accuracy."]
     base_ok = all(np.isfinite(s["worst_base"]) and s["worst_base"] < 1.0 for s in summary)
     rms_ok = all(np.isfinite(s["max_rms"]) and s["max_rms"] < 1.0 for s in summary)
@@ -346,16 +346,15 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
           "MC-Calib calibration** — the intrinsics the `given` mode holds fixed — already "
           f"deviates from ground truth by up to **{mc_max:.2f}%**. Those camera views simply do "
           "not constrain the focal (a known property of these Blender placements), so the focal "
-          "is inherently unrecoverable. The decisive observation is that **DS+ from scratch "
-          "lands at the same ~4% gap as the given MC-Calib intrinsics** (per-camera `foc%GT` "
-          "agrees to <0.1%), i.e. DS+ is exactly as close to ground truth as the established "
+          "is inherently unrecoverable. Compare the scratch mode's per-camera `foc%GT` with the "
+          "given mode in the table above. "
           "reference. Where the focal *is* observable, every camera recovers it to <0.7%.", "",
           f"**Worst baseline-length error vs GT: {worst_b:.3f}%** "
           f"({'PASS &lt;1%' if base_ok else 'FAIL'}).",
           f"**Worst reprojection RMS: {worst_r:.3f} px** "
           f"({'PASS &lt;1px' if rms_ok else 'FAIL'}).", "",
           f"**LEGACY TABLE CHECK: {'PASS' if base_ok and rms_ok else 'FAIL'}** — across every Blender "
-          f"scenario, with the default given intrinsics held fixed *and* with DS+ estimated "
+          f"scenario, with the default given intrinsics held fixed *and* with Double Sphere estimated "
           f"from scratch, baseline length stays within 1% at sub-pixel training reprojection. "
           f"This is not a full-pose accuracy verdict. The two modes agree to within "
           f"{max(abs(a['mean_rms']-b['mean_rms']) for a in summary for b in summary if a['scn']==b['scn']):.3f}"
@@ -367,7 +366,7 @@ def _write_markdown(summary, detail, mc_ref, mc_rms, root):
 
 if __name__ == "__main__":
     # usage: evaluate_blender_configs.py [blender_root] [mode1,mode2,...]
-    #   modes default to all of MODES; e.g. "given,dsplus" for the 5x2 run.
+    #   modes default to all of MODES; e.g. "given,ds" for the 5x2 run.
     rt = sys.argv[1] if len(sys.argv) > 1 else "Blender_Images"
     md = sys.argv[2].split(",") if len(sys.argv) > 2 else None
     ok = main(rt, modes=md)

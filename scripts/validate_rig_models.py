@@ -1,7 +1,7 @@
 """Validate per-camera model-of-choice on the real MC-Calib Blender datasets.
 
 For each scenario and several RNG seeds we assign **each camera a random valid model**
-(the Blender cameras are pinhole, so the pool is {radtan, ucm, eucm, ds, ocam} — KB is
+(the Blender cameras are pinhole, so the pool is {radtan, ucm, eucm, ds} — KB is
 fisheye-only and excluded), run the full rig calibration, write MC-Calib-format output, and
 check the recovered extrinsics against both ground truth and MC-Calib's own result. This is
 the "users can pick any model per camera and still get MC-Calib accuracy" guarantee, on real

@@ -210,15 +210,19 @@ def _camera_model_field(cn) -> Optional[str]:
     """The canonical model an MC-Calib ``camera_<i>`` node states, or ``None`` for a plain file.
 
     Prefers DS-MSP's ``camera_model`` string (it names *every* model — the only field that can
-    distinguish ucm/eucm/ds/dsplus, all of which MC-Calib writes with ``distortion_type`` 1).
+    distinguish ucm/eucm/ds, all of which MC-Calib writes with ``distortion_type`` 1).
     Falls back to MC-Calib's own ``distortion_type``/``disto_type`` int (0 Brown→radtan,
-    1 Kannala→kb, 2 double-sphere→ds). Unknown strings are ignored (treated as "not stated")."""
-    from ..models.registry import canonical_name
+    1 Kannala→kb, 2 double-sphere→ds). Unknown strings are ignored (treated as "not stated"),
+    but a removed model (DS+, OCam) raises: its ``distortion_type`` 1 would otherwise be read
+    back as KB."""
+    from ..models.registry import _REMOVED, canonical_name
     cm = cn.getNode("camera_model")
     if cm is not None and not cm.empty() and cm.isString():
         try:
             return canonical_name(cm.string())
         except KeyError:
+            if cm.string().strip().lower() in _REMOVED:
+                raise
             return None
     for key in ("distortion_type", "disto_type"):
         n = cn.getNode(key)
@@ -314,7 +318,7 @@ def save_mccalib_cameras(rig, path: str, *, cam_groups: Optional[Dict[int, int]]
                  np.asarray(model.distortion, float).reshape(1, -1))
         # distortion_type keeps MC-Calib's field present for every camera (0=Brown/perspective,
         # 1=Kannala/fisheye-family); camera_model carries the exact model for the DS-MSP
-        # extension models (ucm/eucm/ds/ocam) MC-Calib's two-model enum cannot name.
+        # extension models (ucm/eucm/ds) MC-Calib's two-model enum cannot name.
         fs.write("distortion_type", 0 if model.name == "radtan" else 1)
         fs.write("camera_model", mccalib_name(model.name))
         fs.write("camera_group", int(groups.get(c, 0)))
@@ -326,16 +330,14 @@ def save_mccalib_cameras(rig, path: str, *, cam_groups: Optional[Dict[int, int]]
 
 
 #: Per-model ``distortion_vector`` field order -- the exact inverse of each model's own
-#: ``.distortion`` property (see e.g. ``ds_msp/models/dsplus.py``), needed to reconstruct a
+#: ``.distortion`` property (see e.g. ``ds_msp/models/eucm.py``), needed to reconstruct a
 #: real ``CameraModel`` instance from ``calibrated_cameras_data.yml``'s raw arrays.
 _DISTORTION_LAYOUT: Dict[str, Tuple[str, ...]] = {
     "ds": ("xi", "alpha"),
-    "dsplus": ("alpha", "lambda1", "lambda2", "tau_x", "tau_y"),
     "kb": ("k1", "k2", "k3", "k4"),
     "radtan": ("k1", "k2", "p1", "p2", "k3"),
     "ucm": ("alpha",),
     "eucm": ("alpha", "beta"),
-    "ocam": ("c", "d", "e", "a0", "a1", "a2", "a3", "a4"),
 }
 
 
@@ -368,10 +370,7 @@ def load_camera(path: str, cam_id: int):
         raise ValueError(f"camera_{cam_id}: model {name!r} expects {len(layout)} distortion "
                          f"values {layout}, file has {len(dist)}")
     kwargs = dict(zip(layout, dist.tolist()))
-    if name == "ocam":
-        kwargs["cx"], kwargs["cy"] = float(K[0, 2]), float(K[1, 2])
-    else:
-        kwargs.update(fx=float(K[0, 0]), fy=float(K[1, 1]), cx=float(K[0, 2]), cy=float(K[1, 2]))
+    kwargs.update(fx=float(K[0, 0]), fy=float(K[1, 1]), cx=float(K[0, 2]), cy=float(K[1, 2]))
     return model_class(name)(**kwargs)
 
 

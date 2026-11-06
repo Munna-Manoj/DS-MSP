@@ -1,6 +1,6 @@
 # ADR-0028 — OCam does not determine camera roll in a rig
 
-- **Status:** Accepted (recorded 2026-10-27)
+- **Status:** Superseded by [ADR-0031](ADR-0031-remove-dsplus-and-ocam.md) (OCam removed); recorded 2026-10-27
 - **Deciders:** maintainer
 - **Relates to:** ARC-MODELS, ARC-RIG, FR-MODEL-001, ADR-0026, ADR-0027
 

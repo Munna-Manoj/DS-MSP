@@ -8,11 +8,9 @@ import pytest
 
 from ds_msp.core.lie import so3_exp
 from ds_msp.model import DoubleSphereCamera
-from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
-from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.ops import solve_pnp_robust
@@ -24,8 +22,6 @@ MODELS = [
     UCMModel.sample,
     EUCMModel.sample,
     KannalaBrandtModel.sample,
-    OCamModel.sample,
-    DSPlusModel.sample,
     RadTanModel.sample,
     FakeModel.sample,
 ]
@@ -35,8 +31,6 @@ WIDE_MODELS = [
     UCMModel.sample,
     EUCMModel.sample,
     KannalaBrandtModel.sample,
-    OCamModel.sample,
-    DSPlusModel.sample,
 ]
 
 

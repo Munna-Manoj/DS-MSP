@@ -1,10 +1,10 @@
-"""End-to-end two-view geometry through the OCam and DS+ camera models.
+"""End-to-end two-view geometry through the Kannala-Brandt and EUCM camera models.
 
 ``tests/mvg/test_two_view.py`` proves the geometry (essential matrix, pose recovery,
 triangulation, bundle refine) on bare bearing vectors and, for one case, end-to-end through a
 ``DoubleSphereModel`` (``test_recover_pose_through_a_real_double_sphere_camera``). The mvg layer
 is model-agnostic by construction — it only ever sees rays — but that agnosticism had never been
-*exercised* for the polynomial OCam (Scaramuzza) or DS+ (UCM core + division + tilt) models.
+*exercised* for the polynomial Kannala-Brandt or the EUCM sphere model.
 
 These tests render 3D points into pixels through those two models, unproject to rays, and run the
 full pipeline: eight-point essential estimation, cheirality pose recovery, metric triangulation,
@@ -20,11 +20,11 @@ from ds_msp.mvg import (
     triangulate_rays,
 )
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.models.ocam import OCamModel
-from ds_msp.models.dsplus import DSPlusModel
+from ds_msp.models.eucm import EUCMModel
+from ds_msp.models.kb import KannalaBrandtModel
 
-# DS kept for parity; OCam and DS+ are the new coverage.
-MODELS = [DoubleSphereModel.sample, OCamModel.sample, DSPlusModel.sample]
+# DS kept for parity; KB and EUCM are the added coverage.
+MODELS = [DoubleSphereModel.sample, KannalaBrandtModel.sample, EUCMModel.sample]
 
 
 def _rot(axis, angle):

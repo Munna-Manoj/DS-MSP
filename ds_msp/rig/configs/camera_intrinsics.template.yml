@@ -3,7 +3,7 @@
 # DS-MSP[rig] camera intrinsics — the file you point `cam_params_path` at in
 # `calib_param.yml`. MC-Calib's `calibrated_cameras_data.yml` schema, extended so EVERY
 # DS-MSP model can be stated explicitly (MC-Calib's two-int `distortion_type` cannot name
-# ucm / eucm / dsplus / ocam).
+# ucm / eucm).
 #
 # How DS-MSP[rig] uses this file (see ds_msp/rig/calib_param.py:_resolve_init_intrinsics):
 #   * If `cam_params_path` is set and the file exists, intrinsics are LOADED from here.
@@ -23,20 +23,17 @@
 #   * No `cam_params_path` at all: every camera initializes from scratch (front-end estimate),
 #     except fix_intrinsic=true which then errors (nothing to hold fixed).
 #
-# distortion_vector layout PER MODEL (camera_matrix is the usual [[fx,0,cx],[0,fy,cy],[0,0,1]],
-# except ocam where fx=fy=|a0| and only cx,cy are meaningful):
+# distortion_vector layout PER MODEL (camera_matrix is the usual [[fx,0,cx],[0,fy,cy],[0,0,1]]):
 #   radtan   (Brown, distortion_type 0): [k1, k2, p1, p2, k3]            (5)
 #   kb       (Kannala, distortion_type 1): [k1, k2, k3, k4]              (4)
 #   ucm                                  : [alpha]                       (1)
 #   eucm                                 : [alpha, beta]                 (2)
 #   double_sphere (distortion_type 2)    : [xi, alpha]                   (2)
-#   dsplus                               : [alpha, lambda1, lambda2, tau_x, tau_y]   (5)
-#   ocam                                 : [c, d, e, a0, a1, a2, a3, a4] (8)
 #
 # camera_pose_matrix is the camera-from-world 4x4 (MC-Calib convention); for an intrinsics-only
 # seed it can be the identity — extrinsics are solved by the rig pipeline regardless.
 # =============================================================================
-nb_camera: 7
+nb_camera: 5
 
 # --- camera 0: radtan / Brown (pinhole) -------------------------------------
 camera_0:
@@ -147,52 +144,6 @@ camera_4:
       cols: 2
       dt: d
       data: [ -0.18, 0.59 ]
-   camera_pose_matrix: !!opencv-matrix
-      rows: 4
-      cols: 4
-      dt: d
-      data: [ 1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1. ]
-
-# --- camera 5: dsplus (DS+) -------------------------------------------------
-camera_5:
-   camera_model: dsplus
-   distortion_type: 1
-   img_width: 1280
-   img_height: 960
-   camera_group: 0
-   camera_matrix: !!opencv-matrix
-      rows: 3
-      cols: 3
-      dt: d
-      data: [ 350.0, 0.0, 640.0, 0.0, 350.0, 480.0, 0.0, 0.0, 1.0 ]
-   distortion_vector: !!opencv-matrix
-      rows: 1
-      cols: 5
-      dt: d
-      data: [ 0.59, 0.0, 0.0, 0.0, 0.0 ]
-   camera_pose_matrix: !!opencv-matrix
-      rows: 4
-      cols: 4
-      dt: d
-      data: [ 1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1. ]
-
-# --- camera 6: ocam / Scaramuzza --------------------------------------------
-camera_6:
-   camera_model: ocam
-   distortion_type: 1
-   img_width: 1280
-   img_height: 960
-   camera_group: 0
-   camera_matrix: !!opencv-matrix      # fx=fy=|a0|; only cx,cy are read for ocam
-      rows: 3
-      cols: 3
-      dt: d
-      data: [ 220.0, 0.0, 640.0, 0.0, 220.0, 480.0, 0.0, 0.0, 1.0 ]
-   distortion_vector: !!opencv-matrix  # [c, d, e, a0, a1, a2, a3, a4]
-      rows: 1
-      cols: 8
-      dt: d
-      data: [ 1.0, 0.0, 0.0, -220.0, 0.0, 6.0, -1.5, 0.25 ]
    camera_pose_matrix: !!opencv-matrix
       rows: 4
       cols: 4

@@ -1,6 +1,6 @@
 """Regression test for two real bugs found on 2026-07-02 in the same speed-optimization effort,
 both stemming from the same root mistake: gating multi-start dispersion by *model class*
-("RadTan/KB/OCam have no documented degenerate basin, so skip it") instead of verifying safety
+("RadTan/KB have no documented degenerate basin, so skip it") instead of verifying safety
 empirically at realistic scale.
 
 1. **Cascading seed sensitivity.** ``_robust_pinhole`` always calibrates a plain RadTan model

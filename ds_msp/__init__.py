@@ -10,7 +10,6 @@ from .models import (
     DoubleSphereModel,
     EUCMModel,
     KannalaBrandtModel,
-    OCamModel,
     RadTanModel,
     UCMModel,
 )
@@ -54,7 +53,7 @@ __all__ = [
     "DoubleSphereCamera", "ds_project", "ds_unproject",
     "undistort_fisheye", "solve_pnp_fisheye",
     "DoubleSphereModel", "EUCMModel", "KannalaBrandtModel",
-    "OCamModel", "RadTanModel", "UCMModel",
+    "RadTanModel", "UCMModel",
     "convert", "Undistorter", "solve_pnp", "solve_pnp_robust", "solve_pnp_ransac",
     "essential_from_rays", "recover_pose", "relative_pose", "triangulate_rays",
     "projectPoints", "undistortPoints", "distortPoints",

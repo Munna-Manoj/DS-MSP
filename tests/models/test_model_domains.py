@@ -8,7 +8,6 @@ polynomial, or behind the camera) fails here, because two rays share one pixel t
 import numpy as np
 import pytest
 
-from ds_msp.models.dsplus_math import dsplus_project, dsplus_unproject
 from ds_msp.models.eucm_math import eucm_project, eucm_unproject
 from ds_msp.models.kb_math import kb_project, kb_unproject
 
@@ -44,10 +43,3 @@ def test_kb_round_trip_over_the_sphere():
         params = tuple(rng.uniform(-0.5, 0.5, 4) * [1.0, 0.3, 0.1, 0.03])
         _round_trip(kb_project, kb_unproject, params, _sphere(rng, 300))
 
-
-def test_dsplus_round_trip_over_the_sphere():
-    rng = np.random.default_rng(2)
-    for _ in range(200):
-        params = (rng.uniform(0.0, 0.95), rng.uniform(-2.0, 2.0), rng.uniform(-2.0, 2.0),
-                  *rng.uniform(-0.3, 0.3, 2))
-        _round_trip(dsplus_project, dsplus_unproject, params, _sphere(rng, 300, 100.0))

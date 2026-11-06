@@ -13,7 +13,7 @@ Config keys (MC-Calib's, plus the ``camera_models`` extension):
 * models — ``distortion_model`` (0 Brown→``radtan``, 1 Kannala→``kb``; a mode *selector*, not
   a flag, so it stays numeric), ``distortion_per_camera`` (per-camera selector, same 0/1
   encoding as ``distortion_model``), and the DS-MSP extension ``camera_models`` (per-camera
-  model name from {radtan,ucm,eucm,ds,kb,ocam}, highest precedence);
+  model name from {radtan,ucm,eucm,ds,kb}, highest precedence);
 * input — ``number_camera``, ``root_path`` + ``cam_prefix`` (raw images) or
   ``keypoints_path`` (pre-detected; ``"None"`` ⇒ detect from images);
 * intrinsics — ``fix_intrinsic`` (``true``/``false``), ``cam_params_path`` (initial
@@ -79,7 +79,7 @@ def _provided_model_name(cam) -> str:
 
     Uses the model the file explicitly states (``camera_model`` string or ``distortion_type``
     int, parsed into ``cam.model_name``) when present — this is the only reliable signal for the
-    sphere/poly models (ucm/eucm/ds/dsplus) whose distortion length overlaps. For a
+    sphere models (ucm/eucm/ds) whose distortion length overlaps. For a
     plain MC-Calib file that states nothing, falls back to the historical length heuristic:
     4 coeffs ⇒ KB (fisheye), anything else ⇒ RadTan/Brown."""
     if getattr(cam, "model_name", None):
@@ -92,18 +92,12 @@ def _model_from_K_dist(name: str, K, dist):
     """Reconstruct a camera model from an MC-Calib ``camera_matrix`` + ``distortion_vector``.
 
     The inverse of how :func:`ds_msp.io.mccalib.save_mccalib_cameras` serializes a model, so a
-    DS-MSP-written intrinsics file round-trips to the exact same parameters. All models except
-    OCam store their intrinsic vector as ``[fx, fy, cx, cy, *distortion]``; OCam stores
-    ``[cx, cy]`` in ``K`` and ``[c, d, e, a0..a4]`` in the distortion vector."""
+    DS-MSP-written intrinsics file round-trips to the exact same parameters. Every model stores
+    its intrinsic vector as ``[fx, fy, cx, cy, *distortion]``."""
     name = canonical_name(name)
     cls = model_class(name)
     d = np.asarray(dist, float).ravel() if dist is not None else np.zeros(0)
     K = np.asarray(K, float)
-    if name == "ocam":
-        if d.size != 8:
-            raise ValueError(f"ocam intrinsics need 8 distortion coeffs [c,d,e,a0..a4], "
-                             f"file has {d.size}")
-        return cls.from_params([K[0, 2], K[1, 2], *d])
     n_dist = len(cls.param_names) - 4
     if d.size != n_dist:
         raise ValueError(f"{name} intrinsics need {n_dist} distortion coeffs "
