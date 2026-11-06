@@ -254,10 +254,26 @@ def _merge_frame_findings(findings: List[Dict]) -> List[Dict]:
 
 def _lowest_eigenvectors(A: np.ndarray, k: int) -> np.ndarray:
     """The ``k`` lowest eigenvectors of the symmetric ``A`` (LAPACK ``syevr`` on that index
-    range), forming ``n x k`` vectors instead of ``n x n``. Destroys ``A``."""
+    range), forming ``n x k`` vectors instead of ``n x n``. Destroys ``A``.
+
+    LAPACK takes column-major arrays, so a C-ordered ``A`` would be copied first; ``A.T`` is the
+    same symmetric matrix in column-major order, so it is passed instead and no copy is made."""
     import scipy.linalg as sla
-    return sla.eigh(A, subset_by_index=[0, k - 1], driver="evr", overwrite_a=True,
+    return sla.eigh(A.T, subset_by_index=[0, k - 1], driver="evr", overwrite_a=True,
                     check_finite=False)[1]
+
+
+def _eigvalsh_inplace(A: np.ndarray) -> np.ndarray:
+    """Eigenvalues of the symmetric C-ordered ``A`` by LAPACK ``dsyevd`` (``jobz='N'``, the
+    routine behind ``numpy.linalg.eigvalsh``) without a copy: ``A.T`` is column-major, and
+    with ``lower=1`` LAPACK reads and overwrites only ``A``'s upper triangle and diagonal,
+    leaving the strict lower triangle untouched (the contract of
+    :func:`ds_msp.core.numerics.eigvalsh_preserving`)."""
+    from scipy.linalg import lapack
+    w, _a, info = lapack.dsyevd(A.T, compute_v=0, lower=1, overwrite_a=1)
+    if info != 0:
+        raise np.linalg.LinAlgError(f"dsyevd failed (info={info})")
+    return w
 
 
 def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
@@ -314,7 +330,7 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
 
     # H is not used again: let the equilibration overwrite it (one n x n copy less).
     ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh, overwrite=True,
-                        lowest_eigh=_lowest_eigenvectors)
+                        lowest_eigh=_lowest_eigenvectors, eigvalsh_inplace=_eigvalsh_inplace)
     del H
     labels = _column_labels(rig, fix_intrinsics=fix_intrinsics)
     if len(labels) != K:

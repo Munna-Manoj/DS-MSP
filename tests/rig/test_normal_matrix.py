@@ -154,3 +154,69 @@ def test_schur_linearize_never_forms_the_dense_shared_jacobian():
         assert A.shape == (len(r), k) and B.shape == (len(r), 6)
     with pytest.raises(IndexError):
         As[ng]
+
+
+def test_eigvalsh_preserving_restores_matrix_and_matches_numpy():
+    """The in-place spectrum (LAPACK dsyevd on the transposed view) leaves H bit-identical and
+    agrees with numpy's eigvalsh; n spans several 512-row blocks."""
+    from ds_msp.core.numerics import eigvalsh_preserving
+    from ds_msp.rig.audit import _eigvalsh_inplace
+    H = _gauge_deficient_H(seed=2, n=1100, null=4)
+    ref = np.linalg.eigvalsh(H)
+    A = H.copy()
+    w = eigvalsh_preserving(A, _eigvalsh_inplace)
+    np.testing.assert_array_equal(A, H)
+    np.testing.assert_allclose(w, ref, rtol=0, atol=1e-13 * ref.max())
+
+
+def test_eigvalsh_preserving_rejects_a_solver_that_breaks_the_contract():
+    from ds_msp.core.numerics import NumericalError, eigvalsh_preserving
+    H = _gauge_deficient_H(n=40)
+
+    def bad(A):
+        A[5, 2] += 1.0                                # writes the triangle it must keep
+        return np.linalg.eigvalsh(A)
+    with pytest.raises(NumericalError, match="modified"):
+        eigvalsh_preserving(H.copy(), bad)
+
+
+def test_inplace_eigen_weakness_matches_copying_path():
+    """eigen_weakness with the in-place spectra reports what the copying path reports."""
+    from ds_msp.core.observability import eigen_weakness
+    from ds_msp.rig.audit import _eigvalsh_inplace, _lowest_eigenvectors
+    H = _gauge_deficient_H(seed=4, n=700, null=5)
+    H[0, 1] += 1e-13                                   # not exactly symmetric, like a real H
+    old = eigen_weakness(H.copy(), tau_rel=1e-3, corr_thresh=0.95, overwrite=True,
+                         lowest_eigh=_lowest_eigenvectors)
+    new = eigen_weakness(H.copy(), tau_rel=1e-3, corr_thresh=0.95, overwrite=True,
+                         lowest_eigh=_lowest_eigenvectors, eigvalsh_inplace=_eigvalsh_inplace)
+    assert new["n_weak"] == old["n_weak"] == 5 and new["pairs"] == old["pairs"]
+    np.testing.assert_array_equal(new["scale"], old["scale"])
+    np.testing.assert_allclose(new["eigvals"], old["eigvals"], rtol=0,
+                               atol=1e-13 * old["eigvals"].max())
+    # cond = λmax/λmin; λmin is only resolved to ~eps·λmax by any backward-stable eigensolver,
+    # so two correct solvers agree on cond only to a relative ~eps·cond.
+    eps = np.finfo(float).eps
+    assert np.isclose(new["cond_raw"], old["cond_raw"], rtol=100 * eps * old["cond_raw"])
+    assert np.isclose(new["cond"], old["cond"], rtol=100 * eps * old["cond"])
+    Ea = np.stack([w["energy"] for w in old["weak"]]).sum(0)
+    Eb = np.stack([w["energy"] for w in new["weak"]]).sum(0)
+    np.testing.assert_allclose(Ea, Eb, atol=1e-8)
+
+
+def test_audit_eigen_analysis_holds_one_matrix(monkeypatch):
+    """With the in-place solvers, eigen_weakness allocates far less than one extra n x n copy
+    (the copying path makes at least one symmetrised copy plus the subset solver's copy)."""
+    import tracemalloc
+    import ds_msp.core.numerics as nm
+    from ds_msp.core.observability import eigen_weakness
+    from ds_msp.rig.audit import _eigvalsh_inplace, _lowest_eigenvectors
+    monkeypatch.setattr(nm, "_ROW_BLOCK", 64)          # keep block temporaries small vs n²
+    n = 1200
+    H = _gauge_deficient_H(seed=5, n=n, null=3)
+    tracemalloc.start()
+    eigen_weakness(H, tau_rel=1e-3, overwrite=True, lowest_eigh=_lowest_eigenvectors,
+                   eigvalsh_inplace=_eigvalsh_inplace)
+    _cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 0.25 * n * n * 8, peak

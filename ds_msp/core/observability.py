@@ -25,7 +25,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .numerics import safe_eigh, safe_eigvalsh, symmetrize_inplace
+from . import numerics as _numerics
+from .numerics import eigvalsh_preserving, safe_eigh, safe_eigvalsh, symmetrize_inplace
 
 
 def equilibrate(H: np.ndarray, *, overwrite: bool = False) -> Tuple[np.ndarray, np.ndarray]:
@@ -61,9 +62,9 @@ def _strong_pairs(Hh: np.ndarray, corr_thresh: float) -> List[Tuple[int, int, fl
     order, scanning row blocks instead of materialising ``triu_indices`` (two n²/2 index
     arrays)."""
     pairs: List[Tuple[int, int, float]] = []
-    n = Hh.shape[0]
-    for i0 in range(0, n, 512):
-        rows, cols = np.nonzero(np.abs(Hh[i0:i0 + 512]) > corr_thresh)
+    n, b = Hh.shape[0], _numerics._ROW_BLOCK
+    for i0 in range(0, n, b):
+        rows, cols = np.nonzero(np.abs(Hh[i0:i0 + b]) > corr_thresh)
         for r, c in zip(rows.tolist(), cols.tolist()):
             if c > i0 + r:
                 pairs.append((i0 + r, c, float(Hh[i0 + r, c])))
@@ -72,7 +73,8 @@ def _strong_pairs(Hh: np.ndarray, corr_thresh: float) -> List[Tuple[int, int, fl
 
 def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float = 0.95,
                    participation: float = 0.9, overwrite: bool = False,
-                   lowest_eigh: Optional[Callable[[np.ndarray, int], np.ndarray]] = None) -> Dict:
+                   lowest_eigh: Optional[Callable[[np.ndarray, int], np.ndarray]] = None,
+                   eigvalsh_inplace: Optional[Callable[[np.ndarray], np.ndarray]] = None) -> Dict:
     """Equilibrate ``H``, eigen-decompose, and return weak directions + parameter couplings.
 
     A direction is **weak** when its eigenvalue of the unit-diagonal ``Ĥ`` falls below
@@ -84,6 +86,10 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     ``overwrite=True`` lets the equilibration scale ``H`` in place. ``lowest_eigh(A, k)``, if
     given, returns the ``k`` lowest eigenvectors of ``A`` (it may destroy ``A``); callers outside
     the numpy-only core pass a subset solver so no ``n x n`` eigenvector matrix is formed.
+    ``eigvalsh_inplace(A)``, used only with ``overwrite=True``, returns the eigenvalues reading
+    ``A``'s upper triangle and may overwrite it and the diagonal but not the strict lower
+    triangle (LAPACK ``syevd`` with ``jobz='N'``); see
+    :func:`ds_msp.core.numerics.eigvalsh_preserving`. Then ``H`` is the only ``n x n`` array.
 
     Returns a dict with:
 
@@ -108,11 +114,22 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     # rigs). Versus a full eigh the eigenvalues agree to ~1e-14 of the largest; measured on five
     # real audits, the weak set, its participating parameters and the pairs were identical.
     H = np.asarray(H, float)
-    eig_raw = safe_eigvalsh(_symmetric_copy(H), where="observability", what="H")
+    if eigvalsh_inplace is not None and overwrite:
+        # One n x n matrix in total: H is symmetrised in place (bit-identical to the copy
+        # below), and each spectrum is taken in place and H restored from the triangle the
+        # solver keeps, so neither a symmetrised copy nor numpy's internal copy is formed.
+        symmetrize_inplace(H)
+        eig_raw = eigvalsh_preserving(H, eigvalsh_inplace, where="observability", what="H")
+    else:
+        eig_raw = safe_eigvalsh(_symmetric_copy(H), where="observability", what="H")
     cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
     del eig_raw
     Hh, s = equilibrate(H, overwrite=overwrite)
-    eigvals = safe_eigvalsh(Hh, where="observability", what="equilibrated H")
+    if eigvalsh_inplace is not None and overwrite:
+        eigvals = eigvalsh_preserving(Hh, eigvalsh_inplace, where="observability",
+                                      what="equilibrated H")
+    else:
+        eigvals = safe_eigvalsh(Hh, where="observability", what="equilibrated H")
     med = float(np.median(eigvals))
     thresh = tau_rel * med
     weak_idx = np.where(eigvals < thresh)[0]

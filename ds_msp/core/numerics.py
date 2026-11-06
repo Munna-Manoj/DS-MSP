@@ -18,7 +18,7 @@ verdict does not change with the units of the problem.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple
 
 import numpy as np
 
@@ -90,6 +90,50 @@ def symmetrize_inplace(A: np.ndarray) -> np.ndarray:
             A[i:i + b, j:j + b] = avg
             A[j:j + b, i:i + b] = avg.T
     return A
+
+
+def _strict_lower_checksum(A: np.ndarray) -> int:
+    """XOR of the bit patterns of ``A``'s strict lower triangle, row block by row block.
+    Any change to one of those entries changes it; no full-size temporary is formed."""
+    n, b = A.shape[0], _ROW_BLOCK
+    acc = 0
+    for i in range(0, n, b):
+        blk = np.tril(A[i:i + b, :i + b], k=i - 1)       # rows i.., columns < row index
+        acc ^= int(np.bitwise_xor.reduce(blk.view(np.uint64), axis=None))
+    return acc
+
+
+def _mirror_lower_to_upper(A: np.ndarray, diag: np.ndarray) -> None:
+    """Rewrite ``A``'s upper triangle from its strict lower triangle and set its diagonal to
+    ``diag``, block by block (exact copies, no arithmetic)."""
+    n, b = A.shape[0], _ROW_BLOCK
+    for i in range(0, n, b):
+        for j in range(i + b, n, b):
+            A[i:i + b, j:j + b] = A[j:j + b, i:i + b].T
+        d = A[i:i + b, i:i + b]
+        iu = np.triu_indices(d.shape[0], 1)
+        d[iu] = d.T[iu]
+    np.fill_diagonal(A, diag)
+
+
+def eigvalsh_preserving(A: np.ndarray, solve: Callable[[np.ndarray], np.ndarray], *,
+                        where: str = "eigvalsh_preserving", what: str = "A") -> np.ndarray:
+    """Ascending eigenvalues of the exactly symmetric ``A`` with no ``n x n`` copy, ``A`` intact
+    on return.
+
+    ``solve(A)`` returns the eigenvalues reading only ``A``'s upper triangle (C order); like
+    LAPACK ``syevd`` with ``jobz='N'`` it may overwrite that triangle and the diagonal, and
+    must not touch the strict lower triangle. This saves the diagonal, calls ``solve``, checks
+    the strict lower triangle is unchanged, and mirrors it back, so ``A`` is restored bit for
+    bit. A ``solve`` that breaks the contract raises :class:`NumericalError`."""
+    A = _symmetric(where, what, A)
+    diag = A.diagonal().copy()
+    before = _strict_lower_checksum(A)
+    w = np.asarray(solve(A), dtype=float)
+    if _strict_lower_checksum(A) != before:
+        raise NumericalError(where, what, "eigenvalue solver modified the triangle it must keep")
+    _mirror_lower_to_upper(A, diag)
+    return w
 
 
 def _symmetric(where: str, what: str, A: np.ndarray) -> np.ndarray:
