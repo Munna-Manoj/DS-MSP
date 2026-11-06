@@ -32,8 +32,10 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..core.observability import eigen_weakness, orientation_spread, radial_occupancy
+from ..core.observability import (eigen_weakness, eigen_weakness_arrowhead, orientation_spread,
+                                  radial_occupancy)
 from ..core.robust import auto_kernel_scale, robust_weight
+from ..heap import release_free_heap
 from . import bundle
 from .types import ObjectObs, RigState
 
@@ -252,6 +254,48 @@ def _merge_frame_findings(findings: List[Dict]) -> List[Dict]:
     return rest + merged
 
 
+def _lowest_eigenvectors(A: np.ndarray, k: int) -> np.ndarray:
+    """The ``k`` lowest eigenvectors of the symmetric ``A`` (LAPACK ``syevr`` on that index
+    range), forming ``n x k`` vectors instead of ``n x n``. Destroys ``A``.
+
+    LAPACK takes column-major arrays, so a C-ordered ``A`` would be copied first; ``A.T`` is the
+    same symmetric matrix in column-major order, so it is passed instead and no copy is made."""
+    import scipy.linalg as sla
+    return sla.eigh(A.T, subset_by_index=[0, k - 1], driver="evr", overwrite_a=True,
+                    check_finite=False)[1]
+
+
+def _use_arrowhead(K: int, n_pose: int) -> bool:
+    """Whether the block-arrowhead spectrum is the cheaper exact route for an ``K x K`` audit
+    matrix with ``n_pose`` object-pose columns (``C = K − n_pose`` camera columns).
+
+    Both routes give the same results to rounding. Memory: ``K²`` for the dense route against
+    about ``C² + 2C·n_pose`` for the arrowhead. Time: two dense spectra cost about ``3K³``
+    flops; the arrowhead needs about 400 inertia counts of ``~9C³ + 2C²·n_pose`` each. The
+    arrowhead route is taken when it is at most twice as slow, which in practice means rigs
+    with many board poses per camera (a 25-camera rig with 1,662 poses: 0.84 GB → ~0.05 GB,
+    and faster); camera-heavy rigs, where ``K²`` is small anyway, keep the dense route."""
+    C = K - n_pose
+    if n_pose == 0 or C <= 0:
+        return False
+    arrow = 400.0 * (9.0 * C ** 3 + 2.0 * C * C * n_pose)
+    dense = 3.0 * float(K) ** 3
+    return arrow <= 2.0 * dense
+
+
+def _eigvalsh_inplace(A: np.ndarray) -> np.ndarray:
+    """Eigenvalues of the symmetric C-ordered ``A`` by LAPACK ``dsyevd`` (``jobz='N'``, the
+    routine behind ``numpy.linalg.eigvalsh``) without a copy: ``A.T`` is column-major, and
+    with ``lower=1`` LAPACK reads and overwrites only ``A``'s upper triangle and diagonal,
+    leaving the strict lower triangle untouched (the contract of
+    :func:`ds_msp.core.numerics.eigvalsh_preserving`)."""
+    from scipy.linalg import lapack
+    w, _a, info = lapack.dsyevd(A.T, compute_v=0, lower=1, overwrite_a=1)
+    if info != 0:
+        raise np.linalg.LinAlgError(f"dsyevd failed (info={info})")
+    return w
+
+
 def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
               fix_intrinsics: bool = False,
               kernel: str = "cauchy", scale: Optional[float] = None,
@@ -260,8 +304,9 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
               tilt_deg_min: float = 15.0, periphery_frac_min: float = 0.02) -> Dict:
     """Observability audit of a (converged) rig fit: named weak directions + coverage.
 
-    Assembles the same gauge-fixed dense Jacobian the BA uses
-    (:func:`bundle.build_problem`), weights it with the same robust-kernel weights the final
+    Assembles ``H = JᵀWJ`` from the same gauge-fixed Jacobian the BA uses
+    (:func:`bundle.build_problem`), summed one observation at a time so the dense ``J`` is
+    never stored, weights it with the same robust-kernel weights the final
     BA stage applies (``kernel``/``scale``, auto-estimated from the final residuals when
     ``scale=None`` — so the audit reflects the information matrix of the solve actually
     performed), equilibrates ``H = JᵀWJ`` to remove the mixed-units artefact
@@ -285,12 +330,11 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     board fixed); a ``global_gauge`` finding therefore indicates a bug, and the audit's own
     test suite verifies it *would* fire by deliberately unfixing the reference camera.
 
-    Cost: one dense ``eigh`` of a K x K matrix (K ~ 200-500 at calibration scale) — well
-    under a single BA iteration, which factors same-size systems repeatedly.
+    Cost: one dense ``eigh`` of a K x K matrix (K ~ 200-500 at calibration scale, ~2,300 at
+    100 cameras x 150 frames) — well under a single BA iteration. Memory is ``K²`` for ``H``.
     """
     state0, residual, jacobian, _retract, K = bundle.build_problem(
         rig, object_obs, fix_intrinsics=fix_intrinsics)
-    J = np.asarray(jacobian(state0), float)
     r = np.asarray(residual(state0), float)
 
     bn = np.linalg.norm(r.reshape(-1, 2), axis=1)
@@ -301,9 +345,20 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     else:
         scale, w = 1.0, np.ones_like(bn)
     W_row = np.repeat(w, 2)
-    H = (J * W_row[:, None]).T @ J
-
-    ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh)
+    # Summed per observation: the dense J (rows x K, ~60 GB at 100 cameras) is never formed.
+    n_pose = 6 * len(rig.object_poses)
+    if _use_arrowhead(K, n_pose):
+        # Object poses only meet their own observations, so H is block-arrowhead: keep the
+        # camera block, the coupling and the 6 x 6 pose blocks, never the K x K matrix.
+        ew = eigen_weakness_arrowhead(jacobian.normal_arrow(state0, W_row), tau_rel=soft_rel,
+                                      corr_thresh=corr_thresh)
+    else:
+        H = jacobian.normal_matrix(state0, W_row)
+        # H is not used again: let the equilibration overwrite it (one n x n copy less).
+        ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh, overwrite=True,
+                            lowest_eigh=_lowest_eigenvectors, eigvalsh_inplace=_eigvalsh_inplace)
+        del H
+    release_free_heap()                  # the information matrix and its solver workspace
     labels = _column_labels(rig, fix_intrinsics=fix_intrinsics)
     if len(labels) != K:
         raise AssertionError(f"column labels ({len(labels)}) out of sync with tangent "

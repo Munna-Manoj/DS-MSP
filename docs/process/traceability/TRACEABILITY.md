@@ -96,6 +96,9 @@ CI fails if this file is out of sync with the registry and the test suite.
 | NFR-PERF-003 | NFR | PERF | ARC-RIG | `ds_msp/rig/calibrate.py` | `tests/rig/test_front_end_parallel.py` | implemented | no | tests/rig/test_front_end_parallel.py (module)<br>tests/rig/test_pinhole_seed_cascade.py (module) |
 | NFR-PERF-004 | NFR | PERF | ARC-RIG | `ds_msp/io/mccalib.py` | `tests/io/test_mccalib_save_images_parallel.py` | implemented | no | tests/io/test_mccalib_save_images_parallel.py (module) |
 | NFR-PERF-005 | NFR | PERF | ARC-RIG | `ds_msp/rig/bundle.py` | `tests/rig/test_pose_only_sparse.py` | implemented | no | tests/rig/test_pose_only_sparse.py (module) |
+| NFR-PERF-006 | NFR | PERF | ARC-RIG | `ds_msp/rig/bundle.py;ds_msp/rig/audit.py` | `tests/rig/test_normal_matrix.py` | implemented | no | tests/rig/test_normal_matrix.py (module) |
+| NFR-PERF-007 | NFR | PERF | ARC-RIG | `ds_msp/rig/bundle.py` | `tests/rig/test_normal_matrix.py` | implemented | no | tests/rig/test_normal_matrix.py (module) |
+| NFR-PERF-008 | NFR | PERF | ARC-RIG | `ds_msp/core/arrowhead.py;ds_msp/core/observability.py;ds_msp/rig/bundle.py;ds_msp/rig/audit.py;ds_msp/heap.py` | `tests/core/test_arrowhead.py;tests/rig/test_normal_matrix.py;tests/test_heap.py` | implemented | no | tests/core/test_arrowhead.py (module)<br>tests/rig/test_normal_matrix.py (module)<br>tests/test_heap.py (module) |
 | NFR-PORT-001 | NFR | PORT | ARC-CORE | `ds_msp` | `.github/workflows/ci.yml` | implemented | no | — |
 | NFR-PRIV-001 | NFR | PRIV | ARC-CORE | `.` | `tools/check_tree_hygiene.py` | implemented | no | — |
 | NFR-REPRO-001 | NFR | REPRO | ARC-CORE | `tests` | `tests/contract/test_gradcheck.py` | implemented | no | tests/calib/test_kb_acquisition.py::test_peripheral_acquisition_constrains_unseen_rays_for_both_k4_signs<br>tests/contract/test_gradcheck.py (module)<br>tests/core/test_cholesky_solve.py (module) |

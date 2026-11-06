@@ -44,3 +44,4 @@ zero-padded and monotonic (`ADR-NNNN`); CI checks this index stays complete and 
 | [ADR-0029](ADR-0029-rig-frame-pose-recovery.md) | Preserve supplied lenses and recover unsupported frame poses | Accepted | Guarded resection without discarded observations; final-state support audit |
 | [ADR-0030](ADR-0030-board-level-lens-seed.md) | Seed lenses from printed boards with the radial constraint | Accepted | Target and extrinsic seeds stop depending on a pinhole bootstrap; fallback retained |
 | [ADR-0031](ADR-0031-remove-dsplus-and-ocam.md) | Remove the DS⁺ and OCam camera models | Accepted | Both leave rig extrinsics unobservable; deleted with no deprecation window; old files fail with the reason |
+| [ADR-0032](ADR-0032-arrowhead-observability-audit.md) | Run the observability audit on the block-arrowhead information matrix | Accepted | Weak directions from exact inertia counts on the camera-block Schur complement; K x K never formed on pose-heavy rigs |

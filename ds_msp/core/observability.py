@@ -21,20 +21,27 @@ near-linear-dependence among parameter effects — a degeneracy — independent 
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .numerics import safe_eigh
+from . import numerics as _numerics
+from .arrowhead import ArrowheadSym, lowest_eigenvalues, spectrum_bounds
+from .numerics import eigvalsh_preserving, safe_eigh, safe_eigvalsh, symmetrize_inplace
+
+_EPS_F = float(np.finfo(float).eps)
 
 
-def equilibrate(H: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def equilibrate(H: np.ndarray, *, overwrite: bool = False) -> Tuple[np.ndarray, np.ndarray]:
     """Van der Sluis-scale a symmetric PSD ``H`` to unit diagonal.
 
     Returns ``(H_hat, s)`` with ``H_hat = diag(s) H diag(s)`` symmetric with ``diag ≈ 1``
     and ``s = 1/sqrt(diag H + eps)``. A (near-)zero diagonal entry means the parameter has
     (near-)no residual response at all; the epsilon floor keeps ``s`` finite and such a
     column surfaces as a near-null eigenvalue rather than a division blow-up.
+
+    ``overwrite=True`` scales ``H`` in place (the caller gives it up), saving one n x n copy.
+    The arithmetic is the same either way: ``(H * s[:, None]) * s[None, :]``, then symmetrised.
     """
     H = np.asarray(H, float)
     d = np.diag(H).copy()
@@ -43,12 +50,34 @@ def equilibrate(H: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     # scaling exactly invariant to per-column unit changes (adding eps everywhere would
     # perturb rescaled columns differently and break that invariance).
     s = 1.0 / np.sqrt(np.where(d > eps, d, eps))
-    Hh = H * s[:, None] * s[None, :]
-    return 0.5 * (Hh + Hh.T), s
+    Hh = np.multiply(H, s[:, None], out=H if overwrite else None)
+    Hh *= s[None, :]
+    return symmetrize_inplace(Hh), s
+
+
+def _symmetric_copy(H: np.ndarray) -> np.ndarray:
+    """``0.5 (H + Hᵀ)`` as a new array (``H`` itself is equilibrated next, possibly in place)."""
+    return symmetrize_inplace(np.array(H, dtype=float, copy=True))
+
+
+def _strong_pairs(Hh: np.ndarray, corr_thresh: float) -> List[Tuple[int, int, float]]:
+    """``(i, j, Hh[i, j])`` for every ``i < j`` with ``|Hh[i, j]| > corr_thresh``, in row-major
+    order, scanning row blocks instead of materialising ``triu_indices`` (two n²/2 index
+    arrays)."""
+    pairs: List[Tuple[int, int, float]] = []
+    n, b = Hh.shape[0], _numerics._ROW_BLOCK
+    for i0 in range(0, n, b):
+        rows, cols = np.nonzero(np.abs(Hh[i0:i0 + b]) > corr_thresh)
+        for r, c in zip(rows.tolist(), cols.tolist()):
+            if c > i0 + r:
+                pairs.append((i0 + r, c, float(Hh[i0 + r, c])))
+    return pairs
 
 
 def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float = 0.95,
-                   participation: float = 0.9) -> Dict:
+                   participation: float = 0.9, overwrite: bool = False,
+                   lowest_eigh: Optional[Callable[[np.ndarray, int], np.ndarray]] = None,
+                   eigvalsh_inplace: Optional[Callable[[np.ndarray], np.ndarray]] = None) -> Dict:
     """Equilibrate ``H``, eigen-decompose, and return weak directions + parameter couplings.
 
     A direction is **weak** when its eigenvalue of the unit-diagonal ``Ĥ`` falls below
@@ -56,6 +85,14 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     ≈1-referenced (well-observed directions sit near 1, genuine near-null directions collapse
     to ~1e-8..1e-12), the threshold sits inside a wide empty gap and needs no per-problem
     tuning; ``gap`` reports the measured separation so a caller can verify that.
+
+    ``overwrite=True`` lets the equilibration scale ``H`` in place. ``lowest_eigh(A, k)``, if
+    given, returns the ``k`` lowest eigenvectors of ``A`` (it may destroy ``A``); callers outside
+    the numpy-only core pass a subset solver so no ``n x n`` eigenvector matrix is formed.
+    ``eigvalsh_inplace(A)``, used only with ``overwrite=True``, returns the eigenvalues reading
+    ``A``'s upper triangle and may overwrite it and the diagonal but not the strict lower
+    triangle (LAPACK ``syevd`` with ``jobz='N'``); see
+    :func:`ds_msp.core.numerics.eigvalsh_preserving`. Then ``H`` is the only ``n x n`` array.
 
     Returns a dict with:
 
@@ -74,45 +111,130 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
       (anti)parallel scaled Jacobian columns, i.e. parameters whose effects on the residual
       are near-indistinguishable. Signed: ``+`` move together, ``-`` trade off.
     """
-    Hh, s = equilibrate(H)
-    eigvals, eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")
     tiny = 1e-300
+    # Eigenvalues come from eigvalsh, and eigenvectors only for the weak directions, so no
+    # n x n eigenvector matrix or its workspace is ever formed (n = 6,000-10,000 on 25-camera
+    # rigs). Versus a full eigh the eigenvalues agree to ~1e-14 of the largest; measured on five
+    # real audits, the weak set, its participating parameters and the pairs were identical.
+    H = np.asarray(H, float)
+    if eigvalsh_inplace is not None and overwrite:
+        # One n x n matrix in total: H is symmetrised in place (bit-identical to the copy
+        # below), and each spectrum is taken in place and H restored from the triangle the
+        # solver keeps, so neither a symmetrised copy nor numpy's internal copy is formed.
+        symmetrize_inplace(H)
+        eig_raw = eigvalsh_preserving(H, eigvalsh_inplace, where="observability", what="H")
+    else:
+        eig_raw = safe_eigvalsh(_symmetric_copy(H), where="observability", what="H")
+    cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
+    del eig_raw
+    Hh, s = equilibrate(H, overwrite=overwrite)
+    if eigvalsh_inplace is not None and overwrite:
+        eigvals = eigvalsh_preserving(Hh, eigvalsh_inplace, where="observability",
+                                      what="equilibrated H")
+    else:
+        eigvals = safe_eigvalsh(Hh, where="observability", what="equilibrated H")
     med = float(np.median(eigvals))
     thresh = tau_rel * med
     weak_idx = np.where(eigvals < thresh)[0]
+    pairs = _strong_pairs(Hh, corr_thresh)
+    eigvecs: np.ndarray = np.zeros((len(eigvals), 0))
+    if len(weak_idx):
+        # weak_idx is a prefix (eigvals ascend). ``lowest_eigh(A, k)`` returns the k lowest
+        # eigenvectors and may destroy A (Hh is not used after this); core stays numpy-only,
+        # so without one this falls back to a full eigh.
+        k = int(weak_idx[-1]) + 1
+        if lowest_eigh is not None:
+            eigvecs = lowest_eigh(Hh, k)
+        else:
+            eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")[1][:, :k]
+    del Hh
 
-    weak: List[Dict] = []
-    for i in weak_idx:
-        v = eigvecs[:, i]
-        energy = v * v
-        order = np.argsort(energy)[::-1]
-        csum = np.cumsum(energy[order])
-        n_part = int(np.searchsorted(csum, participation) + 1)
-        weak.append({
-            "index": int(i),
-            "eigval": float(eigvals[i]),
-            "ratio": float(eigvals[i] / max(med, tiny)),
-            "energy": energy,
-            "participating": [int(j) for j in order[:n_part]],
-        })
-
+    weak = _weak_entries(eigvals[:len(weak_idx)], eigvecs, med, participation)
     n_weak = len(weak)
     if n_weak and n_weak < len(eigvals):
         gap = float(eigvals[n_weak] / max(eigvals[n_weak - 1], tiny))
     else:
         gap = float("inf")
 
-    iu, ju = np.triu_indices_from(Hh, k=1)
-    strong = np.abs(Hh[iu, ju]) > corr_thresh
-    pairs = [(int(i), int(j), float(Hh[i, j]))
-             for i, j in zip(iu[strong], ju[strong])]
-
-    eig_raw = safe_eigh(0.5 * (np.asarray(H, float) + np.asarray(H, float).T),
-                        where="observability", what="H")[0]
-    cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
+    del eigvecs
     cond = float(eigvals[-1] / eigvals[0]) if eigvals[0] > tiny else float("inf")
     return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals,
            "n_weak": n_weak, "weak": weak, "gap": gap, "pairs": pairs}
+
+
+def _weak_entries(vals: np.ndarray, vecs: np.ndarray, med: float,
+                  participation: float) -> List[Dict]:
+    """The ``weak`` records of :func:`eigen_weakness` for ascending ``vals`` and the matching
+    eigenvector columns ``vecs[:, i]``."""
+    tiny = 1e-300
+    weak: List[Dict] = []
+    for i, lam in enumerate(vals):
+        v = vecs[:, i]
+        energy = v * v
+        order = np.argsort(energy)[::-1]
+        csum = np.cumsum(energy[order])
+        n_part = int(np.searchsorted(csum, participation) + 1)
+        weak.append({
+            "index": int(i),
+            "eigval": float(lam),
+            "ratio": float(lam / max(med, tiny)),
+            "energy": energy,
+            "participating": [int(j) for j in order[:n_part]],
+        })
+    return weak
+
+
+def eigen_weakness_arrowhead(H: ArrowheadSym, *, tau_rel: float = 1e-3,
+                             corr_thresh: float = 0.95, participation: float = 0.9) -> Dict:
+    """:func:`eigen_weakness` for an information matrix in block-arrowhead form, without
+    forming it (see :mod:`ds_msp.core.arrowhead`). ``H`` is equilibrated in place.
+
+    Same definitions and the same returned fields, except that the full spectrum is never
+    computed: ``eigvals`` holds only the weak eigenvalues and the next one up, and ``median``
+    is returned. Each eigenvalue is found by exact inertia counts (bisection, then Newton once
+    isolated) and agrees with a dense symmetric solver to its ``O(ε‖H‖)`` backward error.
+    Weak eigenvectors come from the null vectors of the camera-block Schur complement, with
+    one inverse-iteration step; eigenvalues equal to working precision share an orthonormal
+    basis of their subspace, as a dense solver's would."""
+    tiny = 1e-300
+    n = H.n
+    sp = spectrum_bounds(H)
+    if sp.count(tiny) > 0:
+        cond_raw = float("inf")
+    else:
+        lam0 = sp.kth(0)
+        cond_raw = float(sp.kth(n - 1, newton=False) / lam0) if lam0 > tiny else float("inf")
+    del sp
+    s = H.equilibrate_inplace()
+    pairs = H.strong_pairs(corr_thresh)
+    sp = spectrum_bounds(H)
+    if n % 2:
+        med = sp.kth(n // 2, newton=False)
+    else:
+        med = float(np.mean([sp.kth(n // 2 - 1, newton=False), sp.kth(n // 2, newton=False)]))
+    thresh = tau_rel * med
+    low = lowest_eigenvalues(sp, thresh)
+    n_weak = len(low)
+    lam_max = sp.kth(n - 1, newton=False)
+    lam_min = float(low[0]) if n_weak else sp.kth(0)
+    cond = float(lam_max / lam_min) if lam_min > tiny else float("inf")
+    nxt = sp.kth(n_weak) if n_weak < n else None
+    gap = (float(nxt / max(float(low[-1]), tiny)) if n_weak and nxt is not None
+           else float("inf"))
+
+    vecs = np.zeros((n, n_weak))
+    i = 0
+    while i < n_weak:
+        j = i + 1
+        while j < n_weak and low[j] - low[i] <= 8 * _EPS_F * max(abs(lam_max), 1.0):
+            j += 1                                       # equal to working precision: one subspace
+        vecs[:, i:j] = sp.eigvecs_at(float(np.mean(low[i:j])), j - i)
+        i = j
+    weak = _weak_entries(low, vecs, med, participation)
+    del vecs
+    eigvals = np.r_[low, [] if nxt is None else [nxt]]
+    return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals, "median": med,
+            "n_weak": n_weak, "weak": weak, "gap": gap, "pairs": pairs}
 
 
 def radial_occupancy(uv: np.ndarray, center: np.ndarray, R: Optional[float] = None,

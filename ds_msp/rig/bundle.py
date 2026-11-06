@@ -16,6 +16,7 @@ count is small at calibration scale (a handful of cameras, hundreds of object po
 from __future__ import annotations
 
 import copy
+from collections import abc
 from dataclasses import replace
 from typing import Iterable, Dict, List, Optional, Sequence, Tuple
 
@@ -306,15 +307,14 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             row += rows
         return r
 
-    def jacobian(state):
-        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
-
-        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
-        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
-        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
-        """
+    def _obs_blocks(state):
+        """Per-observation Jacobian blocks of :func:`residual` at ``state``: yields
+        ``(row, n_rows, [(col, block), ...])`` where each ``block`` is ``(n_rows, width)`` over
+        the columns ``col:col+width`` this observation touches (its object pose, its camera
+        extrinsic unless it is the reference, its intrinsics when free). Every other column of
+        those rows is zero. :func:`jacobian` scatters these into the dense matrix and
+        ``jacobian.normal_matrix`` sums ``JᵀWJ`` from them without forming ``J``."""
         m_cache = {c: classes[c].from_params(state["intr"][c]) for c in rig.cameras}
-        J = np.zeros((total_rows, K))
         row = 0
         for u, (o, Xo, key, Xg, Xc, tb) in zip(use, _project_all(state)):
             N = len(Xo)
@@ -329,32 +329,102 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 uv, J_point, J_param, valid = m_cache[cam].project_jacobian(Xc)
                 mask = (u & np.asarray(valid, bool).ravel())[:, None, None]
                 Jp = np.where(mask, J_point, 0.0)                # (N,2,3); NaN-safe mask
+            point_dim = 3 if angular else 2
+            n = point_dim * N
             # object pose: dXc/dω = R_cam @ (-R_obj[Xo]_x); dXc/dt = R_cam
             dXc_dw_o = -np.einsum('ij,njk->nik', R_cam @ R_obj, _skew_batch(Xo))
             Jw_o = np.einsum('nij,njc->nic', Jp, dXc_dw_o)
             Jt_o = np.einsum('nij,jc->nic', Jp, R_cam)
-            point_dim = 3 if angular else 2
-            c0 = obj_col[key]
-            J[row:row + point_dim * N, c0:c0 + 3] = Jw_o.reshape(point_dim * N, 3)
-            J[row:row + point_dim * N, c0 + 3:c0 + 6] = Jt_o.reshape(point_dim * N, 3)
+            blocks = [(obj_col[key], np.concatenate([Jw_o.reshape(n, 3), Jt_o.reshape(n, 3)], 1))]
             # camera extrinsic (skip ref): dXc/dω = -R_cam[Xg]_x; dXc/dt = I
             if cam in cam_col:
                 dXc_dw_c = -np.einsum('ij,njk->nik', R_cam, _skew_batch(Xg))
                 Jw_c = np.einsum('nij,njc->nic', Jp, dXc_dw_c)
                 Jt_c = Jp                                        # J_point @ I
-                cc = cam_col[cam]
-                J[row:row + point_dim * N, cc:cc + 3] = Jw_c.reshape(point_dim * N, 3)
-                J[row:row + point_dim * N, cc + 3:cc + 6] = Jt_c.reshape(point_dim * N, 3)
+                blocks.append((cam_col[cam],
+                               np.concatenate([Jw_c.reshape(n, 3), Jt_c.reshape(n, 3)], 1)))
             # intrinsics
             if not fix_intrinsics:
-                ic = intr_col[cam]
-                J[row:row + 2 * N, ic:ic + Pn[cam]] = np.where(mask, J_param, 0.0).reshape(2 * N, Pn[cam])
+                blocks.append((intr_col[cam],
+                               np.where(mask, J_param, 0.0).reshape(2 * N, Pn[cam])))
             W = whiteners[id(o)]
             if W is not None:
-                block = J[row:row + 2 * N].reshape(N, 2, K)
-                J[row:row + 2 * N] = np.einsum('nij,njk->nik', W, block).reshape(2 * N, K)
-            row += point_dim * N
+                blocks = [(c, np.einsum('nij,njk->nik', W, B.reshape(N, 2, -1)).reshape(2 * N, -1))
+                          for c, B in blocks]
+            yield row, n, blocks
+            row += n
+
+    def jacobian(state):
+        """Dense analytic Jacobian ``(total_rows, K)`` of :func:`residual` at ``state``.
+
+        Column layout is ``[camera extrinsics (6 each, ref camera excluded), object
+        poses (6 each), intrinsics (P_c each, only if ``fix_intrinsics=False``)]``,
+        matching :func:`retract`'s tangent ordering ``[δω(3), δt(3)]`` per block.
+        """
+        J = np.zeros((total_rows, K))
+        for row, n, blocks in _obs_blocks(state):
+            for c, B in blocks:
+                J[row:row + n, c:c + B.shape[1]] = B
         return J
+
+    def normal_matrix(state, row_weights=None):
+        """``JᵀWJ`` ``(K, K)`` at ``state`` with ``W = diag(row_weights)`` (all ones when
+        ``None``), summed one observation at a time over the columns it touches, so peak memory
+        is ``K²`` plus one observation's block instead of the ``total_rows x K`` dense ``J``.
+        Equal to ``(J * row_weights[:, None]).T @ J`` up to summation order."""
+        w_all = np.ones(total_rows) if row_weights is None else np.asarray(row_weights, float)
+        if w_all.shape != (total_rows,):
+            raise ValueError(f"row_weights must have shape ({total_rows},), got {w_all.shape}")
+        H = np.zeros((K, K))
+        for row, n, blocks in _obs_blocks(state):
+            idx = np.concatenate([np.arange(c, c + B.shape[1]) for c, B in blocks])
+            Bl = np.concatenate([B for _c, B in blocks], 1)
+            H[np.ix_(idx, idx)] += (Bl * w_all[row:row + n, None]).T @ Bl
+        return H
+
+    n_obj = 6 * len(obj_keys)
+    c0 = 6 * len(cam_ids)
+
+    def normal_arrow(state, row_weights=None):
+        """``JᵀWJ`` as an :class:`~ds_msp.core.arrowhead.ArrowheadSym`: object-pose columns
+        (``c0 .. c0 + 6·n_obj``) only meet their own observations, so they form 6 x 6 diagonal
+        blocks, and only the blocks, the camera block ``A`` and the coupling ``B`` are stored
+        (``C² + 6C·n_obj + 36·n_obj`` numbers, ``C`` = camera columns, instead of ``K²``).
+
+        Each observation adds the same product as :func:`normal_matrix`, and the halves of
+        ``B`` are summed separately and averaged at the end, so every stored entry equals the
+        symmetrised dense matrix bit for bit."""
+        from ..core.arrowhead import ArrowheadSym
+        w_all = np.ones(total_rows) if row_weights is None else np.asarray(row_weights, float)
+        if w_all.shape != (total_rows,):
+            raise ValueError(f"row_weights must have shape ({total_rows},), got {w_all.shape}")
+        C = K - n_obj
+        A = np.zeros((C, C))
+        B_up = np.zeros((C, n_obj))                      # H[core, obj] as accumulated
+        B_lo = np.zeros((C, n_obj))                      # H[obj, core]ᵀ as accumulated
+        D = np.zeros((len(obj_keys), 6, 6))
+        for row, n, blocks in _obs_blocks(state):
+            oc, rest = blocks[0][0], blocks[1:]
+            Bl = np.concatenate([B for _c, B in blocks], 1)
+            G = (Bl * w_all[row:row + n, None]).T @ Bl
+            f = (oc - c0) // 6
+            D[f] += G[:6, :6]
+            if rest:
+                pos = np.concatenate([np.arange(c, c + B.shape[1]) - (n_obj if c >= c0 else 0)
+                                      for c, B in rest])
+                A[np.ix_(pos, pos)] += G[6:, 6:]
+                B_up[pos, oc - c0:oc - c0 + 6] += G[6:, :6]
+                B_lo[pos, oc - c0:oc - c0 + 6] += G[:6, 6:].T
+        A = (A + A.T) * 0.5
+        D = (D + np.swapaxes(D, 1, 2)) * 0.5
+        B_up += B_lo
+        del B_lo
+        B_up *= 0.5
+        core = np.r_[np.arange(c0), np.arange(c0 + n_obj, K)]
+        return ArrowheadSym(A=A, B=B_up, D=D, core=core, blocks=np.arange(c0, c0 + n_obj))
+
+    jacobian.normal_matrix = normal_matrix  # type: ignore[attr-defined]
+    jacobian.normal_arrow = normal_arrow  # type: ignore[attr-defined]
 
     def retract(state, d):
         """Apply a tangent-space update ``d`` (K,) to ``state``: SO(3) retraction
@@ -776,6 +846,47 @@ def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str
     return out
 
 
+class _SharedBlocks(abc.Sequence):
+    """Per-group shared Jacobians ``A_g (2 n_g, shared_dim)`` of :func:`build_schur_problem`,
+    expanded from column blocks one group at a time.
+
+    ``blocks`` holds ``(points, first_col, values)``: ``values[j]`` (2, w) is the derivative of
+    point ``points[j]`` (sorted, flat residual order) w.r.t. columns ``first_col:first_col+w``.
+    Every other entry of the dense Jacobian is zero, so ``self[g]`` equals the matching rows of
+    the dense ``(N, 2, shared_dim)`` array element for element, whitened per point by ``p_W``
+    exactly as the dense array was.
+    """
+
+    def __init__(self, blocks, gstart, shared_dim, p_W):
+        self._blocks = blocks
+        self._gstart = gstart
+        self._dim = shared_dim
+        self._p_W = p_W
+        # each group's points are one contiguous range of every block's sorted point list
+        self._lo = [np.searchsorted(pts, gstart[:-1]) for pts, _c, _v in blocks]
+        self._hi = [np.searchsorted(pts, gstart[1:]) for pts, _c, _v in blocks]
+
+    def __len__(self) -> int:
+        return len(self._gstart) - 1
+
+    def __getitem__(self, g):
+        if isinstance(g, slice):
+            return [self[i] for i in range(*g.indices(len(self)))]
+        if g < 0:
+            g += len(self)
+        if not 0 <= g < len(self):
+            raise IndexError(g)
+        s0, s1 = int(self._gstart[g]), int(self._gstart[g + 1])
+        A = np.zeros((s1 - s0, 2, self._dim))
+        for (pts, c0, val), lo, hi in zip(self._blocks, self._lo, self._hi):
+            a, b = lo[g], hi[g]
+            if b > a:
+                A[pts[a:b] - s0, :, c0:c0 + val.shape[2]] = val[a:b]
+        if self._p_W is not None:
+            A = np.einsum('nij,njk->nik', self._p_W[s0:s1], A)
+        return A.reshape(2 * (s1 - s0), self._dim)
+
+
 def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                         fix_intrinsics: bool = True, fix_extrinsics: bool = False,
                         refine_boards: bool = False, bend_boards: bool = False):
@@ -909,7 +1020,10 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
         Xo, Xg, Xc, R_obj, R_cam = _geometry(state)
         r = np.zeros((N, 2))
         Jp = np.zeros((N, 2, 3))
-        A = np.zeros((N, 2, shared_dim))
+        # The shared Jacobian is stored as its non-zero column blocks, each over the sorted
+        # point indices it covers; _SharedBlocks expands one group at a time on demand, so the
+        # dense (N, 2, shared_dim) array is never held (it set the solver's peak memory).
+        blocks: List[Tuple[np.ndarray, int, np.ndarray]] = []    # (points, first col, values)
         for c, idx in cam_pts.items():
             if not len(idx):
                 continue
@@ -921,8 +1035,7 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
             r[idx[u & ~valid]] = np.nan
             Jp[idx] = np.where(ok[:, None, None], J_point, 0.0)     # NaN-safe mask
             if not fix_intrinsics:
-                ic = intr_col[c]
-                A[idx, :, ic:ic + Pn[c]] = np.where(ok[:, None, None], J_param, 0.0)
+                blocks.append((idx, intr_col[c], np.where(ok[:, None, None], J_param, 0.0)))
         M = np.einsum('nij,njk->nik', R_cam, R_obj)
         B = np.empty((N, 2, 6))
         B[:, :, :3] = -np.einsum('nij,njk,nkl->nil', Jp, M, _skew_batch(Xo))
@@ -932,9 +1045,9 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
             if not len(idx):
                 continue
             cc = cam_col[c]
-            A[idx, :, cc:cc + 3] = -np.einsum('nij,njk,nkl->nil', Jp[idx], R_cam[idx],
-                                              _skew_batch(Xg[idx]))
-            A[idx, :, cc + 3:cc + 6] = Jp[idx]
+            blocks.append((idx, cc, -np.einsum('nij,njk,nkl->nil', Jp[idx], R_cam[idx],
+                                               _skew_batch(Xg[idx]))))
+            blocks.append((idx, cc + 3, Jp[idx]))
         if board_col or bend_col:
             Jx = np.einsum('nij,njk->nik', Jp, M)              # ∂uv/∂X_o
             for key, idx in board_masks.items():
@@ -945,25 +1058,23 @@ def build_schur_problem(rig: RigState, object_obs: List[ObjectObs], *,
                 if key in board_col:
                     q = Xo[idx] - base["cent"][bb] - state["board_t"][key]
                     cb = board_col[key]
-                    A[idx, :, cb:cb + 3] = -np.einsum('nij,njk->nik', Jx[idx], _skew_batch(q))
-                    A[idx, :, cb + 3:cb + 6] = Jx[idx]
+                    blocks.append((idx, cb, -np.einsum('nij,njk->nik', Jx[idx], _skew_batch(q))))
+                    blocks.append((idx, cb + 3, Jx[idx]))
                 if key in bend_col:
                     Rb = state["board_R"][key] if key in board_col else np.eye(3)
                     ck = bend_col[key]
                     F = base["basis"][p_row[idx]]
-                    A[idx, :, ck:ck + 3] = np.einsum('nij,j,nk->nik', Jx[idx],
-                                                     Rb @ base["normal"][bb], F)
+                    blocks.append((idx, ck, np.einsum('nij,j,nk->nik', Jx[idx],
+                                                      Rb @ base["normal"][bb], F)))
         if p_W is not None:
             r = np.einsum('nij,nj->ni', p_W, r)
-            A = np.einsum('nij,njk->nik', p_W, A)
             B = np.einsum('nij,njk->nik', p_W, B)
-        r_list, A_list, B_list = [], [], []
+        r_list, B_list = [], []
         for g in range(n_groups):
             s0, s1 = gstart[g], gstart[g + 1]
             r_list.append(r[s0:s1].ravel())
-            A_list.append(A[s0:s1].reshape(2 * (s1 - s0), shared_dim))
             B_list.append(B[s0:s1].reshape(2 * (s1 - s0), 6))
-        return r_list, A_list, B_list
+        return r_list, _SharedBlocks(blocks, gstart, shared_dim, p_W), B_list
 
     def retract(state, d_shared, d_local):
         """Apply the shared-block update ``d_shared`` (shared_dim,) and per-group local
