@@ -22,12 +22,10 @@ def _camera(dist, model_name=None):
 @pytest.mark.parametrize("name,dist", [
     ("ds", [0., 0., 0., 0.]),
     ("double_sphere", [0., 0., 0., 0.]),
-    ("ocam", [0., 0., 0., 0.]),
     ("kb", [0., 0., 0., 0., 0.]),
     ("radtan", [0., 0., 0., 0.]),
     ("ucm", [0., 0.]),
     ("eucm", [0.]),
-    ("dsplus", [0., 0.]),
     ("radtan", None),
 ])
 def test_explicit_malformed_source_is_rejected(name, dist):

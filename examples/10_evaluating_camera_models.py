@@ -15,8 +15,8 @@ answers are exact and need no download:
   * BENIGN   — a mild ~170° lens (smooth radial profile; 2 shape DOF are plenty)
   * DEMANDING — a ~158° industrial lens with a strong theta^5 bend (needs >=3 radial DOF)
 
-and compare two candidate models against each — EUCM (6p) and DS+ (9p) — with KB itself as
-the reference. The lesson the contrast teaches: the *same* model is a great choice on one
+and compare two candidate models against each — EUCM (6p) and Double Sphere (6p) — with KB
+itself as the reference. The lesson the contrast teaches: the *same* model is a great choice on one
 lens and a poor one on another, and only the diagnostics tell you which.
 
 The six diagnostics (each maps to a question you actually have):
@@ -28,8 +28,8 @@ The six diagnostics (each maps to a question you actually have):
   F. TASK WEIGHT     Where does my sampling put the error?      -> implicit angular weight
 
 Companion: docs/learn/choosing_a_camera_model.md
-           docs/explain/case_study_eucmplus_dsplus_kb.md (historical — see that page's note on
-           EUCM+'s removal from the shipped library)
+           docs/explain/case_study_eucmplus_dsplus_kb.md (historical: EUCM+ and DS+ have since
+           been removed from the shipped library)
 
 Prereq: pip install -e .     (core only; no dataset needed)
 Run:    python examples/10_evaluating_camera_models.py
@@ -88,9 +88,9 @@ def fit_to(kb, Tcls, W, H, fov):
     return m, info["rms_px"]
 
 
-CANDS = ["eucm", "dsplus"]
-SHAPE_IDX = {"eucm": [4, 5], "dsplus": [4, 5, 6]}
-SHAPE_LBL = {"eucm": "alpha,beta", "dsplus": "alpha,lam1,lam2"}
+CANDS = ["eucm", "ds"]
+SHAPE_IDX = {"eucm": [4, 5], "ds": [4, 5]}
+SHAPE_LBL = {"eucm": "alpha,beta", "ds": "xi,alpha"}
 
 
 def run(lens_name: str) -> None:
@@ -118,7 +118,7 @@ def run(lens_name: str) -> None:
 
     # C. REDUNDANCY --------------------------------------------------------------
     print("\nC. REDUNDANCY — does the *last* shape param add a DOF the others don't span?")
-    for n in ["dsplus"]:
+    for n in CANDS:
         J = shape_columns(fitted[n], SHAPE_IDX[n], th)
         last = J[:, -1]
         rest = J[:, :-1]
@@ -142,9 +142,9 @@ def run(lens_name: str) -> None:
         m, rms = fit_to(kb, EUCM, W, H, fov)
         print(f"     EUCM alpha<= {amax:4.1f}   RMS = {rms:8.4f}   (fitted alpha={m.params[4]:.3f})")
     EUCM.param_bounds = orig
-    dsplus_rms = fit_to(kb, model_class("dsplus"), W, H, fov)[1]
-    print(f"     DS+ (3rd shape DOF)   RMS = {dsplus_rms:8.4f}")
-    print("     read: if unbounding alpha still can't match DS+, the extra param is real capacity.")
+    kb_rms = fit_to(kb, model_class("kb"), W, H, fov)[1]
+    print(f"     KB (4 shape DOF)      RMS = {kb_rms:8.4f}")
+    print("     read: if unbounding alpha still can't approach KB, the missing DOF are real capacity.")
 
 
 def cost_and_weight() -> None:
@@ -160,9 +160,9 @@ def cost_and_weight() -> None:
     for n in CANDS:
         fitted[n], _ = fit_to(kb, model_class(n), W, H, fov)
 
-    print("E. COST — project 300k rays / unproject 160k px (closed-form vs Newton vs quartic)")
+    print("E. COST — project 300k rays / unproject 160k px (closed form vs Newton)")
     print(f"     {'model':9s} {'project ms':>11} {'unproject ms':>13} {'roundtrip px':>13} {'valid%':>7}")
-    for n in ["kb", "eucm", "dsplus"]:
+    for n in ["kb", "eucm", "ds"]:
         m = fitted[n]
         t = time.perf_counter()
         for _ in range(3):
@@ -176,8 +176,7 @@ def cost_and_weight() -> None:
         mk = v & ok
         rt = np.linalg.norm(uv[mk] - PX[mk], axis=1)
         print(f"     {n:9s} {tp:11.1f} {tu:13.1f} {np.median(rt):13.1e} {mk.mean() * 100:7.1f}")
-    print("     read: KB unproject = Newton (exact, iterative); DS+ = Ferrari quartic when")
-    print("           lam2!=0 (slow); EUCM = one sqrt (fast). Project is ~tied.")
+    print("     read: KB unproject = Newton (exact, iterative); EUCM and DS = closed form.")
 
     print("\nF. TASK WEIGHT — implicit angular weight of uniform-pixel sampling, w(θ)=r·r'")
     th = np.deg2rad(np.linspace(0.5, fov / 2, 2000))
@@ -198,17 +197,18 @@ def main() -> None:
     run("demanding")
     cost_and_weight()
     section("HOW TO READ THE WHOLE TABLE")
-    print("  Same two candidates, verdicts that depend on lens AND on how much FOV you use:")
-    print("   - BENIGN: over the FULL FOV, DS+ tracks KB almost exactly (A: 0.02px) while EUCM")
-    print("     drifts at the rim (0.24px). But if your task only uses the inner field (most")
-    print("     calibration corners do), EUCM is within tolerance and far cheaper — pick it.")
-    print("   - DEMANDING: EUCM cannot bend enough (A), even unbounded (D) -> real lack of")
-    print("     capacity. DS+ fits best (A) with its 3rd DOF genuinely independent (C: 4-13%),")
-    print("     at the cost of a slower quartic unproject when lam2!=0 (E).")
+    print("  Same two candidates, verdicts that depend on the lens:")
+    print("   - BENIGN: over the FULL FOV, EUCM and DS both stay near KB (A: 0.24 / 0.28 px) and")
+    print("     are about 3-4x cheaper to unproject than KB's Newton solve (E). If ~0.3 px at")
+    print("     the rim is within your tolerance, either sphere model is the cheaper choice.")
+    print("   - DEMANDING: neither can bend like this lens (A: 6.6 / 15.7 px), and lifting EUCM's")
+    print("     alpha bound only reaches 4.7 px (D) -> real lack of capacity. Use KB, whose four")
+    print("     radial DOF match the lens.")
+    print("   - DS's two shape parameters are well separated (B: cond ~15; C: ~50% outside each")
+    print("     other's span); EUCM's beta is nearly collinear with alpha (C: |cos| 0.99).")
     print("  No model is 'best' in the abstract. The diagnostics decide, per lens and per task.")
     print("  (These are full-FOV capacity numbers; on real corners that only reach the inner")
     print("   field, the models tie — which is exactly why diagnostic A must use YOUR task FOV.)")
-
 
 if __name__ == "__main__":
     main()

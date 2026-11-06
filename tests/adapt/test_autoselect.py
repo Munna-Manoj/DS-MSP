@@ -12,7 +12,8 @@ import numpy as np
 from ds_msp.adapt import convert, convert_best
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.kb import KannalaBrandtModel
-from ds_msp.models.ocam import OCamModel
+from ds_msp.models.eucm import EUCMModel
+from ds_msp.models.ucm import UCMModel
 
 W, H = 2592, 1800
 
@@ -35,24 +36,24 @@ def test_convert_best_meets_tolerance_on_inflected_lens():
     assert rep["selected"] is True
     # The escalation must have tried (and rejected) the cheaper sphere models.
     tried = [r[1]["target_model"] for r in results]
-    assert tried[0] == "ucm" and rep["target_model"] == "ocam", (tried, rep)
+    assert tried[0] == "ucm" and rep["target_model"] == "kb", (tried, rep)
 
 
 def test_convert_best_returns_best_when_tolerance_unreachable():
     # An impossible tolerance forces the "best available" branch, flagged honestly.
     model, rep, results = convert_best(
         INFLECTED_KB, width=W, height=H, target_rms=1e-6,
-        candidates=(DoubleSphereModel, OCamModel))
+        candidates=(UCMModel, EUCMModel))
     assert rep["selected"] is True
     assert "not met" in rep["selected_reason"]
-    # Best available is the most capable candidate (OCam), not the first tried.
-    assert rep["target_model"] == "ocam"
+    # Best available is the more capable candidate (EUCM), not the first tried.
+    assert rep["target_model"] == "eucm"
 
 
 def test_convert_is_deterministic_across_runs():
     # The multi-start RNG is seeded, so repeated conversions are reproducible.
-    m1, _ = convert(INFLECTED_KB, OCamModel, width=W, height=H, n_samples=800)
-    m2, _ = convert(INFLECTED_KB, OCamModel, width=W, height=H, n_samples=800)
+    m1, _ = convert(INFLECTED_KB, EUCMModel, width=W, height=H, n_samples=800)
+    m2, _ = convert(INFLECTED_KB, EUCMModel, width=W, height=H, n_samples=800)
     assert np.allclose(m1.params, m2.params)
 
 

@@ -608,8 +608,8 @@ function errClass(e) {
   if (e < 1.5) return 'lvl-mid';
   return 'lvl-bad';
 }
-const MODEL_COLOR = { kb: 0x60a5fa, dsplus: 0xc084fc, ds: 0xc084fc, radtan: 0x4ade80,
-                      ucm: 0xfb923c, eucm: 0xfb923c, ocam: 0xf472b6 };
+const MODEL_COLOR = { kb: 0x60a5fa, ds: 0xc084fc, radtan: 0x4ade80,
+                      ucm: 0xfb923c, eucm: 0xfb923c };
 function modelColor(m) { return MODEL_COLOR[m] || 0x7dd3fc; }
 
 // ---------------------------------------------------------------------------------------
@@ -1029,8 +1029,8 @@ function drawLabel(lbl, text, color) {
 // base shape can never be fought or distorted by its own wave motion -- the same "separate the
 // tracked transform from the cosmetic one" principle that fixed the spawn-in tween bug earlier
 // in this file, generalized to every swaying part instead of just one wobble.
-const MODEL_CREATURE = { kb: 'octopus', dsplus: 'squid', ds: 'squid', radtan: 'jellyfish',
-                         ucm: 'hammerhead', eucm: 'hammerhead', ocam: 'starfish' };
+const MODEL_CREATURE = { kb: 'octopus', ds: 'squid', radtan: 'jellyfish',
+                         ucm: 'hammerhead', eucm: 'hammerhead' };
 function creatureKind(model) { return MODEL_CREATURE[model] || 'jellyfish'; }
 
 function addRadialPivotPart(visual, n, ringR, pivotY, meshBuilder) {

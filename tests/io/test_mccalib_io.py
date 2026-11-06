@@ -9,10 +9,8 @@ import pytest
 from ds_msp.models.registry import (canonical_name, model_class, mccalib_name,
                                      PINHOLE_MODELS, FISHEYE_MODELS)
 from ds_msp.models.double_sphere import DoubleSphereModel
-from ds_msp.models.dsplus import DSPlusModel
 from ds_msp.models.eucm import EUCMModel
 from ds_msp.models.kb import KannalaBrandtModel
-from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.io.mccalib import (save_mccalib_cameras, save_mccalib_objects,
@@ -37,6 +35,9 @@ def test_registry_resolves_mccalib_and_dsmsp_names():
     assert mccalib_name("radtan") == "radtan"
     with pytest.raises(KeyError):
         model_class("not_a_model")
+    for removed in ("dsplus", "ds+", "ocam", "scaramuzza"):
+        with pytest.raises(KeyError, match="removed"):
+            model_class(removed)
 
 
 def test_random_assignment_respects_pinhole_fisheye_pools():
@@ -86,7 +87,7 @@ def test_per_camera_models_and_mccalib_writer_roundtrip(tmp_path):
 
 
 MODELS = [RadTanModel.sample, DoubleSphereModel.sample, UCMModel.sample, EUCMModel.sample,
-          KannalaBrandtModel.sample, DSPlusModel.sample, OCamModel.sample]
+          KannalaBrandtModel.sample]
 
 
 def _single_camera_rig(model):
@@ -133,6 +134,24 @@ def test_load_camera_no_stated_model_raises(tmp_path):
     fs.endWriteStruct()
     fs.release()
     with pytest.raises(ValueError, match="cannot tell which model"):
+        load_camera(str(path), 0)
+
+
+@pytest.mark.parametrize("name", ["dsplus", "ocam"])
+def test_removed_model_file_is_rejected_not_read_as_kb(name, tmp_path):
+    """DS+ and OCam files carry MC-Calib ``distortion_type`` 1, which alone would read back as
+    KB. A file naming a removed model (ADR-0031) must fail with the reason instead."""
+    path = tmp_path / "cams.yml"
+    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_WRITE)
+    fs.write("nb_camera", 1)
+    fs.startWriteStruct("camera_0", cv2.FileNode_MAP)
+    fs.write("camera_model", name)
+    fs.write("distortion_type", 1)
+    fs.write("camera_matrix", np.eye(3))
+    fs.write("distortion_vector", np.zeros((1, 4)))
+    fs.endWriteStruct()
+    fs.release()
+    with pytest.raises(KeyError, match="ADR-0031"):
         load_camera(str(path), 0)
 
 

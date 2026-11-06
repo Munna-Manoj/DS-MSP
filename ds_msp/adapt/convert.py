@@ -10,8 +10,7 @@ Global optimum, any scenario
 ----------------------------
 A single linear seed plus one local refine can stall in a poor basin when the
 target's shape parameters are far from their seed (e.g. a strong-``xi`` Double
-Sphere, a DS+ whose ``lambda1``/``lambda2`` are far from their neutral seed, or a
-polynomial OCam whose higher coefficients matter). To find the *global* optimum
+Sphere, or a Kannala-Brandt whose higher coefficients matter). To find the *global* optimum
 regardless of the source, the refine runs as a **multi-start**: the linear seed,
 a **deterministic sweep** that walks each finitely-bounded shape parameter across
 its range, and ``n_restarts`` additional random dispersed seeds — keeping the
@@ -52,8 +51,8 @@ def _shape_seeds(target_cls: Type[CameraModel], base: np.ndarray,
     The deterministic sweep moves *one* finitely-bounded shape parameter at a time to a few
     fractions of its range (others held at the linear seed). This guarantees a shape optimum
     that sits *far* from the linear seed is reached without relying on the luck of the random
-    restarts — e.g. a DS+ whose ``lambda1``/``lambda2`` are far from their neutral seed would
-    otherwise self-convert into a wrong basin. The random restarts are retained on top for
+    restarts — e.g. a strong-``xi`` Double Sphere far from its neutral seed would otherwise
+    self-convert into a wrong basin. The random restarts are retained on top for
     joint (multi-parameter) basins; they keep the previous behaviour for ``n_restarts>0``.
     """
     seeds = [base.copy()]
@@ -80,7 +79,7 @@ def _shape_seeds(target_cls: Type[CameraModel], base: np.ndarray,
             # Sample within a window around the seed, clipped to bounds. The
             # window is the smaller of half the (finite) bound span or a scale
             # tied to the seed magnitude, so tightly-bounded params (alpha, xi)
-            # explore their whole range while large ones (OCam a-coeffs) stay local.
+            # explore their whole range while large ones stay local.
             span = 0.5 * (hi - lo)
             w = min(span, max(abs(s), 1.0))
             p[i] = rng.uniform(max(lo, s - w), min(hi, s + w))

@@ -3,7 +3,7 @@
 This is the real-data sign-off behind shipping ``ds_msp.rig``: it drives the full
 config-based rig calibration on the MC-Calib Blender scenarios and asserts the recovered
 full all-pair pose/task-space metrics are reported against independent truth at sub-pixel
-training fit, both with the authors' intrinsics held fixed and with DS+ estimated from scratch.
+training fit, both with the authors' intrinsics held fixed and with Double Sphere estimated from scratch.
 
 Dataset-gated: set ``DSMSP_BLENDER_DIR`` to a ``Blender_Images`` directory, or place one at
 the repo root. Skipped (not failed) when the imagery/keypoints are absent, like the other
@@ -71,8 +71,8 @@ pytestmark = [pytest.mark.realdata, pytest.mark.req("FR-RIG-001", "FR-RIG-024")]
 
 @pytest.mark.parametrize("scn,mode", [
     ("Scenario_1", "given"),    # authors' intrinsics held fixed (radtan), extrinsics-only
-    ("Scenario_1", "dsplus"),   # DS+ estimated from scratch
-    ("Scenario_2", "dsplus"),   # 5-camera, non-globally-overlapping
+    ("Scenario_1", "scratch"),  # Double Sphere estimated from scratch
+    ("Scenario_2", "scratch"),  # 5-camera, non-globally-overlapping
 ])
 def test_rig_full_pose_and_roi_accuracy_vs_gt(scn, mode, tmp_path):
     root = _root()
@@ -89,7 +89,7 @@ def test_rig_full_pose_and_roi_accuracy_vs_gt(scn, mode, tmp_path):
     profile_path.write_text(json.dumps(_PROFILE))
     cfg_text = _CFG.format(
         nb=meta["nb"], ncam=meta["ncam"],
-        model="radtan" if given else "dsplus",
+        model="radtan" if given else "ds",
         fix="true" if given else "false",
         cam_params=os.path.join(res_dir, "calibrated_cameras_data.yml") if given else "None",
         kp=kp,
@@ -108,10 +108,12 @@ def test_rig_full_pose_and_roi_accuracy_vs_gt(scn, mode, tmp_path):
     if given:
         assert accuracy["limit_checks"]["all_pass"] is True, accuracy["limit_checks"]
     elif scn == "Scenario_1":
-        # Regression for the exact failure the old baseline-only claim concealed: scratch DS+
-        # keeps baseline length within 1%, yet its angular error creates >10 cm displacement
-        # over the 1-10 m ROI. A truthful evaluator must fail the declared 10 mm profile.
+        # Double Sphere from scratch meets the declared 10 mm profile over the 1-10 m ROI
+        # (measured 1.6 mm p95). The removed DS+ model kept baseline length within 1% here but
+        # missed by metres, because its tilt absorbed camera rotation (ADR-0031). The
+        # evaluator's ability to fail a wrong rig is covered synthetically in
+        # tests/rig/test_accuracy.py.
         assert m["worst_baseline_pct_vs_gt"] < 1.0
-        assert accuracy["limit_checks"]["all_pass"] is False
-        assert accuracy["summary"]["task_space"]["p95"] > 0.1
+        assert accuracy["limit_checks"]["all_pass"] is True, accuracy["limit_checks"]
+        assert accuracy["summary"]["task_space"]["p95"] < 0.01
     assert m["max_rms_px"] < 1.0, f"{scn}/{mode}: reprojection {m['max_rms_px']:.3f}px (>=1px)"

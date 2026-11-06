@@ -3,7 +3,7 @@
 DS-MSP has two intertwined goals, and the roadmap serves both:
 
 1. **A clean, correct, well-tested wide-FOV camera library** — Double Sphere plus a
-   uniform multi-model layer (UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib), model
+   uniform multi-model layer (UCM, EUCM, Kannala-Brandt, RadTan), model
    conversion, analytic Jacobians, and Kalibr I/O.
 2. **A learning resource** — a [guided, runnable curriculum](learn/README.md) that teaches
    the geometry behind SLAM / AR / robot perception on real public data.

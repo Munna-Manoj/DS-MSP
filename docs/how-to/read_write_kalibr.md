@@ -117,10 +117,8 @@ Sphere write — as representative of all five:
 To write a EUCM, UCM, or RadTan file, pass that model to the same `save_kalibr`
 call below; it places the fields from the row above.
 
-The same module also reads/writes two DS-MSP-only extension formats: `DSPlusModel`
-(`ds_plus`) and `OCamModel` (`ocam`). They are omitted from the native table above because a
-stock Kalibr executable does not understand them, but DS-MSP round-trips both so calibration
-artifacts remain reusable.
+Earlier releases also wrote two DS-MSP-only formats, `ds_plus` and `ocam`. Those models were
+removed ([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)); reading such a stanza now raises an error that says so.
 
 ## Write a model to Kalibr YAML
 

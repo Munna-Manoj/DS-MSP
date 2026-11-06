@@ -1,7 +1,7 @@
 """Mirrored test for docs_src/how_to/export_ldc_mesh/any_model.py.
 
 Asserts the exact values shown in docs/how-to/export_ldc_mesh.md's "any camera model"
-section: a Kannala-Brandt and an OCam camera through the same generator.
+section: a Kannala-Brandt and an EUCM camera through the same generator.
 """
 import subprocess
 import sys
@@ -20,9 +20,9 @@ def test_main_prints_expected_values(capsys):
     assert "kb (31, 41, 2) int16 True" in out
     assert "192.3 kb" in out
     assert "[[320.0, 240.0], [441.83, 179.28]] [True, True]" in out
-    assert "ocam (31, 41, 2) int16 True" in out
-    assert "132.0 ocam" in out
-    assert "[[320.0, 240.0], [436.57, 181.71]] [True, True]" in out
+    assert "eucm (31, 41, 2) int16 True" in out
+    assert "144.0 eucm" in out
+    assert "[[320.0, 240.0], [462.44, 168.78]] [True, True]" in out
 
 
 def test_module_runs_as_script():
@@ -30,7 +30,7 @@ def test_module_runs_as_script():
         [sys.executable, "-m", "docs_src.how_to.export_ldc_mesh.any_model"],
         cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert "ocam (31, 41, 2) int16 True" in result.stdout
+    assert "eucm (31, 41, 2) int16 True" in result.stdout
 
 
 # Traceability: links this suite to the requirement it verifies.

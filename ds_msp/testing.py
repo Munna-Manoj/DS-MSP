@@ -178,7 +178,7 @@ def finite_difference_param_jacobian(model: CameraModel, P: np.ndarray,
     """Numerical ``d(u,v)/d(params)`` via central differences, shape ``(N,2,P)``.
 
     Uses a per-parameter RELATIVE step (scaled by ``|p_k|``) so it stays accurate
-    for parameters spanning many magnitudes (e.g. an OCam coefficient ~1e-9
+    for parameters spanning many magnitudes (e.g. a KB coefficient ~1e-4
     alongside a focal ~1e3), where a fixed absolute step would be meaningless.
     """
     p = np.asarray(model.params, dtype=np.float64)

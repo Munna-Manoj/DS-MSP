@@ -37,11 +37,11 @@ from ..core.robust import auto_kernel_scale, robust_weight
 from . import bundle
 from .types import ObjectObs, RigState
 
-# Parameter-name classes used by the signature matcher. Focal columns exist in every model
-# but OCam (whose polynomial a0 plays the paraxial-focal role); the "primary" distortion
+# Parameter-name classes used by the signature matcher. Focal columns exist in every model;
+# the "primary" distortion
 # parameter is the lowest-order shape parameter a planar low-tilt capture couples with focal;
 # "outer-FOV" parameters are the ones only periphery observations constrain.
-_FOCAL_PARAMS = ("fx", "fy", "a0")
+_FOCAL_PARAMS = ("fx", "fy")
 _PRIMARY_DISTORTION = ("xi", "alpha", "k1", "lambda1", "a2")
 _OUTER_FOV_PARAMS = ("xi", "alpha", "beta", "k3", "k4", "lambda2", "tau_x", "tau_y",
                      "a3", "a4")

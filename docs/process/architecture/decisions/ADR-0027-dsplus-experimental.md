@@ -1,6 +1,6 @@
 # ADR-0027 — DS⁺ is an experimental model, not for production
 
-- **Status:** Accepted (recorded 2026-10-26)
+- **Status:** Superseded by [ADR-0031](ADR-0031-remove-dsplus-and-ocam.md) (DS⁺ removed); recorded 2026-10-26
 - **Deciders:** maintainer
 - **Relates to:** ARC-MODELS, ARC-RIG, FR-MODEL-001..005, ADR-0005, ADR-0023
 - **Supersedes:** the "best accuracy" recommendation for DS⁺ in the README and guides

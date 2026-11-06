@@ -149,7 +149,7 @@ def paraxial_focal(model: CameraModel) -> Tuple[float, float]:
     at the optical axis. Compare cameras (and seed focals) by this, never by raw ``fx``.
     """
     p = dict(zip(model.param_names, model.params))
-    if "fx" not in p or "fy" not in p:  # model without explicit fx/fy (e.g. OCam): use K
+    if "fx" not in p or "fy" not in p:  # model without explicit fx/fy: use K
         K = model.K
         return float(K[0, 0]), float(K[1, 1])
     fx, fy = p["fx"], p["fy"]
@@ -302,7 +302,7 @@ def _fit_one_camera(model_cls, objs, obs, w, h, init_K_cam, loss, f_scale, max_n
         # and keep the lower-RMS fit, so the geometry-aware seed is used only when it
         # actually helps and never degrades a model whose fx is already paraxial.
         # A model whose ``initialize_from_correspondences`` is a neutral-distortion
-        # no-op (RadTan, OCam's affine terms) makes ``seed_ma`` byte-identical to
+        # no-op (RadTan) makes ``seed_ma`` byte-identical to
         # ``_seed_from_K`` — solving that seed twice is deterministic, wasted work,
         # not a second opinion, so skip the duplicate candidate entirely.
         start_seeds = [seed_ma]

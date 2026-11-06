@@ -15,11 +15,9 @@ from ds_msp.calib import calibrate
 from ds_msp.calib.bundle import _shape_seeds
 from ds_msp.models.double_sphere import DoubleSphereModel
 from ds_msp.models.kb import KannalaBrandtModel
-from ds_msp.models.ocam import OCamModel
 from ds_msp.models.radtan import RadTanModel
 from ds_msp.models.ucm import UCMModel
 from ds_msp.models.eucm import EUCMModel
-from ds_msp.models.dsplus import DSPlusModel
 
 
 def _board(rows=7, cols=9, spacing=0.06):
@@ -55,8 +53,6 @@ _MODELS = [
                DoubleSphereModel(400, 400, 640, 360, 0.0, 0.5)),
     ("eucm",   EUCMModel(360, 360, 640, 360, 0.6, 1.2),
                EUCMModel(400, 400, 640, 360, 0.5, 1.0)),
-    ("dsplus", DSPlusModel(360, 360, 640, 360, 0.55, 0.3, -0.1, 0.01, -0.01),
-               DSPlusModel(400, 400, 640, 360, 0.5, 0.0, 0.0, 0.0, 0.0)),
 ]
 
 
@@ -100,12 +96,12 @@ def test_fronto_parallel_views_do_not_flip():
 
 @pytest.mark.req("NFR-PERF-001")
 @pytest.mark.parametrize("cls", [
-    RadTanModel, KannalaBrandtModel, OCamModel,
-    UCMModel, EUCMModel, DoubleSphereModel, DSPlusModel,
+    RadTanModel, KannalaBrandtModel,
+    UCMModel, EUCMModel, DoubleSphereModel,
 ])
 def test_multistart_disperses_every_model_including_plain_distortion_tails(cls):
     """History: an earlier version skipped dispersion for models with no *documented*
-    degenerate basin (RadTan/KB/OCam), measured safe on a well-conditioned real 2-camera/
+    degenerate basin (RadTan/KB), measured safe on a well-conditioned real 2-camera/
     99-frame rig. That did not generalize — on thinner synthetic data (100 cameras, ~20
     frames each) skipping multi-start left 56/100 RadTan cameras with ~2x the reprojection
     error and zero improved (not a documented-basin collapse, just an ordinary local optimum

@@ -21,16 +21,8 @@ Notes:
 - Kalibr radtan has only 4 coeffs: a non-zero ``k3`` is dropped on export (with a
   warning), since the on-disk format cannot represent it.
 
-DS-MSP EXTENSIONS (DS⁺ and OCam have no Kalibr-native equivalent). They round-trip
-through this module so every calibration artifact remains reusable by DS-MSP and its Isaac
-exporter, but a real Kalibr installation will not recognize these ``camera_model`` strings:
-
-  ===========  ==============  ==================  ==============================  ==============================
-  model        camera_model    distortion_model    intrinsics order                distortion_coeffs
-  ===========  ==============  ==================  ==============================  ==============================
-  DS⁺          ds_plus         ds_plus_div_tilt    [alpha, fx, fy, cx, cy]         [lambda1, lambda2, tau_x, tau_y]
-  OCam         ocam            ocam_polynomial     [cx, cy]                        [c, d, e, a0, a1, a2, a3, a4]
-  ===========  ==============  ==================  ==============================  ==============================
+DS-MSP's former extension models (DS+, OCam) were removed by ADR-0031. Reading a
+``ds_plus`` or ``ocam`` stanza raises an error that names the reason.
 """
 
 from __future__ import annotations
@@ -42,10 +34,8 @@ import numpy as np
 import yaml
 
 from ..models.double_sphere import DoubleSphereModel
-from ..models.dsplus import DSPlusModel
 from ..models.eucm import EUCMModel
 from ..models.kb import KannalaBrandtModel
-from ..models.ocam import OCamModel
 from ..models.radtan import RadTanModel
 from ..models.ucm import UCMModel
 
@@ -78,17 +68,6 @@ def to_kalibr_cam(model, width: int, height: int) -> dict:
         block = dict(camera_model="omni",
                      intrinsics=[xi_mei, model.fx, model.fy, model.cx, model.cy],
                      distortion_model="none", distortion_coeffs=[])
-    elif name == "dsplus":
-        block = dict(camera_model="ds_plus",
-                     intrinsics=[model.alpha, model.fx, model.fy, model.cx, model.cy],
-                     distortion_model="ds_plus_div_tilt",
-                     distortion_coeffs=[model.lambda1, model.lambda2, model.tau_x, model.tau_y])
-    elif name == "ocam":
-        block = dict(camera_model="ocam",
-                     intrinsics=[model.cx, model.cy],
-                     distortion_model="ocam_polynomial",
-                     distortion_coeffs=[model.c, model.d, model.e, model.a0, model.a1,
-                                        model.a2, model.a3, model.a4])
     else:
         raise ValueError(f"No Kalibr mapping for model '{name}'")
     block["resolution"] = [int(width), int(height)]
@@ -114,16 +93,9 @@ def from_kalibr_cam(block: dict):
             raise NotImplementedError("omni + distortion is not representable by UCMModel")
         alpha = xi_mei / (1.0 + xi_mei)
         return UCMModel(fx, fy, cx, cy, alpha)
-    if cm == "ds_plus":
-        alpha, fx, fy, cx, cy = intr
-        lambda1, lambda2, tau_x, tau_y = D
-        return DSPlusModel(fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y)
-    if cm == "ocam":
-        if dm not in ("ocam_polynomial", "none", None, ""):
-            raise NotImplementedError(f"Unsupported OCam distortion_model {dm!r}")
-        cx, cy = intr
-        c, d, e, a0, a1, a2, a3, a4 = D
-        return OCamModel(cx, cy, c, d, e, a0, a1, a2, a3, a4)
+    if cm in ("ds_plus", "ocam"):
+        raise ValueError(f"Kalibr camera_model {cm!r} is a DS-MSP extension model that was "
+                         f"removed (ADR-0031); recalibrate with ds, kb, eucm, ucm or radtan")
     if cm == "pinhole":
         fx, fy, cx, cy = intr
         if dm == "equidistant":

@@ -87,14 +87,8 @@ bundled Double Sphere calibration (1920×1080):
 | UCM | `UCMModel` | 0.334 | lossy — UCM has 1 shape parameter (`alpha`) vs. DS/EUCM's 2 |
 | RadTan @ 120° | `RadTanModel` | 0.768 | lossy — pinhole cannot hold a wide FOV |
 
-Supported models: **UCM, EUCM, Kannala-Brandt, RadTan, OCamCalib, Double Sphere**.
+Supported models: **UCM, EUCM, Kannala-Brandt, RadTan, Double Sphere**.
 All implement the same contract, so any can be a source *or* a target.
-
-/// note
-OCamCalib (class `OCamModel`) is supported but left out of the table above — it
-converts well (`rms_px` ≈ 0.55) — the four rows shown are enough to make the
-expressiveness point.
-///
 
 {* docs_src/how_to/convert_between_models/pick_target_model.py hl[12:13] *}
 

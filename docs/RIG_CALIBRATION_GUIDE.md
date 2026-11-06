@@ -8,7 +8,7 @@ images, driven by a single config.
 This is the multi-camera analogue of [`ds_msp[calib]`](CALIBRATE_GUIDE.md)'s config-driven
 pattern: the same schema style as MC-Calib's own `./calibrate calib_param.yml`, the same output
 files, with one extension — pick a *different camera model per camera*
-(`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`).
+(`radtan`, `kb`, `ucm`, `eucm`, `ds`).
 
 **Prerequisites**
 
@@ -280,12 +280,12 @@ every field that matters.
 | `number_camera` | number of cameras in the rig |
 | `distortion_model` | global default: `0` = Brown→`radtan` (pinhole), `1` = Kannala→`kb` (fisheye) |
 | `distortion_per_camera` | per-camera `0/1` list overriding the global, length = `number_camera` |
-| `camera_models` *(DS-MSP extension, highest precedence)* | per-camera model **name** — `[ kb, kb, kb, kb, radtan, radtan, kb, kb ]`. Choose from `radtan, ucm, eucm, ds, kb, ocam, dsplus`. Overrides the two keys above. |
+| `camera_models` *(DS-MSP extension, highest precedence)* | per-camera model **name** — `[ kb, kb, kb, kb, radtan, radtan, kb, kb ]`. Choose from `radtan, ucm, eucm, ds, kb`. Overrides the two keys above. |
 
 /// tip | Which model?
 Pinhole / low-distortion lens → `radtan`. Fisheye → `kb` is the safe default; `ds`/`ucm`/`eucm`
-are compact sphere models. Do not use `dsplus` (DS+) or `ocam` when you need the extrinsics:
-their extra intrinsic terms trade off against camera rotation. See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
+are compact sphere models. (DS+ and OCam were removed: their extra intrinsic terms traded off
+against camera rotation, [ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md).) See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model)
 and the real-data comparison in [§7](#7-worked-example-robustness-real-8-camera-rig).
 ///
 
@@ -424,8 +424,8 @@ $ ds-msp-calibrate-rig --config calib_param.yml \
 
 </div>
 
-Then reuse the saved keypoints for a second, much faster run — trying a different model. The
-example uses the experimental `dsplus` model to compare fits; do not ship its extrinsics:
+Then reuse the saved keypoints for a second, much faster run — trying a different model for the
+fisheye cameras:
 
 <div class="termy">
 
@@ -433,8 +433,8 @@ example uses the experimental `dsplus` model to compare fits; do not ship its ex
 $ ds-msp-calibrate-rig --config reuse.yml \
     --set keypoints_path=/abs/out/detected_keypoints_data.yml \
     --set object_path=/abs/out/calibrated_objects_data.yml \
-    --set save_path=/abs/out_dsplus \
-    --set camera_models=dsplus,dsplus,dsplus,dsplus,radtan,radtan,dsplus,dsplus
+    --set save_path=/abs/out_eucm \
+    --set camera_models=eucm,eucm,eucm,eucm,radtan,radtan,eucm,eucm
 ```
 
 </div>
@@ -454,32 +454,31 @@ across intrinsics scenarios — varying **only** how intrinsics are provided —
 | from scratch (`kb`/`radtan`) | **0.5532** | — |
 | provided intrinsics + refine | 0.5517 | Δrot 0.057°, Δt 2.8 mm |
 | provided intrinsics + **fixed** (extrinsics-only) | 0.5641 | Δrot 0.989°, Δt 15.1 mm |
-| convert `kb`→`dsplus` (warn + convert) | 0.5470 | Δrot 0.317°, Δt 6.7 mm |
 
 Takeaways (these are *measured*, not asserted):
 
-- The pipeline reaches **close to the same reprojection error** (0.547–0.564 px across all four
-  scenarios) whether intrinsics are estimated from scratch, provided and refined, provided and
-  held fixed, or converted from a different model — robust to how you supply intrinsics.
+- The pipeline reaches **close to the same reprojection error** (0.552–0.564 px across the three
+  scenarios) whether intrinsics are estimated from scratch, provided and refined, or provided and
+  held fixed — robust to how you supply intrinsics.
 - Extrinsics are **close but not identical** across scenarios — a real, small basin difference,
   not a bug: refining from provided intrinsics stays nearest to from-scratch (Δrot 0.057°, Δt
   2.8 mm), while holding intrinsics **fixed** moves the extrinsics the most (Δrot 0.989°, Δt
   15.1 mm) since the bundle adjustment can no longer trade off intrinsics error against pose
-  error. `convert() kb→dsplus` sits in between (Δrot 0.317°, Δt 6.7 mm).
+  error.
 - **Model choice still matters.** Plain `ds` cannot represent these ≳170° lenses (it saturates at
-  ~16 px); switching the *same run* to **`dsplus`** drops it to **~0.55 px**, matching/beating the
-  `kb`+`radtan` baseline. When a model under-fits, the residual shows it honestly rather than
-  hiding the limitation.
-- **A low residual does not make `dsplus` the right choice.** DS+ is experimental: its tilt terms
-  can absorb camera rotation, so use `kb`/`radtan` for production extrinsics
-  ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
+  ~16 px), while `kb` fits them at ~0.55 px. When a model under-fits, the residual shows it
+  honestly rather than hiding the limitation.
+- An earlier version of this table also had a row converting `kb` to the since-removed DS+ model
+  (0.5470 px, Δrot 0.317°, Δt 6.7 mm from the from-scratch run). DS+ was removed because its tilt
+  terms absorb camera rotation ([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)).
 
 See [Choosing a model by FOV](https://github.com/Munna-Manoj/DS-MSP/blob/main/README.md#choosing-a-model) for how to pick a
 model for *your* lens before you calibrate.
 
 ### Watch it converge
 
-The command that produced the `convert kb→dsplus` row above:
+The replay below was recorded before DS+ was removed, from this run with the cameras converted
+to DS+. That model no longer exists, so the command no longer runs as shown:
 
 <div class="termy">
 
@@ -522,7 +521,7 @@ match the scene's up-direction to your own setup, exactly like the live view.
 | A camera is missing from the output | its folder wasn't found (`<cam_prefix><id+1:03d>`) or it shares no frames with the rest |
 | Frames don't line up across cameras | filenames must encode the **same frame number** for the same instant in every camera |
 | `fix_intrinsic=true` error about a missing/mismatched model | provide intrinsics for every camera with `camera_model` matching `camera_models`, or set `fix_intrinsic=false` to convert+refine |
-| Large reprojection on wide lenses | the model under-fits — try `kb` or `dsplus` for those cameras ([§7](#7-worked-example-robustness-real-8-camera-rig)) |
+| Large reprojection on wide lenses | the model under-fits — try `kb` for those cameras ([§7](#7-worked-example-robustness-real-8-camera-rig)) |
 | Want overlays | set `save_detection: true` / `save_reprojection: true` **and** keep `root_path` pointing at the images |
 | Browser window keeps popping open | set `webviewer: false` in the config (or `--no-webviewer` on the CLI) |
 | Wrong real-world scale | `square_size` must be the **physically measured** square size |

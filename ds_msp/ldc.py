@@ -33,8 +33,8 @@ Q3_INT16_MIN, Q3_INT16_MAX = -32768, 32767
 def _pinhole_focal(camera: Any) -> Tuple[float, float]:
     """``(fx, fy)`` of the model's pinhole-equivalent ``K`` (contract property).
 
-    Every :class:`CameraModel` exposes ``K``; models without a native focal
-    (e.g. OCam) return their pinhole-equivalent focal there, so the rectified
+    Every :class:`CameraModel` exposes ``K``; a model without a native focal
+    returns its pinhole-equivalent focal there, so the rectified
     ``K_new`` seeds identically for every model. Falls back to ``fx``/``fy``
     attributes for duck-typed legacy objects.
     """
@@ -75,7 +75,7 @@ class TI_LDC_MeshGenerator:
     Generates downsampled displacement mesh lookup tables compatible with
     TI Jacinto J7/TDA4 hardware accelerators from **any** calibrated
     :class:`~ds_msp.core.contracts.CameraModel` -- Double Sphere, UCM, EUCM,
-    Kannala-Brandt, RadTan, OCam, DS⁺, and any model added later that
+    Kannala-Brandt, RadTan, and any model added later that
     implements the contract. See
     [Export a TI Jacinto LDC displacement mesh](../how-to/export_ldc_mesh.md)
     for a worked example with real mesh numbers.

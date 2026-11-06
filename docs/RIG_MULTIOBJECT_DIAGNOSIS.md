@@ -181,8 +181,8 @@ composition analysis is the regression rationale for `rig.merge`.
 
 **But it is not a subset.** DS-MSP[rig] exceeds MC-Calib on two axes MC-Calib lacks:
 
-- **Heterogeneous per-camera models** — RadTan / UCM / EUCM / Double-Sphere / Kannala-Brandt /
-  OCam, mixed in one rig (MC-Calib: Brown + Kannala only).
+- **Heterogeneous per-camera models** — RadTan / UCM / EUCM / Double-Sphere / Kannala-Brandt,
+  mixed in one rig (MC-Calib: Brown + Kannala only).
 - **High-breakdown robustness** — GNC-TLS BA past 50 % outliers, deterministic bearing-space
   GNC-TLS pose seeding,
   model-aware fisheye resection, analytic-Jacobian Schur BA.

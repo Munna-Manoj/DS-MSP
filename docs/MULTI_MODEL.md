@@ -22,32 +22,18 @@ value-object class.
 | Double Sphere | `DoubleSphereModel` | `fx, fy, cx, cy, xi, alpha` | wide <abbr title="Field Of View — the angular extent of the scene a lens captures.">FOV</abbr>, closed-form unprojection |
 | UCM | `UCMModel` | `fx, fy, cx, cy, alpha` | unified (single sphere) = DS with ξ=0 |
 | EUCM | `EUCMModel` | `fx, fy, cx, cy, alpha, beta` | enhanced UCM |
-| DS+ (experimental) | `DSPlusModel` | `fx, fy, cx, cy, alpha, lambda1, lambda2, tau_x, tau_y` | UCM core + division radial + 2-axis tilt; not for production |
 | Kannala-Brandt | `KannalaBrandtModel` | `fx, fy, cx, cy, k1..k4` | **= OpenCV `cv2.fisheye`** |
 | RadTan / pinhole | `RadTanModel` | `fx, fy, cx, cy, k1, k2, p1, p2, k3` | **= OpenCV `cv2.projectPoints`** (narrow FOV) |
-| OCamCalib | `OCamModel` | `cx, cy, c, d, e, a0..a4` | Scaramuzza polynomial; not for rig extrinsics |
 | (test stand-in) | `ds_msp.testing.FakeModel` | `fx, fy, cx, cy` | perfect pinhole, no fisheye math |
 
 KB project matches `cv2.fisheye` and RadTan matches `cv2.projectPoints` to ~1e-13.
 Every model's analytic Jacobian is gradient-checked against finite differences.
 
-/// warning | DS+ is experimental
-Do not use DS+ in a production system. Its tilt terms reproduce a camera rotation about x or y
-exactly in the pinhole limit, so rig extrinsics are not determined. Use it to study camera models
-or as an example when you write your own. Evidence: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
-///
-
-/// warning | OCam in a rig
-OCam's affine terms reproduce a camera roll about the optical axis exactly, so a rig cannot
-determine that camera's roll. Use OCam for single cameras; for rig extrinsics use KB, DS or RadTan.
-Evidence: [ADR-0028](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0028-ocam-rig-roll.md).
-///
-
-/// note
-DS+ is DS-MSP's own extension, not part of any external calibration
-toolchain's convention. See
-[A fair fight — EUCM⁺ vs DS⁺ vs Kannala-Brandt (historical)](explain/case_study_eucmplus_dsplus_kb.md)
-for where each one earns its extra parameters.
+/// note | Removed models
+DS+ and OCam were removed: their extra terms reproduce a camera rotation, so a rig could not
+determine its extrinsics ([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)). The
+[EUCM⁺ vs DS⁺ vs Kannala-Brandt case study](explain/case_study_eucmplus_dsplus_kb.md) is kept
+as history.
 ///
 
 ### How each model's 2D↔3D geometry works
@@ -60,14 +46,10 @@ distortion they apply along the way:
   shift, `alpha` = blend). Handles >180° FOV with a closed-form unprojection.
 - **UCM** — a single sphere (DS with `xi=0`); one `alpha` controls curvature.
 - **EUCM** — UCM with a `beta` that stretches the radial term, fitting more lenses.
-- **DS+** (experimental) — a UCM core plus a division-model radial layer and a
-  2-axis tilt homography. A research model, not for production (see the warning above).
 - **Kannala-Brandt** — equidistant: distorts the *angle* `θ` from the axis by an odd
   polynomial `θ + k1θ³ + k2θ⁵ + k3θ⁷ + k4θ⁹`. This is OpenCV's `cv2.fisheye`.
 - **RadTan** — classic pinhole: perspective-divides, then applies Brown radial
   (`k1,k2,k3`) + tangential (`p1,p2`) distortion. Narrow FOV (needs `z>0`).
-- **OCamCalib** — Scaramuzza: a polynomial in the sensor radius `ρ` plus an affine
-  stretch; unprojection is the polynomial, projection inverts it numerically.
 
 You don't need these details to use them — the API below is identical for all.
 
@@ -105,7 +87,6 @@ library-wide picture; that page is the task recipe.
 | :--- | :--- | :--- |
 | EUCM | 0.014 | near-exact |
 | KB | 0.0002 | near-exact, OpenCV-ready |
-| OCamCalib | 0.55 | good |
 | UCM | 0.334 | lossy — UCM has 1 shape parameter (`alpha`) vs. DS/EUCM's 2 |
 | RadTan @ 90° FOV | 0.036 | pinhole can't hold wide FOV — restrict & report |
 
@@ -273,7 +254,7 @@ runnable bundled example, and the `ds-msp-calibrate` CLI walkthrough are in
 
 `ds_msp.io` reads and writes the standard Kalibr `camchain` format, with the exact
 (source-verified) per-model field orderings — five model families (DS, EUCM, KB,
-RadTan, UCM), plus the DS-MSP-only DS+ extension.
+RadTan, UCM).
 
 [Read/write Kalibr YAML](how-to/read_write_kalibr.md) has the full field-ordering
 table, a save/round-trip recipe verified to machine precision, and how to read
@@ -296,7 +277,7 @@ graph TD
         io["io/<br/>kalibr"]
     end
     subgraph models["models — value object + pure math"]
-        mclass["DoubleSphere · UCM · EUCM<br/>KB · RadTan · OCam"]
+        mclass["DoubleSphere · UCM · EUCM<br/>KB · RadTan"]
         mmath["*_math.py<br/>(pure NumPy)"]
     end
     subgraph core["core — dependency-free foundation"]
@@ -349,6 +330,5 @@ direct sources:
 - **Kalibr** — Furgale et al., [github.com/ethz-asl/kalibr](https://github.com/ethz-asl/kalibr)
   (DS/EUCM models contributed by V. Usenko); YAML camchain format.
 - **OpenCV** `fisheye` (Kannala-Brandt) and `calib3d` (radial-tangential) models.
-- **OCamCalib** — D. Scaramuzza et al., the omnidirectional polynomial model.
 - **EUCM** — B. Khomutenko, G. Garcia, P. Martinet (2016).
 - **Kannala-Brandt** — J. Kannala, S. Brandt (2006).

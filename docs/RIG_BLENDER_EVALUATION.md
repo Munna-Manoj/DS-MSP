@@ -4,6 +4,13 @@ Every row below is produced by writing a real MC-Calib-compatible `calib_param.y
 `Blender_Images/configs/`) and running it through `ds-msp-calibrate-rig --config <file>` — no
 in-process shortcuts.
 
+/// warning | Historical record — DS⁺ has since been removed
+The from-scratch rows below used the DS⁺ (`dsplus`) model, which DS-MSP no longer ships
+([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)). They are kept as the measured record. They cannot be reproduced with the
+current release. A full-pose rerun of Scenario 1 found DS⁺ from scratch metres off over the ROI,
+while Double Sphere and KB from scratch were within 2 mm p95.
+///
+
 /// note
 `Blender_Images` is [MC-Calib](https://github.com/rameau-fr/MC-Calib)'s Blender ground-truth
 dataset (about 1 GB) and isn't bundled with this repo, so reproducing these numbers needs it

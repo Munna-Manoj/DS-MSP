@@ -79,7 +79,7 @@ ds-msp lut --model ds --resolution 2592 1800 \
 
 `--param` is accepted as a singular alias for `--params`.
 
-The same commands support `radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, and `dsplus`.
+The same commands support `radtan`, `kb`, `ucm`, `eucm`, and `ds`.
 
 ## What the output contains
 

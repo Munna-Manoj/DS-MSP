@@ -4,7 +4,7 @@ Generic, robustly-initialized bundle-adjustment calibration for ANY camera model
 Given checkerboard correspondences and an initial model (for the model *type* + a rough
 intrinsics seed), jointly refines intrinsics and per-image extrinsics by Levenberg-
 Marquardt using the model's **analytic** projection Jacobian (no autodiff). Works for any
-``CameraModel`` (DS / UCM / EUCM / KB / RadTan / OCam / DS⁺) with **no
+``CameraModel`` (DS / UCM / EUCM / KB / RadTan) with **no
 Kannala-Brandt dependency** in the init path.
 
 Robust by default (FR-CALIB-001, NFR-NUM-006):
@@ -143,8 +143,8 @@ def _shape_seeds(cls, base: np.ndarray, n_restarts: int, seed: int, *, force: bo
     2026-07-02 — a *plain distortion tail on under-constrained data too*).
 
     History (why this always disperses, no model-class shortcut): an earlier version of this
-    function skipped dispersion for models with no *documented* degenerate basin (RadTan/KB/
-    OCam — measured "identical median/RMS" on a well-conditioned real 2-camera / 99-frame
+    function skipped dispersion for models with no *documented* degenerate basin (RadTan/KB —
+    measured "identical median/RMS" on a well-conditioned real 2-camera / 99-frame
     dataset). At scale on less-constrained data (100 synthetic cameras, ~20 frames/camera) that
     turned out to be **wrong**: forcing the single base seed left 56/100 RadTan cameras with
     roughly double the reprojection error and zero improved — not a degenerate-basin collapse,
@@ -219,7 +219,7 @@ def calibrate(init_model: CameraModel,
         makes a *poor* ``init_model`` (only the type + a rough focal) converge — it rescues
         wrong-basin shape seeds (the DS ``ξ`` fold, etc.) and is a no-op when the base seed is
         already good. Determinism is preserved via ``seed``. Applies to **every** model,
-        including RadTan/KB/OCam: an earlier version of this code skipped dispersion for models
+        including RadTan/KB: an earlier version of this code skipped dispersion for models
         with no *documented* degenerate basin on the theory that a plain distortion tail is
         well-conditioned — true on rich, real data, measurably **false** at scale on thinner
         synthetic data (56/100 RadTan cameras with ~2x the reprojection error in one real test —
