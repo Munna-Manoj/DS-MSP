@@ -23,7 +23,7 @@ a specific question about *why* the library behaves the way it does.
   measurable framework for picking a model: six diagnostics (capacity, identifiability,
   parameter redundancy, bound sensitivity, compute cost, <abbr title="Field of View">FOV</abbr>
   sampling weight), each backed by a number you can verify on real lenses.
-- **[A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt (historical — EUCM⁺ has since been removed)](case_study_eucmplus_dsplus_kb.md)** — the
+- **[A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt (historical — EUCM⁺ and DS⁺ have since been removed)](case_study_eucmplus_dsplus_kb.md)** — the
   framework above applied to the real ship/retire decision that led to EUCM⁺'s removal, including a
   hypothesis retracted when the data contradicted it.
 - **[Projection validity & FOV](projection_validity_and_fov.md)** — the closed-form

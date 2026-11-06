@@ -26,7 +26,7 @@ Choose by what data you have and whether you want to write Python.
 | You have… | Use | Model | Detector |
 | :-- | :-- | :-- | :-- |
 | AprilGrid footage and want the Python API — or you already have your own 2D↔3D correspondences | [Recipe 1 — generic calibrator](#recipe-1-generic-calibrator-any-model) | any (`KannalaBrandtModel`, `DoubleSphereModel`, …) | `detect_aprilgrid` (needs `[calib]`) |
-| A folder of checkerboard/ChArUco/AprilGrid images and want a config-driven run, no Python | [Recipe 2 — the ds-msp-calibrate CLI](#recipe-2-the-ds-msp-calibrate-cli-no-python) | any of the 7 models (`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`; `dsplus` is experimental) | built-in board detectors (`ds_msp.calib.board`) |
+| A folder of checkerboard/ChArUco/AprilGrid images and want a config-driven run, no Python | [Recipe 2 — the ds-msp-calibrate CLI](#recipe-2-the-ds-msp-calibrate-cli-no-python) | any of the 5 models (`radtan`, `kb`, `ucm`, `eucm`, `ds`) | built-in board detectors (`ds_msp.calib.board`) |
 | Only an existing Kalibr/Basalt YAML | nothing to calibrate — load it directly | as written | n/a |
 
 ## Recipe 1 — generic calibrator (any model)
@@ -193,7 +193,7 @@ board:
   cols: 6
   square_size: 0.1
   legacy: true          # only needed for boards generated before OpenCV 4.7
-camera_model: kb        # radtan | ds | ucm | eucm | kb | ocam | dsplus (experimental)
+camera_model: kb        # radtan | ds | ucm | eucm | kb
 images_path: "calibration_images_0"
 save_path: "Results_dsmsp_calib_charuco"
 ```
@@ -242,12 +242,7 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 `load_camera` reads the `camchain.yaml` this run just wrote and returns a ready `CameraModel` —
 `cam.project(...)` works immediately, no re-parsing.
 
-It works for every model the CLI can write (`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`,
-`ocam`).
-
-`dsplus` and `ocam` are DS-MSP extensions rather than native Kalibr models. They
-round-trip through DS-MSP, but a stock Kalibr executable does not understand their custom
-`camera_model` strings.
+It works for every model the CLI can write (`radtan`, `ds`, `ucm`, `eucm`, `kb`).
 
 /// note
 The `robust`/`robust_scale`/`gnc` config keys are recipe 2's equivalent of recipe 1's

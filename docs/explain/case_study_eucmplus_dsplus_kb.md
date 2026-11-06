@@ -1,13 +1,14 @@
 # A fair fight: EUCM⁺ vs DS⁺ vs Kannala-Brandt
 
-/// note | Historical record — EUCM⁺ has since been removed
+/// note | Historical record — EUCM⁺ and DS⁺ have since been removed
 This page's own finding — **EUCM⁺ is strictly Pareto-dominated** (Question 1 below) — is the
 measured reason EUCM⁺ was later removed from the shipped library entirely (see
 [ADR-0010](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0010-mit-relicense-and-eucmplus-removal.md)).
 The numbers and analysis below are kept as the real, reproducible-at-the-time record that led
-to that decision. `examples/10_evaluating_camera_models.py` now compares **EUCM vs DS⁺** only
-(EUCM⁺ is no longer importable), so the EUCM⁺ rows here can no longer be reproduced verbatim —
-they were captured from the version of the script that still had it.
+to that decision. DS⁺ was removed later for a different reason: its tilt absorbs camera rotation
+in a rig ([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)). `examples/10_evaluating_camera_models.py` now compares **EUCM vs
+Double Sphere**, so the EUCM⁺ and DS⁺ rows here can no longer be reproduced verbatim — they were
+captured from earlier versions of the script.
 ///
 
 > **Run alongside this:** `python examples/10_evaluating_camera_models.py` (core install

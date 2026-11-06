@@ -96,11 +96,11 @@ Inverse-projection error across all undistort modes is < 0.00003 px. → [Multi-
 
 ### 2D/3D pose
 
-`cam.solve_pnp` unprojects pixels through whichever of the 7 models you use, then selects a
+`cam.solve_pnp` unprojects pixels through whichever of the 5 models you use, then selects a
 solver that matches the target geometry and visible sphere. Forward-only data uses the
 standard normalized-plane `cv2.solvePnP(K=I, dist=None)` path. If valid rays extend past 90°,
 non-coplanar targets use a bearing-vector DLT and coplanar boards use a bearing homography,
-so DS / UCM / EUCM / KB / OCam / DS+ share one full-sphere API.
+so DS / UCM / EUCM / KB share one full-sphere API.
 
 > **Warning**
 > `cv2.solvePnP` only goes wrong if you hand it **raw** fisheye pixels with a pinhole `K` — the wrong distortion model for a wide-FOV lens. `cam.solve_pnp` avoids that by unprojecting first.
@@ -149,13 +149,13 @@ Measured PnP + reprojection RMS on bundled real images: 0.43 px / 0.85 px. → [
 
 ### Calibrate from scratch
 
-`calibrate()` is **model-agnostic** — the *same* call fits any of the 7 models from a generic seed; only the seed class changes.
+`calibrate()` is **model-agnostic** — the *same* call fits any of the 5 models from a generic seed; only the seed class changes.
 
 It runs manifold Levenberg–Marquardt with analytic Jacobians and an optional robust loss (`huber` / `cauchy`); per-view poses are re-seeded internally, so a rough focal is fine.
 
 ```python
 from ds_msp.calib import calibrate
-from ds_msp.models import KannalaBrandtModel        # or DoubleSphereModel, DSPlusModel, EUCMModel, …
+from ds_msp.models import KannalaBrandtModel        # or DoubleSphereModel, EUCMModel, …
 
 # your detected correspondences, per frame (e.g. from cv2 / AprilGrid):
 X_world    = ...   # list of (M,3) board points
@@ -212,7 +212,7 @@ A drop-in for **MC-Calib**: same `calib_param.yml` config schema, same output fi
 
 It calibrates the **extrinsics** (where each camera sits relative to the others) plus per-camera intrinsics from a folder of ChArUco images.
 
-It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye and `radtan` pinhole cameras. Do not use `dsplus` in a rig: its tilt terms absorb camera rotation, so the extrinsics are not determined ([About DS+](#about-ds-experimental)). Avoid `ocam` in a rig too: its affine terms absorb camera roll ([About OCam in a rig](#about-ocam-in-a-rig)).
+It adds one extension over MC-Calib: a **different camera model per camera**, so one bench can mix `kb` fisheye and `radtan` pinhole cameras. Every shipped model determines the rig extrinsics. DS+ and OCam were removed because their extra terms reproduce a camera rotation ([Removed models](#removed-models-ds-and-ocam)).
 
 ```bash
 pip install ds-msp
@@ -235,8 +235,8 @@ The report separates training reprojection fit from truth-referenced accuracy. W
 ground truth and a deployment profile it evaluates all camera pairs using rotation, camera-center
 vector/direction, and exact p50/p95/max displacement over the declared physical ROI. The older
 Blender tables' **0.16%** number measured baseline length only and must not be read as full pose
-accuracy. A full-pose Scenario 1 rerun demonstrates why: DS+ from scratch showed only 0.0084%
-baseline-length error but 2.41° rotation error and 425 mm p95 displacement over a 1–10 m ROI.
+accuracy. A full-pose Scenario 1 rerun demonstrates why: the since-removed DS+ model from scratch showed only
+0.0084% baseline-length error but 2.41° rotation error and 425 mm p95 displacement over a 1–10 m ROI.
 → [Rig guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_CALIBRATION_GUIDE.md) · [Blender evaluation](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/RIG_BLENDER_EVALUATION.md)
 
 Every persisted rig run also writes `calibration_manifest.json`, tying the result to exact code,
@@ -273,7 +273,7 @@ library (and any you add) exports the same way:
 from ds_msp.ldc import TI_LDC_MeshGenerator
 
 res = TI_LDC_MeshGenerator(cam).generate_mesh_and_intrinsics(1920, 1080, downsample_factor=4, balance=0.5)
-mesh_lut, K_new = res["mesh_lut"], res["K_new"]     # cam: DS, UCM, EUCM, KB, RadTan, OCam, DS⁺, ...
+mesh_lut, K_new = res["mesh_lut"], res["K_new"]     # cam: DS, UCM, EUCM, KB, RadTan, ...
 ```
 
 ### Isaac Sim camera LUT
@@ -296,7 +296,7 @@ parameter names. → [Isaac Sim LUT guide](https://github.com/Munna-Manoj/DS-MSP
 
 ## Choosing a model
 
-All 7 models live behind one `CameraModel` contract with analytic Jacobians, `convert`, and Kalibr + MC-Calib I/O.
+All 5 models live behind one `CameraModel` contract with analytic Jacobians, `convert`, and Kalibr + MC-Calib I/O.
 
 | model | params | role |
 |---|---|---|
@@ -305,8 +305,6 @@ All 7 models live behind one `CameraModel` contract with analytic Jacobians, `co
 | `ucm` | 5 | Unified Camera Model |
 | `eucm` | 6 | Enhanced UCM |
 | `ds` | 6 | **Double Sphere** (Usenko 2018); exact >180° half-space validity |
-| `dsplus` | 9 | **DS+** — *experimental, not for production*; a DS-MSP research model ([About DS+](#about-ds-experimental)) |
-| `ocam` | 10 | OCamCalib (Scaramuzza); not for rig extrinsics ([About OCam in a rig](#about-ocam-in-a-rig)) |
 
 #### Rule of thumb (directional, not a guarantee)
 
@@ -314,29 +312,17 @@ All 7 models live behind one `CameraModel` contract with analytic Jacobians, `co
 - **~120–150°** → the spherical family (UCM/EUCM/DS) can *collapse* at these angles; if it does, use KB.
 - **Always confirm with the median reprojection error**, not the model class.
 
-#### About DS+ (experimental)
+#### Removed models: DS+ and OCam
 
-> **Warning**
-> **Do not use DS+ (`dsplus`) in a production system.** It is an experimental model. Use it to study how camera models behave, or as a worked example when you build your own model. For production, use `kb` or `ds` for fisheye lenses and `radtan` for pinhole lenses.
+DS-MSP no longer ships DS+ (`dsplus`) or OCam (`ocam`). Both leave rig extrinsics undetermined:
 
-Why it is experimental:
+- **DS+:** its sensor tilt reproduces a camera rotation about x or y. In 50 MC-Calib rig runs with a DS+ camera, the worst camera pair sat a median 4.6° from MC-Calib, up to 30°.
+- **OCam:** its affine term reproduces a camera roll exactly, so no rig with an OCam camera could report a rotation uncertainty.
+- **Without them:** the 57 runs using only the remaining models had a median of 0.16°.
 
-- **Rig extrinsics are not determined.** DS+ sensor tilt (`tau_x`, `tau_y`) reproduces a camera rotation about x or y exactly in the pinhole limit (`tau_y = tan θ`). In 280 MC-Calib rig runs, the 106 DS+ cameras with tilt error above 2° followed `tau_y ≈ −tan(error)` (correlation −0.986).
-- **Rig results are far from the reference.** In 50 rig runs with a DS+ camera, the worst camera pair sat a median 4.6° from MC-Calib, up to 30° and 612 mm. In 57 runs without DS+ or OCam, the median was 0.16°.
-- **It has no `xi` term.** DS+ drops Double Sphere's second-sphere shift, so it fits poorly on lenses that need it.
+A config or calibration file that names either model now fails with the reason. Recalibrate with `kb` or `ds` for fisheye lenses and `radtan` for pinhole lenses. Decision and evidence: [ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md).
 
-A low reprojection error does not make DS+ correct: on a real fisheye it fits best (0.31 px vs KB 0.37 px), yet the same freedom moves the camera frame. Evidence and proof: [ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md).
-
-#### About OCam in a rig
-
-OCam is fine for a single camera, conversion and undistortion. Do not use it when you need rig extrinsics.
-
-- **Camera roll is not determined.** The affine `[[c, d], [e, 1]]` can represent any 2×2 matrix up to scale, so it reproduces a camera roll about the optical axis exactly. A unit test checks this to 1e-9 px.
-- **The rig cannot report how good it is.** In 120 MC-Calib rig runs, OCam's overall extrinsic error was in the same range as KB/DS/UCM/EUCM; only its roll was slightly worse (0.06–0.09°). But nothing in the data fixes the roll, and all 27 runs with an OCam camera (and no DS+) reported no rotation uncertainty.
-
-Proof and evidence: [ADR-0028](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0028-ocam-rig-roll.md).
-
-→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [DS+/EUCM+/KB case study (historical)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
+→ [Choosing a model](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/choosing_a_camera_model.md) · [EUCM+/DS+/KB case study (historical)](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/explain/case_study_eucmplus_dsplus_kb.md)
 
 ---
 
@@ -364,7 +350,7 @@ python benchmarks/benchmark.py
 
 ## Learn
 
-DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the DS+/KB case study.
+DS-MSP doubles as a **runnable curriculum** in wide-FOV geometry. Every chapter in [`docs/learn/`](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md) prints a verifiable number — from the projection models through real calibration, model conversion, and the historical DS+/KB case study.
 
 That case study openly documents a hypothesis the authors had to retract. Start at the [Learn index](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/learn/README.md).
 
@@ -377,7 +363,7 @@ DS-MSP stands on prior work, and credit stays prominent:
 - **[Fisheye-Calib-Adapter](https://github.com/eowjd0512/fisheye-calib-adapter)** — Sangjun Lee, arXiv:2407.12405. The conversion design and model set follow it.
 - **[MC-Calib](https://github.com/rameau-fr/MC-Calib)** — Rameau, Park, Bailo, Kweon, CVIU 2022. The rig pipeline follows MC-Calib's design (config schema, result format, workflow); files interoperate both ways. **Full credit to the MC-Calib authors.**
 - **Double Sphere** — Usenko, Demmel, Cremers, 3DV 2018 (arXiv:1807.08957; basalt-headers).
-- **Kannala-Brandt** (2006), **RadTan / Brown-Conrady** (1966), **OCamCalib** (Scaramuzza), **EUCM** (Khomutenko et al. 2016), **UCM** (Geyer & Daniilidis / Mei & Rives).
+- **Kannala-Brandt** (2006), **RadTan / Brown-Conrady** (1966), **EUCM** (Khomutenko et al. 2016), **UCM** (Geyer & Daniilidis / Mei & Rives).
 - **Kalibr** (Furgale et al.), **dscamera**, and **Muhammadjon Boboev** (the original Python DS calibration this project grew from).
 - **[Termynal](https://github.com/fastapi/typer)** — Ines Montani, MIT. Powers the animated terminal blocks in these docs; vendored from Typer, whose docs also inspired this site's style.
 
@@ -386,6 +372,6 @@ DS-MSP stands on prior work, and credit stays prominent:
 ## License
 
 MIT-licensed (see [LICENSING.md](https://github.com/Munna-Manoj/DS-MSP/blob/main/LICENSING.md)):
-- **MIT** for the whole project — the generic library, the experimental DS+ model, and the robust calibration/conversion engine.
+- **MIT** for the whole project — the generic library and the robust calibration/conversion engine.
 
 SPDX: `MIT`. Please cite via [CITATION.cff](https://github.com/Munna-Manoj/DS-MSP/blob/main/CITATION.cff).

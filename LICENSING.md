@@ -1,6 +1,6 @@
 # Licensing
 
-DS-MSP is **MIT-licensed** — the entire library, including the DS+ camera model and the
+DS-MSP is **MIT-licensed** — the entire library, including the
 robust from-scratch calibration/conversion engine, is free to use, modify, and redistribute
 for any purpose, commercial or not. See [`LICENSE`](LICENSE) for the full text.
 
@@ -9,7 +9,7 @@ for any purpose, commercial or not. See [`LICENSE`](LICENSE) for the full text.
 DS-MSP's design follows several external projects, cited in full in the
 [README's Credits section](README.md#credits): **Fisheye-Calib-Adapter** (Sangjun Lee,
 arXiv:2407.12405), **MC-Calib** (Rameau, Park, Bailo, Kweon, CVIU 2022), and the camera-model
-papers each model implements (Double Sphere, UCM, EUCM, Kannala-Brandt, OCam/Scaramuzza — see
+papers each model implements (Double Sphere, UCM, EUCM, Kannala-Brandt — see
 their docstrings for exact citations). DS-MSP's own code does not vendor from these projects;
 it follows their published designs and cites them accordingly. Their own repositories remain
 under their own licenses.
@@ -24,7 +24,7 @@ no vendored code inside the `ds_msp` package itself.
 
 ## History
 
-Earlier releases (0.7.0–0.9.x) dual-licensed DS+ and the robust calibration engine under
+Earlier releases (0.7.0–0.9.x) dual-licensed the DS+ model (since removed) and the robust calibration engine under
 PolyForm Noncommercial 1.0.0. That restriction has been removed — see
 [ADR-0010](docs/process/architecture/decisions/ADR-0010-mit-relicense-and-eucmplus-removal.md)
 for the rationale. Everything built so far is MIT; there is no noncommercial tier.

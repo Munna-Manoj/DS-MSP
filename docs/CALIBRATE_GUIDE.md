@@ -7,7 +7,7 @@ This is the single-camera analogue of [`ds_msp[rig]`](RIG_CALIBRATION_GUIDE.md)'
 config-driven pattern. Pick a board type
 (checkerboard / <abbr title="A chessboard with ArUco markers embedded in each square, so
 corners stay identifiable even partially occluded.">ChArUco</abbr> / AprilGrid) and a camera
-model (`radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, `dsplus`). Detection is a
+model (`radtan`, `kb`, `ucm`, `eucm`, `ds`). Detection is a
 swappable front end — every board type feeds the same tested, model-agnostic
 bundle-adjustment backend.
 
@@ -148,7 +148,7 @@ Below is every field that matters.
 
 | Key | Meaning |
 |-----|---------|
-| `camera_model` | `radtan`, `kb`, `ucm`, `eucm`, `ds`, `ocam`, or `dsplus` |
+| `camera_model` | `radtan`, `kb`, `ucm`, `eucm`, or `ds` |
 
 See [Choosing a model](explain/choosing_a_camera_model.md) for how to pick one for your
 lens's FOV.
@@ -181,7 +181,7 @@ Override any value on the CLI without editing the file:
 <div class="termy">
 
 ```console
-$ ds-msp-calibrate --config calib_config.yml --set board.rows=7 --set camera_model=dsplus
+$ ds-msp-calibrate --config calib_config.yml --set board.rows=7 --set camera_model=ds
 ```
 
 </div>
@@ -241,17 +241,7 @@ uv, valid = cam.project(points_3d)   # points_3d: (N, 3) camera-frame points, me
 ```
 
 `load_camera` works for every model calibration can produce with `output_format: kalibr`:
-`radtan`, `ds`, `ucm`, `eucm`, `kb`, `dsplus`, and `ocam`.
-
-/// warning | DS+ is experimental
-`dsplus` is for experiments and model research, not for production cameras
-([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)).
-///
-
-/// note
-`dsplus` and `ocam` use explicitly named DS-MSP extensions. They round-trip through
-DS-MSP, but a stock Kalibr executable does not understand those two camera-model strings.
-///
+`radtan`, `ds`, `ucm`, `eucm`, and `kb`.
 
 If you need the resolution too:
 
@@ -297,23 +287,21 @@ included in this repo), the **same physical ChArUco board** was calibrated two w
 | Board | Model | Images detected | Observations | RMS px | Median px | p95 px | Max px |
 |---|---|---|---|---|---|---|---|
 | ChArUco | KB | **58/58 (100%)** | 1954 | 0.509 | 0.287 | 0.959 | 3.76 |
-| ChArUco | DS+ | **58/58 (100%)** | 1954 | **0.447** | **0.222** | **0.841** | **3.28** |
 | Checkerboard | KB | **11/58 (19%)** | 396 | 1.396 | 0.216 | 0.579 | 26.78 |
-| Checkerboard | DS+ | **11/58 (19%)** | 396 | 1.405 | 0.179 | 0.525 | 27.08 |
 
 ### Takeaways (measured, not asserted)
 
 - **ChArUco: 100% detection. Checkerboard: 19%.** Exactly the failure mode [§2](#2-prepare-your-data)
   warns about — plain-checkerboard detection struggles on wide-FOV fisheye, compounded here by
   the embedded ArUco markers occupying some of the checkerboard's own squares.
-- **DS+ beats KB on every metric on the fair, complete comparison** (ChArUco, all 58 images):
-  RMS 0.447 vs. 0.509, median 0.222 vs. 0.287, max 3.28 vs. 3.76 px. DS+ is still
-  experimental: do not use it in production, because its tilt terms can absorb camera
-  rotation ([ADR-0027](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0027-dsplus-experimental.md)). Use KB for this lens.
+- An earlier version of this table also listed the since-removed DS+ model, which fitted this
+  lens slightly better (ChArUco RMS 0.447 vs. 0.509 px). A lower single-camera error did not
+  make it right for a rig: its tilt terms absorb camera rotation
+  ([ADR-0031](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/process/architecture/decisions/ADR-0031-remove-dsplus-and-ocam.md)). Use KB for this lens.
 - Checkerboard's *median* looks competitive but is survivorship bias — it only succeeded on
   the 11 easiest (least-distorted) images. Its RMS (3× worse) and max error (7× worse) show
   that even within that lucky small sample, some detections are quite poor.
-- **Both beat MC-Calib's own published reference** for this camera (median 0.481 px, mean
+- **KB beats MC-Calib's own published reference** for this camera (median 0.481 px, mean
   0.593 px, `extra_yamls/reprojection_error_data.yml`).
 
 ---
