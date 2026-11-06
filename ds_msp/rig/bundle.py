@@ -382,7 +382,49 @@ def build_problem(rig: RigState, object_obs: List[ObjectObs], *,
             H[np.ix_(idx, idx)] += (Bl * w_all[row:row + n, None]).T @ Bl
         return H
 
+    n_obj = 6 * len(obj_keys)
+    c0 = 6 * len(cam_ids)
+
+    def normal_arrow(state, row_weights=None):
+        """``JᵀWJ`` as an :class:`~ds_msp.core.arrowhead.ArrowheadSym`: object-pose columns
+        (``c0 .. c0 + 6·n_obj``) only meet their own observations, so they form 6 x 6 diagonal
+        blocks, and only the blocks, the camera block ``A`` and the coupling ``B`` are stored
+        (``C² + 6C·n_obj + 36·n_obj`` numbers, ``C`` = camera columns, instead of ``K²``).
+
+        Each observation adds the same product as :func:`normal_matrix`, and the halves of
+        ``B`` are summed separately and averaged at the end, so every stored entry equals the
+        symmetrised dense matrix bit for bit."""
+        from ..core.arrowhead import ArrowheadSym
+        w_all = np.ones(total_rows) if row_weights is None else np.asarray(row_weights, float)
+        if w_all.shape != (total_rows,):
+            raise ValueError(f"row_weights must have shape ({total_rows},), got {w_all.shape}")
+        C = K - n_obj
+        A = np.zeros((C, C))
+        B_up = np.zeros((C, n_obj))                      # H[core, obj] as accumulated
+        B_lo = np.zeros((C, n_obj))                      # H[obj, core]ᵀ as accumulated
+        D = np.zeros((len(obj_keys), 6, 6))
+        for row, n, blocks in _obs_blocks(state):
+            oc, rest = blocks[0][0], blocks[1:]
+            Bl = np.concatenate([B for _c, B in blocks], 1)
+            G = (Bl * w_all[row:row + n, None]).T @ Bl
+            f = (oc - c0) // 6
+            D[f] += G[:6, :6]
+            if rest:
+                pos = np.concatenate([np.arange(c, c + B.shape[1]) - (n_obj if c >= c0 else 0)
+                                      for c, B in rest])
+                A[np.ix_(pos, pos)] += G[6:, 6:]
+                B_up[pos, oc - c0:oc - c0 + 6] += G[6:, :6]
+                B_lo[pos, oc - c0:oc - c0 + 6] += G[:6, 6:].T
+        A = (A + A.T) * 0.5
+        D = (D + np.swapaxes(D, 1, 2)) * 0.5
+        B_up += B_lo
+        del B_lo
+        B_up *= 0.5
+        core = np.r_[np.arange(c0), np.arange(c0 + n_obj, K)]
+        return ArrowheadSym(A=A, B=B_up, D=D, core=core, blocks=np.arange(c0, c0 + n_obj))
+
     jacobian.normal_matrix = normal_matrix  # type: ignore[attr-defined]
+    jacobian.normal_arrow = normal_arrow  # type: ignore[attr-defined]
 
     def retract(state, d):
         """Apply a tangent-space update ``d`` (K,) to ``state``: SO(3) retraction

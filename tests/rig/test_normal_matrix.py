@@ -9,7 +9,7 @@ from ds_msp.rig.audit import audit_rig
 
 from .test_bundle_jacobian import _build_small_rig
 
-pytestmark = pytest.mark.req("NFR-PERF-006", "NFR-PERF-007")
+pytestmark = pytest.mark.req("NFR-PERF-006", "NFR-PERF-007", "NFR-PERF-008")
 
 LAYOUTS = [
     dict(fix_intrinsics=True),
@@ -220,3 +220,38 @@ def test_audit_eigen_analysis_holds_one_matrix(monkeypatch):
     _cur, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     assert peak < 0.25 * n * n * 8, peak
+
+
+@pytest.mark.parametrize("layout", LAYOUTS, ids=lambda d: ",".join(f"{k}={v}" for k, v in d.items()))
+def test_normal_arrow_equals_symmetrised_normal_matrix(layout):
+    """The arrowhead assembly stores exactly the entries of the symmetrised dense sum."""
+    from ds_msp.core.numerics import symmetrize_inplace
+    rig, obs = _build_small_rig()
+    state0, residual, jacobian, _retract, K = bundle.build_problem(rig, obs, **layout)
+    w = np.random.default_rng(3).uniform(0.1, 2.0, residual(state0).size)
+    dense = symmetrize_inplace(jacobian.normal_matrix(state0, w))
+    arr = jacobian.normal_arrow(state0, w)
+    np.testing.assert_array_equal(arr.to_dense(), dense)
+
+
+@pytest.mark.parametrize("arrow", [True, False])
+def test_audit_routes_agree(monkeypatch, arrow):
+    """The audit reports the same findings whichever exact route computes the spectrum."""
+    import ds_msp.rig.audit as audit
+    rig, obs = _truth_rig(n_cam=4, n_frame=20)
+    monkeypatch.setattr(audit, "_use_arrowhead", lambda K, n: False)
+    ref = audit.audit_rig(rig, obs, fix_intrinsics=False)
+    monkeypatch.setattr(audit, "_use_arrowhead", lambda K, n: arrow)
+    got = audit.audit_rig(rig, obs, fix_intrinsics=False)
+    assert (got["n_weak"], got["n_soft"], got["gauge_ok"]) == (ref["n_weak"], ref["n_soft"], ref["gauge_ok"])
+    assert got["pairs"] == ref["pairs"]
+    assert [(f["kind"], f["cam"], f["params"]) for f in got["findings"]] == \
+        [(f["kind"], f["cam"], f["params"]) for f in ref["findings"]]
+    assert np.isclose(got["cond"], ref["cond"], rtol=1e-6)
+
+
+def test_route_rule_prefers_arrowhead_for_pose_heavy_rigs():
+    from ds_msp.rig.audit import _use_arrowhead
+    assert _use_arrowhead(10266, 9972)          # 25 cameras, 1,662 board poses
+    assert not _use_arrowhead(6000, 4400)       # 100 cameras: C ~ 1,600 dominates
+    assert not _use_arrowhead(300, 0)

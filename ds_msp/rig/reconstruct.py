@@ -33,6 +33,7 @@ import cv2
 import numpy as np
 
 from ..calib.lens_seed import MAX_SEED_MEDIAN_PX, calibrate_from_views
+from ..heap import release_free_heap
 from ..detect.charuco import (BoardSpec, _frame_id_from_name, _validate_frame_association,
                               _validate_frame_names, board_object_points,
                              detect_image, make_detectors)
@@ -162,6 +163,7 @@ def detect_board_obs_images(root_path: str, cam_ids: List[int], specs: List[Boar
         base = min(o.frame_id for o in all_obs)
         for o in all_obs:
             o.frame_id -= base
+    release_free_heap()               # the worker threads' image/detector buffers (see ds_msp.heap)
     return all_obs, img_size
 
 

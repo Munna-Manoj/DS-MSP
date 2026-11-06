@@ -31,6 +31,7 @@ import cv2
 import numpy as np
 
 from ..data.observations import Object3D, ObjectObs
+from ..heap import release_free_heap
 
 _DICT = cv2.aruco.DICT_6X6_1000
 
@@ -408,4 +409,7 @@ def detect_rig(root_path: str, cam_ids: List[int], specs: List[BoardSpec], obj: 
         base = min(o.frame_id for o in all_obs)
         for o in all_obs:
             o.frame_id -= base
+    # The worker threads' image and detector buffers are freed but kept by malloc (about
+    # 22 MB per thread on 5-megapixel images); hand them back before calibration starts.
+    release_free_heap()
     return all_obs, img_size

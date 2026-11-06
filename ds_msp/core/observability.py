@@ -26,7 +26,10 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from . import numerics as _numerics
+from .arrowhead import ArrowheadSym, lowest_eigenvalues, spectrum_bounds
 from .numerics import eigvalsh_preserving, safe_eigh, safe_eigvalsh, symmetrize_inplace
+
+_EPS_F = float(np.finfo(float).eps)
 
 
 def equilibrate(H: np.ndarray, *, overwrite: bool = False) -> Tuple[np.ndarray, np.ndarray]:
@@ -146,21 +149,7 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
             eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")[1][:, :k]
     del Hh
 
-    weak: List[Dict] = []
-    for i in weak_idx:
-        v = eigvecs[:, i]
-        energy = v * v
-        order = np.argsort(energy)[::-1]
-        csum = np.cumsum(energy[order])
-        n_part = int(np.searchsorted(csum, participation) + 1)
-        weak.append({
-            "index": int(i),
-            "eigval": float(eigvals[i]),
-            "ratio": float(eigvals[i] / max(med, tiny)),
-            "energy": energy,
-            "participating": [int(j) for j in order[:n_part]],
-        })
-
+    weak = _weak_entries(eigvals[:len(weak_idx)], eigvecs, med, participation)
     n_weak = len(weak)
     if n_weak and n_weak < len(eigvals):
         gap = float(eigvals[n_weak] / max(eigvals[n_weak - 1], tiny))
@@ -171,6 +160,81 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     cond = float(eigvals[-1] / eigvals[0]) if eigvals[0] > tiny else float("inf")
     return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals,
            "n_weak": n_weak, "weak": weak, "gap": gap, "pairs": pairs}
+
+
+def _weak_entries(vals: np.ndarray, vecs: np.ndarray, med: float,
+                  participation: float) -> List[Dict]:
+    """The ``weak`` records of :func:`eigen_weakness` for ascending ``vals`` and the matching
+    eigenvector columns ``vecs[:, i]``."""
+    tiny = 1e-300
+    weak: List[Dict] = []
+    for i, lam in enumerate(vals):
+        v = vecs[:, i]
+        energy = v * v
+        order = np.argsort(energy)[::-1]
+        csum = np.cumsum(energy[order])
+        n_part = int(np.searchsorted(csum, participation) + 1)
+        weak.append({
+            "index": int(i),
+            "eigval": float(lam),
+            "ratio": float(lam / max(med, tiny)),
+            "energy": energy,
+            "participating": [int(j) for j in order[:n_part]],
+        })
+    return weak
+
+
+def eigen_weakness_arrowhead(H: ArrowheadSym, *, tau_rel: float = 1e-3,
+                             corr_thresh: float = 0.95, participation: float = 0.9) -> Dict:
+    """:func:`eigen_weakness` for an information matrix in block-arrowhead form, without
+    forming it (see :mod:`ds_msp.core.arrowhead`). ``H`` is equilibrated in place.
+
+    Same definitions and the same returned fields, except that the full spectrum is never
+    computed: ``eigvals`` holds only the weak eigenvalues and the next one up, and ``median``
+    is returned. Each eigenvalue is found by exact inertia counts (bisection, then Newton once
+    isolated) and agrees with a dense symmetric solver to its ``O(ε‖H‖)`` backward error.
+    Weak eigenvectors come from the null vectors of the camera-block Schur complement, with
+    one inverse-iteration step; eigenvalues equal to working precision share an orthonormal
+    basis of their subspace, as a dense solver's would."""
+    tiny = 1e-300
+    n = H.n
+    sp = spectrum_bounds(H)
+    if sp.count(tiny) > 0:
+        cond_raw = float("inf")
+    else:
+        lam0 = sp.kth(0)
+        cond_raw = float(sp.kth(n - 1, newton=False) / lam0) if lam0 > tiny else float("inf")
+    del sp
+    s = H.equilibrate_inplace()
+    pairs = H.strong_pairs(corr_thresh)
+    sp = spectrum_bounds(H)
+    if n % 2:
+        med = sp.kth(n // 2, newton=False)
+    else:
+        med = float(np.mean([sp.kth(n // 2 - 1, newton=False), sp.kth(n // 2, newton=False)]))
+    thresh = tau_rel * med
+    low = lowest_eigenvalues(sp, thresh)
+    n_weak = len(low)
+    lam_max = sp.kth(n - 1, newton=False)
+    lam_min = float(low[0]) if n_weak else sp.kth(0)
+    cond = float(lam_max / lam_min) if lam_min > tiny else float("inf")
+    nxt = sp.kth(n_weak) if n_weak < n else None
+    gap = (float(nxt / max(float(low[-1]), tiny)) if n_weak and nxt is not None
+           else float("inf"))
+
+    vecs = np.zeros((n, n_weak))
+    i = 0
+    while i < n_weak:
+        j = i + 1
+        while j < n_weak and low[j] - low[i] <= 8 * _EPS_F * max(abs(lam_max), 1.0):
+            j += 1                                       # equal to working precision: one subspace
+        vecs[:, i:j] = sp.eigvecs_at(float(np.mean(low[i:j])), j - i)
+        i = j
+    weak = _weak_entries(low, vecs, med, participation)
+    del vecs
+    eigvals = np.r_[low, [] if nxt is None else [nxt]]
+    return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals, "median": med,
+            "n_weak": n_weak, "weak": weak, "gap": gap, "pairs": pairs}
 
 
 def radial_occupancy(uv: np.ndarray, center: np.ndarray, R: Optional[float] = None,
