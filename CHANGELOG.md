@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.5](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.4...v0.22.5) (2026-11-05)
+
+
+### Bug Fixes
+
+* **rig:** preserve supplied lenses and recover unsupported frames ([a7238e7](https://github.com/Munna-Manoj/DS-MSP/commit/a7238e70c56b41aeff3340884976c67ffff1e54a))
+* **rig:** preserve supplied lenses and recover unsupported frames ([01866d3](https://github.com/Munna-Manoj/DS-MSP/commit/01866d328f17afee8ba424d6af470e5952317707)), closes [#96](https://github.com/Munna-Manoj/DS-MSP/issues/96)
+
+
+### Documentation
+
+* **rig:** clarify the supplied-model defects covered by ADR-0029 ([b0c00be](https://github.com/Munna-Manoj/DS-MSP/commit/b0c00bee019ea76ed90fedc1268e7e0db00546fc))
+* **rig:** state the recognized-model validation boundary ([c572b8a](https://github.com/Munna-Manoj/DS-MSP/commit/c572b8a0878fd002027f4aae3ddc16972117a85e))
+
 ## [0.22.4](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.3...v0.22.4) (2026-11-05)
 
 
