@@ -9,7 +9,7 @@ from ds_msp.rig.audit import audit_rig
 
 from .test_bundle_jacobian import _build_small_rig
 
-pytestmark = pytest.mark.req("NFR-PERF-006")
+pytestmark = pytest.mark.req("NFR-PERF-006", "NFR-PERF-007")
 
 LAYOUTS = [
     dict(fix_intrinsics=True),
@@ -108,3 +108,49 @@ def test_subset_eigenvectors_match_full_eigh():
     Ea = np.stack([w["energy"] for w in full["weak"]]).sum(0)
     Eb = np.stack([w["energy"] for w in sub["weak"]]).sum(0)
     np.testing.assert_allclose(Ea, Eb, atol=1e-8)
+
+
+def _truth_rig(n_cam=6, n_frame=30):
+    """make_rig scene as a RigState at the true cameras, object poses from PnP at the true models."""
+    from tests.rig._synth import make_rig
+    from ds_msp.core.lie import so3_exp
+    from ds_msp.ops.pose import solve_pnp_robust
+    from ds_msp.rig.types import RigState
+    obj, obs, img_size, gt_ext, models = make_rig(n_cam=n_cam, n_frame=n_frame, seed=3)
+    poses = {}
+    for o in obs:
+        key = (o.object_id, o.frame_id)
+        if key in poses or len(o.point_rows) < 8:
+            continue
+        ok, rv, tv, _ = solve_pnp_robust(models[o.cam_id], obj.pts_3d[o.point_rows], o.pts_2d)
+        if ok:
+            T = np.eye(4)
+            T[:3, :3] = so3_exp(np.ravel(rv))
+            T[:3, 3] = np.ravel(tv)
+            poses[key] = np.linalg.inv(gt_ext[o.cam_id]) @ T
+    rig = RigState(cameras=models, T_c_g=dict(gt_ext), ref_cam_id=0, object_poses=poses,
+                   objects={0: obj}, img_size=img_size)
+    return rig, obs
+
+
+def test_schur_linearize_never_forms_the_dense_shared_jacobian():
+    """The sparse BA's shared Jacobian is expanded one group at a time: linearize's peak
+    allocation stays far below the dense (N, 2, shared_dim) array it used to build."""
+    import tracemalloc
+    rig, obs = _truth_rig(n_cam=12)          # shared_dim 174: dense A ~14 MB vs ~4 MB of the rest
+    state, _res, linearize, _ret, k, ng = bundle.build_schur_problem(rig, obs, fix_intrinsics=False)
+    n_pts = sum(len(o.point_rows) for o in obs if (o.object_id, o.frame_id) in rig.object_poses)
+    dense_bytes = n_pts * 2 * k * 8
+    tracemalloc.start()
+    rs, As, Bs = linearize(state)
+    _cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 0.5 * dense_bytes, (peak, dense_bytes)
+    # the lazy sequence behaves like the list it replaces
+    assert len(As) == len(rs) == len(Bs) == ng
+    blocks = list(As)
+    np.testing.assert_array_equal(As[-1], blocks[-1])
+    for r, A, B in zip(rs, blocks, Bs):
+        assert A.shape == (len(r), k) and B.shape == (len(r), 6)
+    with pytest.raises(IndexError):
+        As[ng]
