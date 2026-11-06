@@ -76,3 +76,35 @@ def test_audit_never_forms_the_dense_jacobian(monkeypatch):
     got = audit_rig(rig, obs, fix_intrinsics=False)
     assert got["n_weak"] == expected["n_weak"] and got["gauge_ok"] == expected["gauge_ok"]
     assert np.isclose(got["cond"], expected["cond"], rtol=1e-9)
+
+
+def _gauge_deficient_H(seed=0, n=60, null=3):
+    """Symmetric PSD H with ``null`` near-null directions mixed over all coordinates."""
+    rng = np.random.default_rng(seed)
+    Q, _ = np.linalg.qr(rng.standard_normal((n, n)))
+    ev = np.r_[np.full(null, 1e-9), rng.uniform(1.0, 50.0, n - null)]
+    H = (Q * ev) @ Q.T
+    return 0.5 * (H + H.T)
+
+
+def test_subset_eigenvectors_match_full_eigh():
+    """The audit's subset solve (lowest_eigh) reports what the full eigh reports."""
+    from ds_msp.core.observability import eigen_weakness
+    from ds_msp.rig.audit import _lowest_eigenvectors
+
+    H = _gauge_deficient_H()
+    full = eigen_weakness(H.copy(), tau_rel=1e-3, corr_thresh=0.95)
+    sub = eigen_weakness(H.copy(), tau_rel=1e-3, corr_thresh=0.95, overwrite=True,
+                         lowest_eigh=_lowest_eigenvectors)
+    assert full["n_weak"] == sub["n_weak"] == 3
+    np.testing.assert_array_equal(full["scale"], sub["scale"])
+    assert full["pairs"] == sub["pairs"]
+    np.testing.assert_allclose(sub["eigvals"], full["eigvals"], rtol=0,
+                               atol=1e-12 * full["eigvals"].max())
+    for a, b in zip(full["weak"], sub["weak"]):
+        assert a["index"] == b["index"]
+        np.testing.assert_allclose(b["energy"].sum(), 1.0, atol=1e-12)
+    # the 3 weak vectors span the same subspace (individual vectors may rotate inside it)
+    Ea = np.stack([w["energy"] for w in full["weak"]]).sum(0)
+    Eb = np.stack([w["energy"] for w in sub["weak"]]).sum(0)
+    np.testing.assert_allclose(Ea, Eb, atol=1e-8)

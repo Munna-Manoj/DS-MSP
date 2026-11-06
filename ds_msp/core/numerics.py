@@ -182,6 +182,16 @@ def safe_eigh(A: np.ndarray, *, where: str = "safe_eigh", what: str = "A"
         raise NumericalError(where, what, f"eigendecomposition failed ({exc})") from exc
 
 
+def safe_eigvalsh(A: np.ndarray, *, where: str = "safe_eigvalsh", what: str = "A") -> np.ndarray:
+    """``np.linalg.eigvalsh`` (ascending eigenvalues only) with the checks of :func:`safe_eigh`.
+    Needs O(n) LAPACK workspace instead of the n x n eigenvectors and their workspace."""
+    A = _symmetric(where, what, A)
+    try:
+        return np.linalg.eigvalsh(A)
+    except np.linalg.LinAlgError as exc:                 # pragma: no cover - finite input
+        raise NumericalError(where, what, f"eigenvalue computation failed ({exc})") from exc
+
+
 def psd_eigvalsh(A: np.ndarray, *, where: str = "psd_eigvalsh", what: str = "A",
                  rtol: Optional[float] = None) -> np.ndarray:
     """Eigenvalues of a covariance-like matrix that must be positive semi-definite.

@@ -252,6 +252,14 @@ def _merge_frame_findings(findings: List[Dict]) -> List[Dict]:
     return rest + merged
 
 
+def _lowest_eigenvectors(A: np.ndarray, k: int) -> np.ndarray:
+    """The ``k`` lowest eigenvectors of the symmetric ``A`` (LAPACK ``syevr`` on that index
+    range), forming ``n x k`` vectors instead of ``n x n``. Destroys ``A``."""
+    import scipy.linalg as sla
+    return sla.eigh(A, subset_by_index=[0, k - 1], driver="evr", overwrite_a=True,
+                    check_finite=False)[1]
+
+
 def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
               fix_intrinsics: bool = False,
               kernel: str = "cauchy", scale: Optional[float] = None,
@@ -305,7 +313,8 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     H = jacobian.normal_matrix(state0, W_row)
 
     # H is not used again: let the equilibration overwrite it (one n x n copy less).
-    ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh, overwrite=True)
+    ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh, overwrite=True,
+                        lowest_eigh=_lowest_eigenvectors)
     del H
     labels = _column_labels(rig, fix_intrinsics=fix_intrinsics)
     if len(labels) != K:
