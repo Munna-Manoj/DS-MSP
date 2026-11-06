@@ -304,7 +304,9 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     # Summed per observation: the dense J (rows x K, ~60 GB at 100 cameras) is never formed.
     H = jacobian.normal_matrix(state0, W_row)
 
-    ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh)
+    # H is not used again: let the equilibration overwrite it (one n x n copy less).
+    ew = eigen_weakness(H, tau_rel=soft_rel, corr_thresh=corr_thresh, overwrite=True)
+    del H
     labels = _column_labels(rig, fix_intrinsics=fix_intrinsics)
     if len(labels) != K:
         raise AssertionError(f"column labels ({len(labels)}) out of sync with tangent "

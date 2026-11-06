@@ -70,15 +70,52 @@ def require_finite(where: str, **arrays: object) -> None:
             raise NumericalError(where, name, "is not finite")
 
 
+#: Row-block size for the n x n passes below. Large matrices (the rig audit's information
+#: matrix is about 10,000 square on a 25-camera rig) are checked and symmetrised one block at a
+#: time, so these helpers allocate no full-size temporaries.
+_ROW_BLOCK = 512
+
+
+def symmetrize_inplace(A: np.ndarray) -> np.ndarray:
+    """Overwrite a square ``A`` with ``0.5 (A + Aᵀ)`` block by block and return it.
+
+    Bit-identical to the out-of-place ``0.5 * (A + A.T)``: element ``(i, j)`` is
+    ``(A[i, j] + A[j, i]) * 0.5`` either way, and IEEE addition commutes, so the result is
+    exactly symmetric. Peak extra memory is one block pair instead of two full copies."""
+    n = A.shape[0]
+    b = _ROW_BLOCK
+    for i in range(0, n, b):
+        for j in range(i, n, b):
+            avg = (A[i:i + b, j:j + b] + A[j:j + b, i:i + b].T) * 0.5
+            A[i:i + b, j:j + b] = avg
+            A[j:j + b, i:i + b] = avg.T
+    return A
+
+
 def _symmetric(where: str, what: str, A: np.ndarray) -> np.ndarray:
+    """``0.5 (A + Aᵀ)`` after checking that ``A`` is square, finite and symmetric to 1e-9.
+
+    Returns ``A`` itself when it is already exactly symmetric (``0.5 (A + Aᵀ)`` would equal it
+    bit for bit), else a new symmetrised array. The checks run block by block."""
     A = np.asarray(A, dtype=float)
     if A.ndim != 2 or A.shape[0] != A.shape[1]:
         raise NumericalError(where, what, f"is not square (shape {A.shape})")
-    require_finite(where, **{what: A})
-    scale = float(np.max(np.abs(A))) if A.size else 0.0
-    if A.size and float(np.max(np.abs(A - A.T))) > 1e-9 * scale:
+    n, b = A.shape[0], _ROW_BLOCK
+    scale = asym = 0.0
+    exact = True
+    for i in range(0, n, b):
+        blk = A[i:i + b]
+        if not np.isfinite(blk).all():
+            raise NumericalError(where, what, "is not finite")
+        scale = max(scale, float(np.max(np.abs(blk))))
+        diff = blk - A[:, i:i + b].T
+        asym = max(asym, float(np.max(np.abs(diff))))
+        exact = exact and not diff.any()
+    if A.size and asym > 1e-9 * scale:
         raise NumericalError(where, what, "is not symmetric")
-    return 0.5 * (A + A.T)
+    if exact:
+        return A
+    return symmetrize_inplace(A.copy())
 
 
 def _equilibrated_eigh(where: str, what: str, A: np.ndarray

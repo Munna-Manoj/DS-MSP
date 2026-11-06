@@ -25,16 +25,19 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .numerics import safe_eigh
+from .numerics import safe_eigh, symmetrize_inplace
 
 
-def equilibrate(H: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def equilibrate(H: np.ndarray, *, overwrite: bool = False) -> Tuple[np.ndarray, np.ndarray]:
     """Van der Sluis-scale a symmetric PSD ``H`` to unit diagonal.
 
     Returns ``(H_hat, s)`` with ``H_hat = diag(s) H diag(s)`` symmetric with ``diag ≈ 1``
     and ``s = 1/sqrt(diag H + eps)``. A (near-)zero diagonal entry means the parameter has
     (near-)no residual response at all; the epsilon floor keeps ``s`` finite and such a
     column surfaces as a near-null eigenvalue rather than a division blow-up.
+
+    ``overwrite=True`` scales ``H`` in place (the caller gives it up), saving one n x n copy.
+    The arithmetic is the same either way: ``(H * s[:, None]) * s[None, :]``, then symmetrised.
     """
     H = np.asarray(H, float)
     d = np.diag(H).copy()
@@ -43,12 +46,32 @@ def equilibrate(H: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     # scaling exactly invariant to per-column unit changes (adding eps everywhere would
     # perturb rescaled columns differently and break that invariance).
     s = 1.0 / np.sqrt(np.where(d > eps, d, eps))
-    Hh = H * s[:, None] * s[None, :]
-    return 0.5 * (Hh + Hh.T), s
+    Hh = np.multiply(H, s[:, None], out=H if overwrite else None)
+    Hh *= s[None, :]
+    return symmetrize_inplace(Hh), s
+
+
+def _symmetric_copy(H: np.ndarray) -> np.ndarray:
+    """``0.5 (H + Hᵀ)`` as a new array (``H`` itself is equilibrated next, possibly in place)."""
+    return symmetrize_inplace(np.array(H, dtype=float, copy=True))
+
+
+def _strong_pairs(Hh: np.ndarray, corr_thresh: float) -> List[Tuple[int, int, float]]:
+    """``(i, j, Hh[i, j])`` for every ``i < j`` with ``|Hh[i, j]| > corr_thresh``, in row-major
+    order, scanning row blocks instead of materialising ``triu_indices`` (two n²/2 index
+    arrays)."""
+    pairs: List[Tuple[int, int, float]] = []
+    n = Hh.shape[0]
+    for i0 in range(0, n, 512):
+        rows, cols = np.nonzero(np.abs(Hh[i0:i0 + 512]) > corr_thresh)
+        for r, c in zip(rows.tolist(), cols.tolist()):
+            if c > i0 + r:
+                pairs.append((i0 + r, c, float(Hh[i0 + r, c])))
+    return pairs
 
 
 def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float = 0.95,
-                   participation: float = 0.9) -> Dict:
+                   participation: float = 0.9, overwrite: bool = False) -> Dict:
     """Equilibrate ``H``, eigen-decompose, and return weak directions + parameter couplings.
 
     A direction is **weak** when its eigenvalue of the unit-diagonal ``Ĥ`` falls below
@@ -74,9 +97,15 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
       (anti)parallel scaled Jacobian columns, i.e. parameters whose effects on the residual
       are near-indistinguishable. Signed: ``+`` move together, ``-`` trade off.
     """
-    Hh, s = equilibrate(H)
-    eigvals, eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")
     tiny = 1e-300
+    # Raw conditioning first, and only the eigenvalues are kept, so its eigenvectors are freed
+    # before the equilibrated decomposition allocates its own (peak memory, not arithmetic:
+    # the same symmetrised matrix goes to the same eigh call as before).
+    H = np.asarray(H, float)
+    eig_raw = safe_eigh(_symmetric_copy(H), where="observability", what="H")[0]
+    cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
+    Hh, s = equilibrate(H, overwrite=overwrite)
+    eigvals, eigvecs = safe_eigh(Hh, where="observability", what="equilibrated H")
     med = float(np.median(eigvals))
     thresh = tau_rel * med
     weak_idx = np.where(eigvals < thresh)[0]
@@ -102,14 +131,8 @@ def eigen_weakness(H: np.ndarray, *, tau_rel: float = 1e-3, corr_thresh: float =
     else:
         gap = float("inf")
 
-    iu, ju = np.triu_indices_from(Hh, k=1)
-    strong = np.abs(Hh[iu, ju]) > corr_thresh
-    pairs = [(int(i), int(j), float(Hh[i, j]))
-             for i, j in zip(iu[strong], ju[strong])]
-
-    eig_raw = safe_eigh(0.5 * (np.asarray(H, float) + np.asarray(H, float).T),
-                        where="observability", what="H")[0]
-    cond_raw = float(eig_raw[-1] / eig_raw[0]) if eig_raw[0] > tiny else float("inf")
+    del eigvecs
+    pairs = _strong_pairs(Hh, corr_thresh)
     cond = float(eigvals[-1] / eigvals[0]) if eigvals[0] > tiny else float("inf")
     return {"scale": s, "cond_raw": cond_raw, "cond": cond, "eigvals": eigvals,
            "n_weak": n_weak, "weak": weak, "gap": gap, "pairs": pairs}
