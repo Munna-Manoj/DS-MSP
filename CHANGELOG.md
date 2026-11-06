@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.23.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.6...v0.23.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **models:** DSPlusModel, OCamModel, the model names dsplus/ds+/ds_plus/ doublespheres_plus and ocam/ocam_calib/ocamcalib/scaramuzza, and the Kalibr camera_model values ds_plus and ocam are removed with no deprecation window. Calibrations saved with these models must be redone with kb, ds, ucm, eucm or radtan.
+
+### Features
+
+* **models:** remove the DS+ and OCam camera models ([#102](https://github.com/Munna-Manoj/DS-MSP/issues/102)) ([d4ece87](https://github.com/Munna-Manoj/DS-MSP/commit/d4ece87eb7d38ec137cb941d5f459c51535886a8))
+
 ## [0.22.6](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.5...v0.22.6) (2026-11-06)
 
 
