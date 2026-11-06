@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.6](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.5...v0.22.6) (2026-11-06)
+
+
+### Bug Fixes
+
+* **rig:** seed lenses from single boards instead of a pinhole bootstrap ([#100](https://github.com/Munna-Manoj/DS-MSP/issues/100)) ([6bec60f](https://github.com/Munna-Manoj/DS-MSP/commit/6bec60f1ca60f5bf450aa9d72640aee8dc3b2ba6))
+
 ## [0.22.5](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.4...v0.22.5) (2026-11-05)
 
 
