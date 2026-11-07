@@ -674,12 +674,17 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
         omp = psd_curvature_derivative(sq, om, robust_weight_derivative(sq, kernel, scale))
         a_s = np.einsum("nkp,nk->np", Ap, rp)                  # J_iᵀ r_i, shared part
         a_l = np.einsum("nkp,nk->np", Bp, rp)                  # J_iᵀ r_i, local part
-        Gss = (np.einsum("n,nki,nkj->ij", om, Ap, Ap)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_s))
-        Gsl = (np.einsum("n,nki,nkj->ij", om, Ap, Bp)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_l))
-        Gll = (np.einsum("n,nki,nkj->ij", om, Bp, Bp)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_l, a_l))
+        # Weighted Gram products as matrix products (BLAS). The three-operand einsums these
+        # replace run as a plain loop: at 100 cameras (shared_dim ~1,400, ~10k corners per
+        # frame) they were 77% of a 4.4 h calibration.
+        A2 = Ap.reshape(2 * n, p_s)
+        B2 = Bp.reshape(2 * n, 6)
+        om2 = np.repeat(om, 2)[:, None]
+        wA = om2 * A2
+        Gss = wA.T @ A2 + 2.0 * (omp[:, None] * a_s).T @ a_s
+        Gsl = wA.T @ B2 + 2.0 * (omp[:, None] * a_s).T @ a_l
+        Gll = (om2 * B2).T @ B2 + 2.0 * (omp[:, None] * a_l).T @ a_l
+        del wA
         Gll = 0.5 * (Gll + Gll.T)
         if not np.isfinite(Gll).all():
             Gll_inv = np.full((6, 6), np.nan)              # S goes non-finite: fails closed below
