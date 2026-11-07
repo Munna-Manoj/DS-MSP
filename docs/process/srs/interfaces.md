@@ -51,12 +51,16 @@ unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration add
 with `max_rotation_sigma_deg` / `max_centre_sigma`, `convergence_gate` (`off`, `warn`,
 `refuse`; judges the final BA stage), `coverage_gate` (`off`, `warn`, `refuse`) with
 `min_camera_coverage` (default 0.75; the share of each camera's corners within the GNC-TLS inlier
-band), `reject_outliers`, and `profile`
-(`default` or `production`). MC-Calib `boards_index` sets marker-id offsets. Unknown keys warn
+band), `reject_outliers`, `lens_gate` and `crossval_gate` (`off`, `warn`, `refuse`) with
+`max_lens_sigma_px` (default `noise_bound`, else 1 px), and `profile`
+(`default` or `production`; production sets the audit, uncertainty, convergence, lens and
+cross-validation gates to `refuse`). MC-Calib `boards_index` sets marker-id offsets. Unknown keys warn
 (production refuses them). Refusal gates run before calibration export, and
 `calibration_acceptance.json` records the physical acceptance status, per-pair extrinsic 1σ,
 each BA stage's solver termination status, front-end fallbacks, hand-eye links, the rejection
-ledger and config warnings. A numerical failure in any BA stage always refuses export. Filename-based rig ingestion uses the trailing frame
+ledger, config warnings, the observability audit's findings (`observability`), each camera's lens
+1σ in pixels with the parameters left at an optimizer bound (`lens`), and the even/odd frame
+cross-validation of each lens (`crossval`). A numerical failure in any BA stage always refuses export. Filename-based rig ingestion uses the trailing frame
 number (or `frame_pattern`), rejects timestamp-like and trailing-camera-id names, collisions
 within a camera, and cameras that share no frame index.
 

@@ -162,3 +162,71 @@ def test_naming_is_unit_invariant_only_under_equilibration():
     raw_m = top_intr(bottom_vec(H_m, scaled=False))
     raw_mm = top_intr(bottom_vec(H_mm, scaled=False))
     assert raw_mm != raw_m, "raw-H naming unexpectedly survived the unit change"
+
+
+@pytest.mark.req("FR-RIG-021")
+def test_variance_proportions_are_exact_with_the_full_spectrum_and_bounds_otherwise():
+    """Belsley-Kuh-Welsch proportions: rows sum to 1 when every direction is supplied; with
+    only the weakest ones the values are lower bounds of the exact proportions."""
+    from ds_msp.rig.audit import variance_proportions
+    rng = np.random.default_rng(0)
+    Q, _ = np.linalg.qr(rng.normal(size=(8, 8)))
+    lam = np.array([1e-9, 1e-7, 1e-3, 0.2, 0.5, 1.0, 2.0, 3.0])
+    weak_all = [{"energy": Q[:, k] ** 2, "eigval": lam[k]} for k in range(8)]
+    exact = variance_proportions(weak_all, None)
+    np.testing.assert_allclose(exact.sum(axis=1), 1.0, atol=1e-12)
+    part = variance_proportions(weak_all[:2], lam[2])
+    assert np.all(part <= exact[:, :2] + 1e-12)
+    assert np.all(part >= 0.0)
+
+
+@pytest.mark.req("FR-RIG-021")
+@pytest.mark.parametrize("keep", [1, 2])
+def test_weakly_observed_reference_camera_is_named_not_called_a_gauge(keep):
+    """A reference camera with 1-2 frames leaves the datum weakly anchored: the spread mode is
+    reported as reference_camera_weak on camera 0, and gauge_ok stays True (no layout bug)."""
+    rig, obs = _conditioned_rig()
+    frames0 = sorted({o.frame_id for o in obs if o.cam_id == 0})[:keep]
+    obs = [o for o in obs if o.cam_id != 0 or o.frame_id in frames0]
+    live = {(o.object_id, o.frame_id) for o in obs}
+    rig = dataclasses.replace(rig, object_poses={k: v for k, v in rig.object_poses.items()
+                                                 if k in live})
+    a = audit_rig(rig, obs)
+    assert a["gauge_ok"] and a["n_weak"] >= 1
+    kinds = [f["kind"] for f in a["findings"]]
+    assert "global_gauge" not in kinds
+    ref = [f for f in a["findings"] if f["kind"] == "reference_camera_weak"]
+    assert ref and all(f["cam"] == 0 for f in ref)
+    assert f"({keep} frame(s))" in ref[0]["message"]
+
+
+@pytest.mark.req("FR-RIG-021")
+def test_audit_warn_mode_warns_and_records_findings(monkeypatch, tmp_path):
+    """audit_gate='warn' must reach the user: a RuntimeWarning and an acceptance record."""
+    import json
+    import warnings
+    from ds_msp.io.mccalib import Scenario
+    from ds_msp.rig import audit as audit_mod
+    from ds_msp.rig.pipeline import calibrate_scenario
+    obj, obs, img_size, _ext, models = make_rig(n_cam=2, n_frame=15, noise_px=0.05, seed=2)
+    real = audit_mod.audit_rig
+
+    def weak(*a, **k):
+        out = real(*a, **k)
+        out["n_weak"] = 1
+        out["findings"] = [{"kind": "intrinsic_weak", "cam": 1, "frames": None,
+                            "params": ("fx", "fy"), "message": "cam1: test finding",
+                            "ratio": 1e-8, "variance_share": ["intr:1:fx"]}]
+        return out
+    monkeypatch.setattr(audit_mod, "audit_rig", weak)
+    scn = Scenario(name="w", object=obj, object_obs=obs, cam_ids=sorted(models),
+                   img_size=img_size, gt={}, mccalib={}, mccalib_rms={})
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        calibrate_scenario(scn, {c: m.name for c, m in models.items()}, save_dir=str(tmp_path),
+                           uncertainty_gate="off", lens_gate="off", crossval_gate="off")
+    assert any("observability audit" in str(x.message) and "cam1: test finding" in str(x.message)
+               for x in w)
+    acc = json.loads((tmp_path / "calibration_acceptance.json").read_text())
+    assert acc["observability"]["n_weak"] == 1
+    assert acc["observability"]["findings"][0]["variance_share"] == ["intr:1:fx"]

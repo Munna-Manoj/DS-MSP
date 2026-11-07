@@ -397,6 +397,9 @@ class RigConfig:
     max_rotation_sigma_deg: Optional[float] = None
     max_centre_sigma: Optional[float] = None    # scene length units (square_size units)
     reject_outliers: bool = False               # hard-drop board observations > ransac_threshold
+    lens_gate: str = "warn"                     # per-camera lens sigma / bounds: off|warn|refuse
+    crossval_gate: str = "warn"                 # even/odd frame split lens check: off|warn|refuse
+    max_lens_sigma_px: Optional[float] = None   # lens limit in px (default: noise_bound)
     config_warnings: List[str] = field(default_factory=list)
     raw: Dict = field(default_factory=dict)
 
@@ -467,6 +470,7 @@ _KNOWN_KEYS = {
     "frame_pattern", "keypoints_pixel_convention", "accuracy_gate", "profile",
     "uncertainty_gate", "convergence_gate", "coverage_gate", "min_camera_coverage",
     "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
+    "lens_gate", "crossval_gate", "max_lens_sigma_px",
 }
 #: MC-Calib keys DS-MSP accepts but does not act on, with what happens instead.
 _IGNORED_MCCALIB_KEYS = {
@@ -486,7 +490,7 @@ _IGNORED_MCCALIB_KEYS = {
 }
 #: ``profile: production`` defaults for fields the config does not set explicitly.
 _PRODUCTION = {"audit_gate": "refuse", "uncertainty_gate": "refuse", "convergence_gate": "refuse",
-               "reject_outliers": True}
+               "reject_outliers": True, "lens_gate": "refuse", "crossval_gate": "refuse"}
 
 
 def _config_key_warnings(fs, profile: str, overrides: Optional[Dict] = None) -> List[str]:
@@ -575,6 +579,9 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
                                       _scalar(fs, "max_rotation_sigma_deg", None)),
         max_centre_sigma=ov.get("max_centre_sigma", _scalar(fs, "max_centre_sigma", None)),
         reject_outliers=_bool_field(ov, fs, "reject_outliers", 0),
+        lens_gate=str(ov.get("lens_gate", _scalar(fs, "lens_gate", "warn"))),
+        crossval_gate=str(ov.get("crossval_gate", _scalar(fs, "crossval_gate", "warn"))),
+        max_lens_sigma_px=ov.get("max_lens_sigma_px", _scalar(fs, "max_lens_sigma_px", None)),
         raw={"path": config_path},
     )
     if cfg.profile not in ("default", "production"):
@@ -587,7 +594,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
     fs.release()
     for w in cfg.config_warnings:
         warnings.warn(w, UserWarning, stacklevel=2)
-    for name in ("max_rotation_sigma_deg", "max_centre_sigma"):
+    for name in ("max_rotation_sigma_deg", "max_centre_sigma", "max_lens_sigma_px"):
         v = getattr(cfg, name)
         if v is not None:
             v = float(v)
@@ -600,6 +607,9 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         raise ValueError("convergence_gate must be off, warn or refuse")
     if cfg.coverage_gate not in ("off", "warn", "refuse"):
         raise ValueError("coverage_gate must be off, warn or refuse")
+    for name in ("lens_gate", "crossval_gate"):
+        if getattr(cfg, name) not in ("off", "warn", "refuse"):
+            raise ValueError(f"{name} must be off, warn or refuse")
     if not 0.0 <= cfg.min_camera_coverage <= 1.0:
         raise ValueError("min_camera_coverage must be between 0 and 1")
     if cfg.uncertainty_gate == "refuse" and (cfg.max_rotation_sigma_deg is None
@@ -886,7 +896,9 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
                              min_camera_coverage=cfg.min_camera_coverage,
                              max_rotation_sigma_deg=cfg.max_rotation_sigma_deg,
                              max_centre_sigma=cfg.max_centre_sigma,
-                             config_warnings=cfg.config_warnings, profile=cfg.profile)
+                             config_warnings=cfg.config_warnings, profile=cfg.profile,
+                             lens_gate=cfg.lens_gate, crossval_gate=cfg.crossval_gate,
+                             max_lens_sigma_px=cfg.max_lens_sigma_px)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus
     # *robust reporting* (report.py's inlier_rms / n_gross note), NOT by hard-dropping — the
     # estimate is unchanged whether a blunder is dropped or down-weighted (verified: identical

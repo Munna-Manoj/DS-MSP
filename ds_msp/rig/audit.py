@@ -123,11 +123,55 @@ def _coobservation_count(object_obs: List[ObjectObs], cam: int) -> int:
     return sum(1 for cams in by_frame.values() if cam in cams and len(cams) > 1)
 
 
+#: Least eigenvector energy a lens block must carry for its variance share to name a spread
+#: direction. Measured: the six gauge modes of the unfixed-reference control leave 1e-23 to
+#: 5e-21 energy on the lenses; a starved reference camera's lens carries 0.14-0.68.
+_MIN_SHARE_ENERGY = 1e-6
+#: Largest |eigenvalue ratio| of a true gauge freedom. Measured: the unfixed-reference control's
+#: six gauge modes sit at |ratio| <= 3.4e-15; datum-spread modes from a weakly observed reference
+#: camera at 1.7e-7 to 8.8e-7 (synthetic) and >= 1.5e-10 (starved-camera runs).
+_GAUGE_MAX_RATIO = 1e-12
+
+
+def variance_proportions(weak: List[Dict], eigvals_next: Optional[float]) -> np.ndarray:
+    """Lower bounds on the Belsley-Kuh-Welsch variance-decomposition proportions of the
+    computed weak directions, ``(K, n_weak)``.
+
+    For the equilibrated ``Ĥ = V Λ Vᵀ``, ``π_jk = (v_jk² / λ_k) / Σ_l (v_jl² / λ_l)``: the share
+    of parameter ``j``'s variance that comes from direction ``k`` (Belsley, Kuh & Welsch,
+    *Regression Diagnostics*, 1980, ch. 3; R ``perturb::colldiag``). A parameter whose variance
+    is mostly (> 0.5) one weak direction is one that direction actually degrades. Unlike the
+    eigenvector energy ``v_jk²``, it does not let a datum-anchored weak mode, spread thinly over
+    every pose, hide the parameters it really involves.
+
+    Only the weak directions are computed, so the uncomputed part of the denominator is bounded
+    by ``(1 − Σ_k v_jk²) / λ_next`` with ``λ_next`` the smallest uncomputed eigenvalue; the
+    returned values are therefore lower bounds, and ``π > 0.5`` on them is conservative."""
+    if not weak:
+        return np.zeros((0, 0))
+    E = np.stack([w["energy"] for w in weak], axis=1)
+    lam = np.array([max(w["eigval"], 1e-300) for w in weak])
+    phi = E / lam[None, :]
+    # eigvals_next None: every direction was supplied, so nothing is left to bound
+    rest = np.maximum(0.0, 1.0 - E.sum(axis=1))
+    rest = rest / eigvals_next if eigvals_next is not None and eigvals_next > 0 else 0.0 * rest
+    den = phi.sum(axis=1) + rest
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(den[:, None] > 0, phi / den[:, None], 0.0)
+
+
+def _frames_seen(object_obs: List[ObjectObs], cam: int) -> int:
+    return len({o.frame_id for o in object_obs if o.cam_id == cam})
+
+
 def _name_direction(energy: np.ndarray, labels: List[Tuple], Hh_pairs: List[Tuple],
                     coverage: Dict[int, Dict], object_obs: List[ObjectObs], *,
                     tilt_deg_min: float, periphery_frac_min: float,
-                    corr_thresh: float) -> Dict:
-    """Map one weak eigenvector's participation energy to a named finding dict."""
+                    corr_thresh: float, share: Optional[List[Tuple]] = None,
+                    ref_cam: Optional[int] = None, ratio: float = 0.0) -> Dict:
+    """Map one weak eigenvector's participation energy to a named finding dict. ``share``
+    lists the labels whose variance this direction dominates (:func:`variance_proportions`)."""
+    share = share or []
     by_block: Dict[Tuple, float] = {}
     for j, lab in enumerate(labels):
         by_block[lab[:2]] = by_block.get(lab[:2], 0.0) + float(energy[j])
@@ -142,7 +186,52 @@ def _name_direction(energy: np.ndarray, labels: List[Tuple], Hh_pairs: List[Tupl
     #    pins it. Measured on the unfixed-ref positive control: all 6 gauge modes sit at
     #    machine-zero eigenvalues with pose-block energy > 0.85; a global rotation can load
     #    mostly the camera blocks, so no minimum object-block energy is required.
-    if (e_cam + e_obj) > 0.85 and e_cam > 0.05 and top_e < 0.5 and n_spread >= 3:
+    #    The same spread arises when the reference camera, which anchors the datum, is itself
+    #    weakly observed: its lens then moves with every pose. The variance proportions tell
+    #    the two apart (measured on 44 starved-camera runs: every spread mode with a weak
+    #    reference camera had that camera's intrinsics at pi > 0.5; the gauge control has none).
+    spread = (e_cam + e_obj) > 0.85 and e_cam > 0.05 and top_e < 0.5 and n_spread >= 3
+    # A true gauge leaves the intrinsics only rounding-level eigenvector energy, which a
+    # machine-zero eigenvalue would still turn into a large variance share; require the
+    # camera's lens block to take part in the direction (energy >= _MIN_SHARE_ENERGY).
+    intr_share = [lab for lab in share if lab[0] == "intr"
+                  and by_block.get(("intr", lab[1]), 0.0) >= _MIN_SHARE_ENERGY]
+    if spread and intr_share:
+        counts: Dict[int, int] = {}
+        for lab in intr_share:
+            counts[lab[1]] = counts.get(lab[1], 0) + 1
+        cam = max(counts, key=lambda c: (counts[c], c == ref_cam))
+        params = tuple(str(lab[2]) for lab in intr_share if lab[1] == cam)
+        g = _frames_seen(object_obs, cam)
+        if cam == ref_cam:
+            return {"kind": "reference_camera_weak", "cam": cam, "frames": None, "params": params,
+                    "message": (f"reference camera {cam} is weakly observed ({g} frame(s)): its "
+                                f"lens ({', '.join(params)}) moves together with the rig datum, "
+                                f"which is anchored to this camera, so every camera's pose "
+                                f"shares the weakness; add views of camera {cam} that cover its "
+                                f"image")}
+        return {"kind": "intrinsic_weak", "cam": cam, "frames": None, "params": params,
+                "message": (f"cam{cam}: intrinsic combination {params} is weakly constrained "
+                            f"by this capture ({g} frame(s)) and moves with the rig poses")}
+    if spread and abs(ratio) > _GAUGE_MAX_RATIO:
+        # spread over the poses but not null to rounding, so not a gauge. Name what the variance
+        # proportions point at; a spread mode by itself does not implicate the reference camera
+        # (a 25-camera corridor chain, reference camera with 150 frames, bends at cameras 13-20).
+        ext_share = [lab for lab in share if lab[0] == "cam_extr"]
+        if ext_share:
+            cams = sorted({lab[1] for lab in ext_share})
+            axes = tuple(sorted({str(lab[2]) for lab in ext_share}))
+            return {"kind": "extrinsic_chain_weak", "cam": None, "frames": None, "params": axes,
+                    "cams": cams,
+                    "message": (f"cameras {', '.join(map(str, cams))}: their poses ({', '.join(axes)}) "
+                                f"move together relative to the rest of the rig; they are tied to it "
+                                f"through few shared views. Add frames where these cameras and their "
+                                f"neighbours see the board together")}
+        return {"kind": "rig_weak", "cam": None, "frames": None, "params": (),
+                "message": ("a combination of many camera and board poses is weakly determined "
+                            "(no single parameter's variance is dominated by it); add frames that "
+                            "link the cameras to each other more directly")}
+    if spread:
         return {"kind": "global_gauge", "cam": None, "frames": None, "params": (),
                 "message": ("a global gauge freedom is present (a joint rigid move of all "
                             "cameras and object poses leaves the fit unchanged) — the datum "
@@ -368,13 +457,21 @@ def audit_rig(rig: RigState, object_obs: List[ObjectObs], *,
     critical = [w for w in ew["weak"] if w["ratio"] < tau_rel]
     soft_dirs = [w for w in ew["weak"] if w["ratio"] >= tau_rel]
 
+    n_all = len(ew["weak"])
+    lam_next = float(ew["eigvals"][n_all]) if len(ew["eigvals"]) > n_all else None
+    pi = variance_proportions(ew["weak"], lam_next)
     findings = []
-    for wdir in critical:
+    for k, wdir in enumerate(ew["weak"]):
+        if wdir["ratio"] >= tau_rel:
+            continue
+        share = [labels[j] for j in np.flatnonzero(pi[:, k] > 0.5)] if pi.size else []
         f = _name_direction(wdir["energy"], labels, ew["pairs"], coverage, object_obs,
                             tilt_deg_min=tilt_deg_min,
                             periphery_frac_min=periphery_frac_min,
-                            corr_thresh=corr_thresh)
+                            corr_thresh=corr_thresh, share=share, ref_cam=rig.ref_cam_id,
+                            ratio=wdir["ratio"])
         f["ratio"] = wdir["ratio"]
+        f["variance_share"] = [f"{lab[0]}:{lab[1]}:{lab[2]}" for lab in share[:12]]
         findings.append(f)
     findings = _merge_frame_findings(findings)
     gauge_ok = not any(f["kind"] == "global_gauge" for f in findings)
