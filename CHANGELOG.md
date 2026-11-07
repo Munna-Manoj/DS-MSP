@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.23.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.23.0...v0.23.1) (2026-11-06)
+
+
+### Performance
+
+* **audit:** cut rig calibration peak memory from up to 31 GB to under 1 GB ([c50663f](https://github.com/Munna-Manoj/DS-MSP/commit/c50663f5ba8e777f0e59cd7c873c03b457109714))
+* **audit:** find weak directions from the block-arrowhead structure, never forming K x K ([cb9e209](https://github.com/Munna-Manoj/DS-MSP/commit/cb9e209d48fa861d5db6f50fc5b014979bcdaad7))
+* **audit:** skip the full eigenvector matrix in the observability analysis ([2d8960d](https://github.com/Munna-Manoj/DS-MSP/commit/2d8960d0254b180abeeab9ed0e76f2d57e14a6f6))
+* **audit:** take the observability spectra in place, holding one K x K matrix ([52355d0](https://github.com/Munna-Manoj/DS-MSP/commit/52355d0079678957bdcb180cea61563f7577a0d8))
+* **core:** cut full-size copies in the observability eigen-analysis ([b4bb88d](https://github.com/Munna-Manoj/DS-MSP/commit/b4bb88db413af1f0d3536abe28d81fc9c40ad096))
+* **rig:** build the audit's information matrix from per-observation blocks ([58e9bfe](https://github.com/Munna-Manoj/DS-MSP/commit/58e9bfe3394db98aeb7e01072e24e4025df3f088))
+* **rig:** expand the sparse BA's shared Jacobian one group at a time ([dd2f6af](https://github.com/Munna-Manoj/DS-MSP/commit/dd2f6af1b64e94d35c142fe2c05f9f27293e5d81))
+
+
+### Documentation
+
+* **adr:** record the block-arrowhead observability audit (ADR-0032) ([725c6d7](https://github.com/Munna-Manoj/DS-MSP/commit/725c6d7a53ce6141c175aac337dd2011aba3c492))
+
 ## [0.23.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.22.6...v0.23.0) (2026-11-06)
 
 
