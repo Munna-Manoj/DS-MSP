@@ -398,7 +398,7 @@ class RigConfig:
     max_centre_sigma: Optional[float] = None    # scene length units (square_size units)
     reject_outliers: bool = False               # hard-drop board observations > ransac_threshold
     lens_gate: str = "warn"                     # per-camera lens sigma / bounds: off|warn|refuse
-    crossval_gate: str = "warn"                 # even/odd frame split lens check: off|warn|refuse
+    crossval_gate: str = "off"                  # opt-in block-split cross-validation lens check: off|warn|refuse
     max_lens_sigma_px: Optional[float] = None   # lens limit in px (default: noise_bound)
     config_warnings: List[str] = field(default_factory=list)
     raw: Dict = field(default_factory=dict)
@@ -490,7 +490,7 @@ _IGNORED_MCCALIB_KEYS = {
 }
 #: ``profile: production`` defaults for fields the config does not set explicitly.
 _PRODUCTION = {"audit_gate": "refuse", "uncertainty_gate": "refuse", "convergence_gate": "refuse",
-               "reject_outliers": True, "lens_gate": "refuse", "crossval_gate": "refuse"}
+               "reject_outliers": True, "lens_gate": "refuse"}
 
 
 def _config_key_warnings(fs, profile: str, overrides: Optional[Dict] = None) -> List[str]:
@@ -580,7 +580,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         max_centre_sigma=ov.get("max_centre_sigma", _scalar(fs, "max_centre_sigma", None)),
         reject_outliers=_bool_field(ov, fs, "reject_outliers", 0),
         lens_gate=str(ov.get("lens_gate", _scalar(fs, "lens_gate", "warn"))),
-        crossval_gate=str(ov.get("crossval_gate", _scalar(fs, "crossval_gate", "warn"))),
+        crossval_gate=str(ov.get("crossval_gate", _scalar(fs, "crossval_gate", "off"))),
         max_lens_sigma_px=ov.get("max_lens_sigma_px", _scalar(fs, "max_lens_sigma_px", None)),
         raw={"path": config_path},
     )

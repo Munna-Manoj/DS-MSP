@@ -28,18 +28,27 @@ image in 103 of 168 runs. Three things let this through:
    `t(0.975, G−1)/z(0.975)` for a camera that sees `G` frames and is unbounded at one frame or along a
    null direction of `S`. Only the cameras whose lens touches a null direction are unbounded.
 3. **Parameters at an optimizer bound** are listed per camera and fail the same gate.
-4. **Split cross-validation** (`crossval_gate`, mrcal). The rig is re-solved on the even and on the odd
-   frames, warm-started from the full solution; half the median lens difference over the observed grid
-   cells, after the best rotation, estimates the full-data lens error. It assumes no model and no
-   linearity.
+4. **Split cross-validation** (`crossval_gate`, mrcal), **opt-in**. The frames are cut into 8
+   contiguous blocks in capture order and alternate blocks go to each half; neighbouring video frames
+   share their errors, so even and odd frames would compare a capture with itself. The rig is re-solved
+   on each half, warm-started from the full solution; half the median lens difference over the grid
+   cells both halves observed, after the best rotation, estimates the full-data lens error. It assumes
+   no model and no linearity. It is off by default and under production:
+   - Both halves still come from one capture, so the check misses errors the capture shares (lighting,
+     board positions, detector bias). On TUM-VI it reads 0.055 to 0.34 px per recording, while the
+     lenses of two recordings differ by 0.27 and 0.35 px (medians).
+   - It cannot run when the reference camera sees the board in one stretch only (rendered S2, a room
+     split into zones).
+   - The lens is validated instead with a second, independent capture.
 5. **Naming by variance share.** Each audit finding lists the parameters whose Belsley-Kuh-Welsch
    variance-decomposition proportion in that direction exceeds 0.5 (lower bounds from the computed
    weak directions). A direction spread over the poses is a global gauge only if it is null to
    rounding (|ratio| ≤ 1e-12). Otherwise it is named by its variance share: `reference_camera_weak`
    when the reference camera's lens carries it, `extrinsic_chain_weak` with the cameras whose poses do,
    or `rig_weak`.
-6. Both lens checks compare with `max_lens_sigma_px`, by default the configured `noise_bound`. They
-   warn by default and refuse under `profile: production`, and are skipped when intrinsics are fixed.
+6. Both lens checks compare with `max_lens_sigma_px`, by default the configured `noise_bound`. The
+   lens σ check warns by default and refuses under `profile: production`; the split check runs only
+   when `crossval_gate` is set. Both are skipped when intrinsics are fixed.
 7. The per-frame Gram products of the covariance are formed with BLAS instead of three-operand
    `einsum`, which numpy runs as a plain loop.
 
@@ -58,10 +67,18 @@ image in 103 of 168 runs. Three things let this through:
   - The calibration is unchanged: extrinsics, intrinsics and held-out error are identical on the 10
     MC-Calib and Seltos datasets, and the output files are byte-identical on the 12 rendered
     25-camera runs.
-  - No camera is flagged on 7 MC-Calib datasets (48 cameras: widened sigma 0.03 to 0.28 px, split
-    estimate 0.005 to 0.19 px) or on the rendered rigs (300 cameras: at most 0.024 px and 0.045 px).
-    The Seltos rig fixes its intrinsics, so the lens checks are skipped.
-- The split check costs one extra joint BA per half. With the BLAS change, the rendered 25-camera runs
+  - The lens σ check flags no camera on 7 MC-Calib datasets (34 cameras, widened σ 0.03 to 0.28 px)
+    or on the rendered rigs (300 cameras, at most 0.024 px). The Seltos rig fixes its intrinsics, so
+    the lens checks are skipped.
+  - The split check, when enabled, estimates 0.08 to 0.57 px on 28 cameras of six MC-Calib datasets
+    and at most 0.16 px on the rendered rigs (124 of 150 cameras per repeat; S2 is not applicable).
+    On Seq05 it estimates 0.97 to 1.07 px on all six cameras, which have 315 to 451 frames and a
+    lens σ of 0.17 to 0.24 px, and three of them cross the 1 px limit. The cause is not established.
+    MC-Calib agreement and held-out error on Seq05 are the same as on `main`.
+- TUM-VI, 8 calibration recordings at 1024 px with Kalibr's AprilGrid detections: the split estimate
+  is 0.055 to 0.34 px per recording (even/odd halves gave 0.001 to 0.014 px), while the lenses fitted
+  to two different recordings differ by 0.27 and 0.35 px (medians of the two cameras).
+- The split check, when enabled, costs one extra joint BA per half. With the BLAS change, the rendered 25-camera runs
   are 3 to 30% faster than `main` in the same batch.
 - At 100 cameras the covariance step was 77% of a 4.4-hour run (12,282 s of 15,905 s); the matrix
   products give the same values to 1e-15 relative and were 60 times faster on a 3,000-point frame.

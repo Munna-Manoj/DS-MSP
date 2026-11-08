@@ -702,8 +702,8 @@ def render_lens(lens: Optional[Dict], crossval: Optional[Dict], *,
     else:
         ok = not crossval["failed"]
         badge = _c("32", " OK ", enabled=color) if ok else _c("33", " WARN ", enabled=color)
-        lines.append(f"lens cross-validation:{badge} even vs odd frames; estimated lens error = "
-                     f"half the median difference over the observed image (limit "
+        lines.append(f"lens cross-validation:{badge} alternate frame blocks; estimated lens error = "
+                     f"half the median difference over the cells both halves observed (limit "
                      f"{crossval['limit_px']:.2f} px)")
         for c, v in sorted(crossval["cameras"].items(), key=lambda kv: int(kv[0])):
             if not v.get("applicable"):

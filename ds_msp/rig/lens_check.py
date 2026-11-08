@@ -11,10 +11,12 @@ Three checks, each reported per camera:
    frames, so the median is widened by ``t_{0.975, G-1} / z_{0.975}`` (unbounded at one frame).
 2. **Lens parameters at an optimizer bound** (``param_bounds``): the estimate there is not a
    free minimum, and its covariance does not describe it.
-3. **Split cross-validation** (mrcal's ``cross-validation`` check): the rig is re-solved on the
-   even and on the odd frames, warm-started from the full solution, and each camera's two lenses
-   are compared after the best-fitting rotation between them (mrcal ``projection_diff`` at
-   infinity), over the grid cells the camera observed. Each half has half the data, so its error
+3. **Split cross-validation** (mrcal's ``cross-validation`` check): the rig is re-solved on two
+   halves of the frames, each made of alternate contiguous blocks in capture order, warm-started
+   from the full solution, and each camera's two lenses are compared after the best-fitting
+   rotation between them (mrcal ``projection_diff`` at infinity), over the grid cells both
+   halves observed. Blocks, not even and odd frames, because neighbouring video frames share
+   their errors. Each half has half the data, so its error
    is ``√2`` times the full-data error and the two independent errors subtract: the difference is
    about twice the full-data lens error. Half the median difference is therefore the split's
    estimate of the full-data lens error. Unlike the covariance it assumes no model and no
@@ -230,16 +232,42 @@ def projection_diff(ma, mb, uv: np.ndarray, fit: np.ndarray) -> np.ndarray:
     return out
 
 
+SPLIT_BLOCKS = 8
+_SPLIT_METHOD = (f"{SPLIT_BLOCKS} contiguous blocks of frames in capture order, alternate blocks "
+                 "to each half; warm-started joint BA per half; lens difference after the best "
+                 "rotation (mrcal projection_diff at infinity) over the grid cells both halves "
+                 "observed")
+
+
+def split_halves(frames: List[int], blocks: int = SPLIT_BLOCKS) -> List[set]:
+    """Cut ``frames`` (sorted, capture order) into ``blocks`` contiguous blocks and give the
+    even-numbered blocks to one half and the odd-numbered blocks to the other."""
+    n = len(frames)
+    k = max(1, min(blocks, n))
+    idx = [i * k // n for i in range(n)]
+    return [{f for f, b in zip(frames, idx) if b % 2 == h} for h in (0, 1)]
+
+
 def crossval_lens(rig: RigState, object_obs: List[ObjectObs], *, structure_mode: str,
                   limit_px: float, lens: Optional[Dict] = None, min_frames: int = 3) -> Dict:
-    """Check 3: re-solve on even and odd frames and compare each camera's two lenses.
+    """Check 3: re-solve on two halves of the frames and compare each camera's two lenses over
+    the grid cells both halves observed.
+
+    The halves are alternate contiguous blocks (:func:`split_halves`), not even and odd frames:
+    frames taken from video are near-duplicates of their neighbours, so even/odd halves share
+    their errors and agree too well. On the 8 TUM-VI calibration recordings, even/odd gave 0.001
+    to 0.014 px where the lenses of separate recordings differ by 0.27 to 0.35 px; 8 blocks gave
+    0.055 to 0.34 px (4 blocks 0.030 to 0.44, 16 blocks 0.024 to 0.30). One block per half
+    (first and second half) would leave a camera that saw the target only early in the capture
+    out of one half, as on rigs calibrated by walking the target past the cameras.
+    ``frame_id`` order is taken as capture order.
 
     Cameras that see fewer than ``min_frames`` frames in either half are reported as not
     applicable (check 1 already covers them). ``lens`` (a :func:`lens_uncertainty` result) adds
     the expected difference, ``2 x`` the full-data median sigma, for reference."""
     frames = sorted({o.frame_id for o in object_obs
                      if (o.object_id, o.frame_id) in rig.object_poses})
-    halves = [set(frames[0::2]), set(frames[1::2])]
+    halves = split_halves(frames)
     multi_board = any(len(o.board_ids) > 1 for o in rig.objects.values())
     refine_boards = multi_board and structure_mode in ("rigid", "bend")
     solved, statuses, counts = [], [], []
@@ -247,7 +275,7 @@ def crossval_lens(rig: RigState, object_obs: List[ObjectObs], *, structure_mode:
         obs_h = [o for o in object_obs if o.frame_id in half]
         counts.append(frames_per_camera(rig, obs_h))
         if counts[-1].get(rig.ref_cam_id, 0) == 0:
-            return {"method": "even/odd frame split", "applicable": False,
+            return {"method": _SPLIT_METHOD, "applicable": False,
                     "reason": "the reference camera has no frames in one half",
                     "limit_px": float(limit_px), "cameras": {}, "failed": []}
         rig_h = copy.copy(rig)
@@ -270,7 +298,10 @@ def crossval_lens(rig: RigState, object_obs: List[ObjectObs], *, structure_mode:
             continue
         w, h = rig.img_size[c]
         uv = _grid(w, h)
-        fit = _observed_cells(rig, object_obs, c, w, h)
+        fit = (_observed_cells(rig, [o for o in object_obs if o.frame_id in halves[0]], c, w, h)
+               & _observed_cells(rig, [o for o in object_obs if o.frame_id in halves[1]], c, w, h))
+        if fit.sum() < 3:                       # halves saw disjoint parts of the image
+            fit = _observed_cells(rig, object_obs, c, w, h)
         d = projection_diff(solved[0].cameras[c], solved[1].cameras[c], uv, fit)
         obs_d = d[fit & np.isfinite(d)]
         all_d = d[np.isfinite(d)]
@@ -288,9 +319,6 @@ def crossval_lens(rig: RigState, object_obs: List[ObjectObs], *, structure_mode:
                    ratio_to_expected=_json(med / exp) if exp else None,
                    ok=bool(np.isfinite(med) and med / 2.0 <= limit_px))
         cams[str(c)] = row
-    return {"method": "even/odd frame split, warm-started joint BA per half; lens difference "
-                      "after the best rotation (mrcal projection_diff at infinity) over the "
-                      "observed grid cells",
-            "applicable": True, "limit_px": float(limit_px), "half_status": statuses,
+    return {"method": _SPLIT_METHOD, "applicable": True, "limit_px": float(limit_px), "half_status": statuses,
             "cameras": cams,
             "failed": [c for c, v in cams.items() if v.get("applicable") and not v["ok"]]}

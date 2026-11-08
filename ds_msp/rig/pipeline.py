@@ -134,7 +134,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        max_centre_sigma: Optional[float] = None,
                        config_warnings: Optional[List[str]] = None,
                        profile: str = "default",
-                       lens_gate: str = "warn", crossval_gate: str = "warn",
+                       lens_gate: str = "warn", crossval_gate: str = "off",
                        max_lens_sigma_px: Optional[float] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
@@ -194,8 +194,9 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     ``lens_gate`` (``warn`` default | ``refuse`` | ``off``) judges each camera's lens
     (:func:`ds_msp.rig.lens_check.lens_uncertainty`): the widened median pixel sigma of its
     projection against ``max_lens_sigma_px`` (default ``noise_bound``, else 1 px), and lens
-    parameters left at an optimizer bound. ``crossval_gate`` (same values) re-solves the rig on
-    the even and the odd frames and compares each camera's two lenses
+    parameters left at an optimizer bound. ``crossval_gate`` (same values, ``off`` by default and
+    under ``profile: production``) re-solves the rig on
+    two halves of alternate contiguous frame blocks (capture order) and compares each camera's two lenses
     (:func:`ds_msp.rig.lens_check.crossval_lens`) against the same limit; it costs about one
     extra joint BA. Both are skipped when intrinsics are fixed, and recorded as ``"lens"`` and
     ``"crossval"``. The observability audit's findings are recorded as ``"observability"`` and,
@@ -509,10 +510,10 @@ def _gate_crossval(cv: Dict, gate: str) -> None:
         exp = v.get("expected_from_noise_px")
         parts.append(f"camera {c}: halves differ by {'unbounded' if d is None else f'{d:.2f} px'}"
                      + (f", noise alone predicts {exp:.2f} px" if exp is not None else ""))
-    msg = (f"lens cross-validation: re-solving on even and on odd frames gives lenses whose "
-           f"difference implies a full-data lens error above {cv['limit_px']:.2f} px over the "
-           f"observed image ({'; '.join(parts)}). The data do not determine these lenses; add "
-           f"views, or check the camera model and the detections")
+    msg = (f"lens cross-validation: re-solving on two halves of alternate frame blocks gives lenses "
+           f"whose difference implies a full-data lens error above {cv['limit_px']:.2f} px over the "
+           f"cells both halves observed ({'; '.join(parts)}). The data do not determine these lenses; add "
+           f"views, check the camera model and the detections, or validate on a second capture")
     if gate == "refuse":
         raise RuntimeError(f"cross-validation gate refused this calibration "
                            f"(crossval_gate='refuse'): {msg}")

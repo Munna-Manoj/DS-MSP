@@ -39,7 +39,7 @@ def _run(scn, models, **kw):
 @pytest.fixture(scope="module")
 def healthy():
     scn, models = _scenario()
-    res, warns = _run(scn, models)
+    res, warns = _run(scn, models, crossval_gate="warn")
     return scn, models, res, warns
 
 
@@ -119,12 +119,29 @@ def test_well_observed_rig_passes_both_checks(healthy):
 
 def test_single_frame_camera_is_unbounded_and_warns():
     scn, models = _scenario(starve=1, keep=1)
-    res, warns = _run(scn, models)
+    res, warns = _run(scn, models, crossval_gate="warn")
     v = res["lens"]["cameras"]["1"]
     assert v["frames"] == 1 and v["t_factor"] is None and v["sigma_median_widened_px"] is None
     assert not v["ok"] and "sigma" in v["reasons"] and res["lens"]["failed"] == ["1"]
     assert res["crossval"]["cameras"]["1"]["applicable"] is False
     assert any("lens not determined" in w and "camera 1" in w for w in warns)
+
+
+def test_split_halves_alternate_contiguous_blocks():
+    """Neighbouring video frames share their errors, so the halves are alternate contiguous
+    blocks, not even and odd frames; both halves still span the whole capture."""
+    a, b = lc.split_halves(list(range(32)))
+    assert a == {0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27}
+    assert b == set(range(32)) - a
+    assert lc.split_halves([5, 7]) == [{5}, {7}]
+    assert lc.split_halves([]) == [set(), set()]
+
+
+def test_split_check_records_its_block_split(healthy):
+    _scn, _m, res, _w = healthy
+    cv = res["crossval"]
+    assert cv["method"].startswith(f"{lc.SPLIT_BLOCKS} contiguous blocks")
+    assert cv["cameras"]["0"]["frames_halves"] == [16, 14]          # 30 frames, blocks of 3-4
 
 
 def test_lens_gate_refuse_blocks_a_starved_camera():
@@ -135,7 +152,7 @@ def test_lens_gate_refuse_blocks_a_starved_camera():
 
 def test_checks_are_recorded_as_strict_json(tmp_path, healthy):
     scn, models, _res, _w = healthy
-    res, _warns = _run(scn, models, save_dir=str(tmp_path))
+    res, _warns = _run(scn, models, save_dir=str(tmp_path), crossval_gate="warn")
     acc = json.loads((tmp_path / "calibration_acceptance.json").read_text())
     assert acc["lens_gate"] == "warn" and acc["crossval_gate"] == "warn"
     assert set(acc["lens"]["cameras"]) == {"0", "1", "2"}
@@ -152,3 +169,16 @@ def test_fixed_intrinsics_skip_the_lens_checks(healthy):
                                  uncertainty_gate="off")
     assert "lens" not in out and "crossval" not in out
     assert out["acceptance"]["lens"] is None and out["acceptance"]["crossval"] is None
+
+
+def test_split_check_is_opt_in():
+    """The split check is off by default and under production: it underestimates the error
+    between independent captures (TUM-VI) and cannot run on zoned captures. A second
+    capture validates a lens instead."""
+    import dataclasses
+    import inspect
+    from ds_msp.rig import calib_param
+    assert inspect.signature(calibrate_scenario).parameters["crossval_gate"].default == "off"
+    fields = {f.name: f.default for f in dataclasses.fields(calib_param.RigConfig)}
+    assert fields["crossval_gate"] == "off" and fields["lens_gate"] == "warn"
+    assert "crossval_gate" not in calib_param._PRODUCTION
