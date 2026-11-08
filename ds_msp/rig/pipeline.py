@@ -133,7 +133,9 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        max_rotation_sigma_deg: Optional[float] = None,
                        max_centre_sigma: Optional[float] = None,
                        config_warnings: Optional[List[str]] = None,
-                       profile: str = "default") -> Dict:
+                       profile: str = "default",
+                       lens_gate: str = "warn", crossval_gate: str = "off",
+                       max_lens_sigma_px: Optional[float] = None) -> Dict:
     """Calibrate one loaded :class:`Scenario` and (optionally) write MC-Calib output.
 
     ``model_spec`` is a single model or a ``{cam_id: model}`` map (names or classes).
@@ -188,9 +190,26 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     (:func:`bundle.camera_coverage`), against ``min_camera_coverage``. Solver status and RMS
     cannot show a camera or frames lost to the robust solve; this can. Recorded as
     ``"coverage"`` in the acceptance file.
+
+    ``lens_gate`` (``warn`` default | ``refuse`` | ``off``) judges each camera's lens
+    (:func:`ds_msp.rig.lens_check.lens_uncertainty`): the widened median pixel sigma of its
+    projection against ``max_lens_sigma_px`` (default ``noise_bound``, else 1 px), and lens
+    parameters left at an optimizer bound. ``crossval_gate`` (same values, ``off`` by default and
+    under ``profile: production``) re-solves the rig on
+    two halves of alternate contiguous frame blocks (capture order) and compares each camera's two lenses
+    (:func:`ds_msp.rig.lens_check.crossval_lens`) against the same limit; it costs about one
+    extra joint BA. Both are skipped when intrinsics are fixed, and recorded as ``"lens"`` and
+    ``"crossval"``. The observability audit's findings are recorded as ``"observability"`` and,
+    under ``audit_gate: warn``, raised as a ``RuntimeWarning``.
     Returns ``{rig, models, paths, metrics}`` (``+ "covariance"``/``"audit"``/
-    ``"certificate"``/``"uncertainty"`` when enabled).
+    ``"certificate"``/``"uncertainty"``/``"lens"``/``"crossval"`` when enabled).
     """
+    for name, gate in (("lens_gate", lens_gate), ("crossval_gate", crossval_gate)):
+        if gate not in ("off", "warn", "refuse"):
+            raise ValueError(f"{name} must be 'off', 'warn' or 'refuse', got {gate!r}")
+    if max_lens_sigma_px is not None and not (np.isfinite(max_lens_sigma_px)
+                                              and max_lens_sigma_px > 0):
+        raise ValueError("max_lens_sigma_px must be positive")
     if uncertainty_gate not in ("off", "warn", "refuse"):
         raise ValueError(f"uncertainty_gate must be 'off', 'warn' or 'refuse', got {uncertainty_gate!r}")
     if uncertainty_gate == "refuse" and (max_rotation_sigma_deg is None or max_centre_sigma is None):
@@ -249,22 +268,48 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     if certify:
         from .certify import certify_rotations
         out["certificate"] = certify_rotations(rig, scn.object_obs)
+    observability = None
     if audit_gate != "off":
         from .audit import audit_rig
         audit = audit_rig(rig, scn.object_obs, fix_intrinsics=fix_intrinsics)
         out["audit"] = audit
-        if audit_gate == "refuse" and (audit["n_weak"] > 0 or not audit["gauge_ok"]):
+        observability = _observability_record(audit)
+        if audit["n_weak"] > 0 or not audit["gauge_ok"]:
             details = "; ".join(f["message"] for f in audit["findings"]) or \
                 f"{audit['n_weak']} unnamed weak direction(s)"
-            raise RuntimeError(
-                f"observability audit refused this calibration (audit_gate='refuse'): "
-                f"{details}")
+            if audit_gate == "refuse":
+                raise RuntimeError(
+                    f"observability audit refused this calibration (audit_gate='refuse'): "
+                    f"{details}")
+            warnings.warn(f"observability audit: {audit['n_weak']} weakly determined parameter "
+                          f"direction(s): {details}", RuntimeWarning, stacklevel=2)
+    lens_limit = float(max_lens_sigma_px if max_lens_sigma_px is not None
+                       else noise_bound if noise_bound else 1.0)
+    unc = None
+    if uncertainty_gate != "off" or (lens_gate != "off" and not fix_intrinsics):
+        unc = bundle.shared_covariance(rig, scn.object_obs, fix_intrinsics=fix_intrinsics,
+                                       refine_boards=structure_mode in ("rigid", "bend"),
+                                       bend_boards=structure_mode == "bend")
+    lens = None
+    if lens_gate != "off" and not fix_intrinsics:
+        from .lens_check import lens_uncertainty
+        assert unc is not None
+        lens = lens_uncertainty(rig, scn.object_obs, unc, limit_px=lens_limit)
+        out["lens"] = lens
+        _gate_lens(lens, lens_gate)
+    crossval = None
+    if crossval_gate != "off" and not fix_intrinsics:
+        from .lens_check import crossval_lens
+        crossval = crossval_lens(rig, scn.object_obs, structure_mode=structure_mode,
+                                 limit_px=lens_limit, lens=lens)
+        out["crossval"] = crossval
+        _gate_crossval(crossval, crossval_gate)
     uncertainty = None
     if uncertainty_gate != "off":
         uncertainty = extrinsic_uncertainty(rig, scn.object_obs, fix_intrinsics=fix_intrinsics,
                                             structure_mode=structure_mode,
                                             max_rotation_sigma_deg=max_rotation_sigma_deg,
-                                            max_centre_sigma=max_centre_sigma)
+                                            max_centre_sigma=max_centre_sigma, unc=unc)
         out["uncertainty"] = uncertainty
         if not uncertainty["identifiable"]:
             bad = [k for k, p in uncertainty["pairs"].items() if not p["identifiable"]]
@@ -305,6 +350,11 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "outlier_gate_px": reproj_gate_px,
         "rejected_observations": list(getattr(rig, "rejected", [])),
         "config_warnings": list(config_warnings or []),
+        "observability": observability,
+        "lens_gate": lens_gate,
+        "lens": lens,
+        "crossval_gate": crossval_gate,
+        "crossval": crossval,
     }
     if accuracy_gate == "refuse" and not physical_pass:
         raise RuntimeError("accuracy gate refused calibration: independent truth must cover "
@@ -411,10 +461,70 @@ def _gate_coverage(coverage: Dict[int, dict], band_px: float, minimum: float, ga
     warnings.warn(msg, RuntimeWarning, stacklevel=3)
 
 
+def _observability_record(audit: Dict) -> Dict:
+    """The JSON-safe part of an audit for the acceptance file."""
+    def num(x):
+        return None if x is None or not np.isfinite(x) else float(x)
+    findings = []
+    for f in audit.get("findings", []):
+        findings.append({"kind": f.get("kind"), "cam": f.get("cam"), "cams": f.get("cams"),
+                         "frames": list(f["frames"]) if f.get("frames") else None,
+                         "params": [str(p) for p in f.get("params", ())],
+                         "variance_share": f.get("variance_share"),
+                         "ratio": num(f.get("ratio")), "message": f.get("message")})
+    return {"n_weak": int(audit.get("n_weak", 0)), "n_soft": int(audit.get("n_soft", 0)),
+            "gauge_ok": bool(audit.get("gauge_ok", True)), "cond": num(audit.get("cond")),
+            "gap": num(audit.get("gap")), "findings": findings}
+
+
+def _gate_lens(lens: Dict, gate: str) -> None:
+    """Warn or refuse when a camera's lens is not determined to the pixel limit."""
+    if not lens["failed"] or gate == "off":
+        return
+    parts = []
+    for c in lens["failed"]:
+        v = lens["cameras"][c]
+        why = []
+        if "sigma" in v["reasons"]:
+            s = v["sigma_median_widened_px"]
+            why.append(f"lens 1-sigma {'unbounded' if s is None else f'{s:.2f} px'} "
+                       f"from {v['frames']} frame(s)")
+        if "at_bound" in v["reasons"]:
+            why.append(f"{', '.join(v['params_at_bound'])} at an optimizer bound")
+        parts.append(f"camera {c}: {'; '.join(why)}")
+    msg = (f"lens not determined to {lens['limit_px']:.2f} px: {' | '.join(parts)}. Add views "
+           f"of these cameras that cover their image")
+    if gate == "refuse":
+        raise RuntimeError(f"lens gate refused this calibration (lens_gate='refuse'): {msg}")
+    warnings.warn(msg, RuntimeWarning, stacklevel=3)
+
+
+def _gate_crossval(cv: Dict, gate: str) -> None:
+    """Warn or refuse when the two half-data solves disagree on a camera's lens."""
+    if not cv.get("failed") or gate == "off":
+        return
+    parts = []
+    for c in cv["failed"]:
+        v = cv["cameras"][c]
+        d = v["diff_median_observed_px"]
+        exp = v.get("expected_from_noise_px")
+        parts.append(f"camera {c}: halves differ by {'unbounded' if d is None else f'{d:.2f} px'}"
+                     + (f", noise alone predicts {exp:.2f} px" if exp is not None else ""))
+    msg = (f"lens cross-validation: re-solving on two halves of alternate frame blocks gives lenses "
+           f"whose difference implies a full-data lens error above {cv['limit_px']:.2f} px over the "
+           f"cells both halves observed ({'; '.join(parts)}). The data do not determine these lenses; add "
+           f"views, check the camera model and the detections, or validate on a second capture")
+    if gate == "refuse":
+        raise RuntimeError(f"cross-validation gate refused this calibration "
+                           f"(crossval_gate='refuse'): {msg}")
+    warnings.warn(msg, RuntimeWarning, stacklevel=3)
+
+
 def extrinsic_uncertainty(rig: RigState, object_obs, *, fix_intrinsics: bool,
                           structure_mode: str = "rigid",
                           max_rotation_sigma_deg: Optional[float] = None,
-                          max_centre_sigma: Optional[float] = None) -> Dict:
+                          max_centre_sigma: Optional[float] = None,
+                          unc: Optional[Dict] = None) -> Dict:
     """Per camera-pair 1-sigma extrinsic uncertainty from the frame-clustered sandwich
     covariance (:func:`bundle.shared_covariance` -> :func:`bundle.pair_uncertainty`), with
     board poses/bows marginalised when the target was refined rigidly. JSON-safe; pair keys
@@ -428,9 +538,10 @@ def extrinsic_uncertainty(rig: RigState, object_obs, *, fix_intrinsics: bool,
     Carlo per condition: 2-sigma coverage 0.913 -> 0.942 at 10 frames, 0.94-0.97 elsewhere."""
     from scipy import stats
 
-    unc = bundle.shared_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics,
-                                   refine_boards=structure_mode in ("rigid", "bend"),
-                                   bend_boards=structure_mode == "bend")
+    if unc is None:
+        unc = bundle.shared_covariance(rig, object_obs, fix_intrinsics=fix_intrinsics,
+                                       refine_boards=structure_mode in ("rigid", "bend"),
+                                       bend_boards=structure_mode == "bend")
     pairs = bundle.pair_uncertainty(rig, unc)
     dof = unc["n_clusters"] - 1
     # one frame cluster leaves no degrees of freedom: no interval, and any limit is exceeded

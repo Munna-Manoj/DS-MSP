@@ -52,7 +52,7 @@ from .pipeline import calibrate_scenario, random_model_assignment
 
 def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_path,
                           audit=None, certificate=None, covariance=None, metrics=None,
-                          output_paths=None, manifest=None):
+                          output_paths=None, manifest=None, lens=None, crossval=None):
     """Shared tail for both entry points: assemble the full calibration deliverable ONCE
     (:func:`ds_msp.rig.report.full_report_data` — capture summary, error distributions +
     training-fit verdict, calibrated intrinsics/extrinsics with 1σ when covariance is on,
@@ -79,6 +79,7 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
         manifest = prov.build_manifest(scn, configuration={"entrypoint": "rig-python-api"})
     data = rpt.full_report_data(rig, scn, models, per_cam, overall, level, message,
                                 metrics=metrics, audit=audit, certificate=certificate,
+                                lens=lens, crossval=crossval,
                                 covariance=covariance, provenance=prov.summary(manifest),
                                 output_files=files)
     print()
@@ -132,7 +133,8 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
                                  audit=res.get("audit"), certificate=res.get("certificate"),
                                  covariance=res.get("covariance"),
                                  metrics=res.get("metrics"),
-                                 output_paths=res.get("paths"), manifest=manifest)
+                                 output_paths=res.get("paths"), manifest=manifest,
+                                 lens=res.get("lens"), crossval=res.get("crossval"))
     res["exit_code"] = code
     return res
 
@@ -310,7 +312,8 @@ def main():
                                  html_path=html_path or None, audit=res.get("audit"),
                                  certificate=res.get("certificate"),
                                  covariance=res.get("covariance"), metrics=m,
-                                 output_paths=res.get("paths"), manifest=manifest)
+                                 output_paths=res.get("paths"), manifest=manifest,
+                                 lens=res.get("lens"), crossval=res.get("crossval"))
     raise SystemExit(code)
 
 

@@ -675,10 +675,53 @@ def _extrinsics_data(rig: RigState, covariance: Optional[Dict]) -> List[Dict]:
     return out
 
 
+def render_lens(lens: Optional[Dict], crossval: Optional[Dict], *,
+                color: Optional[bool] = None) -> List[str]:
+    """Terminal lines for the per-camera lens checks (:mod:`ds_msp.rig.lens_check`)."""
+    if color is None:
+        color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    lines: List[str] = []
+    if lens is None:
+        lines.append("lens: not run (lens_gate: off, or intrinsics fixed)")
+    else:
+        ok = not lens["failed"]
+        badge = _c("32", " OK ", enabled=color) if ok else _c("33", " WARN ", enabled=color)
+        lines.append(f"lens:{badge} 1-sigma projection error per camera (limit "
+                     f"{lens['limit_px']:.2f} px on the widened median)")
+        for c, v in sorted(lens["cameras"].items(), key=lambda kv: int(kv[0])):
+            flag = "" if v["ok"] else "  <-- " + ", ".join(v["reasons"])
+            lines.append(f"  cam{c}: {v['frames']:>4} frames  median {_fmt(v['sigma_median_px'])}"
+                         f"  widened {_fmt(v['sigma_median_widened_px'])}  p95 "
+                         f"{_fmt(v['sigma_p95_px'])} px"
+                         + (f"  at bound: {', '.join(v['params_at_bound'])}"
+                            if v["params_at_bound"] else "") + flag)
+    if crossval is None:
+        lines.append("lens cross-validation: not run (crossval_gate: off, or intrinsics fixed)")
+    elif not crossval.get("applicable"):
+        lines.append(f"lens cross-validation: not applicable ({crossval.get('reason')})")
+    else:
+        ok = not crossval["failed"]
+        badge = _c("32", " OK ", enabled=color) if ok else _c("33", " WARN ", enabled=color)
+        lines.append(f"lens cross-validation:{badge} alternate frame blocks; estimated lens error = "
+                     f"half the median difference over the cells both halves observed (limit "
+                     f"{crossval['limit_px']:.2f} px)")
+        for c, v in sorted(crossval["cameras"].items(), key=lambda kv: int(kv[0])):
+            if not v.get("applicable"):
+                lines.append(f"  cam{c}: not applicable ({v['frames_halves'][0]}/"
+                             f"{v['frames_halves'][1]} frames per half)")
+                continue
+            flag = "" if v["ok"] else "  <-- exceeds limit"
+            lines.append(f"  cam{c}: estimate {_fmt(v['error_estimate_px'])} px  (halves differ "
+                         f"{_fmt(v['diff_median_observed_px'])}, noise predicts "
+                         f"{_fmt(v.get('expected_from_noise_px'))})" + flag)
+    return lines
+
+
 def full_report_data(rig: RigState, scn, models: Dict[int, str],
                      per_cam: Dict[int, ErrorStats], overall: ErrorStats,
                      level: str, message: str, *, metrics: Optional[Dict] = None,
                      audit: Optional[Dict] = None, certificate: Optional[Dict] = None,
+                     lens: Optional[Dict] = None, crossval: Optional[Dict] = None,
                      covariance: Optional[Dict] = None,
                      provenance: Optional[Dict] = None,
                      output_files: Optional[Dict] = None) -> Dict:
@@ -715,6 +758,8 @@ def full_report_data(rig: RigState, scn, models: Dict[int, str],
         "covariance": cov_meta,
         "metrics": metrics,
         "audit": audit,
+        "lens": lens,
+        "crossval": crossval,
         "certificate": certificate,
         "provenance": provenance,
         "output_files": output_files or {},
@@ -860,6 +905,7 @@ def render_full_report(data: Dict, *, color: Optional[bool] = None) -> str:
         L.append(render_audit(data["audit"], color=color))
     else:
         L.append("observability: not run (audit_gate: off)")
+    L.extend(render_lens(data.get("lens"), data.get("crossval"), color=color))
     if data.get("certificate"):
         L.extend(_render_certificate_lines(data["certificate"], color=color))
     else:

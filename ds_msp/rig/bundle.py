@@ -662,6 +662,7 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
     G_ss = np.zeros((p_s, p_s))
     S = np.zeros((p_s, p_s))
     v_by_cluster: Dict[int, np.ndarray] = {}
+    wres_parts: List[np.ndarray] = []                  # robust-weighted residual components
     n_blocks = 0
     for k, r, A, B in zip(groups, r_list, A_list, B_list):
         n = len(r) // 2
@@ -674,12 +675,18 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
         omp = psd_curvature_derivative(sq, om, robust_weight_derivative(sq, kernel, scale))
         a_s = np.einsum("nkp,nk->np", Ap, rp)                  # J_iᵀ r_i, shared part
         a_l = np.einsum("nkp,nk->np", Bp, rp)                  # J_iᵀ r_i, local part
-        Gss = (np.einsum("n,nki,nkj->ij", om, Ap, Ap)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_s))
-        Gsl = (np.einsum("n,nki,nkj->ij", om, Ap, Bp)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_s, a_l))
-        Gll = (np.einsum("n,nki,nkj->ij", om, Bp, Bp)
-               + 2.0 * np.einsum("n,ni,nj->ij", omp, a_l, a_l))
+        # Weighted Gram products as matrix products (BLAS). The three-operand einsums these
+        # replace run as a plain loop: at 100 cameras (shared_dim ~1,400, ~10k corners per
+        # frame) they were 77% of a 4.4 h calibration.
+        A2 = Ap.reshape(2 * n, p_s)
+        B2 = Bp.reshape(2 * n, 6)
+        om2 = np.repeat(om, 2)[:, None]
+        wres_parts.append(np.sqrt(om2[:, 0]) * r)
+        wA = om2 * A2
+        Gss = wA.T @ A2 + 2.0 * (omp[:, None] * a_s).T @ a_s
+        Gsl = wA.T @ B2 + 2.0 * (omp[:, None] * a_s).T @ a_l
+        Gll = (om2 * B2).T @ B2 + 2.0 * (omp[:, None] * a_l).T @ a_l
+        del wA
         Gll = 0.5 * (Gll + Gll.T)
         if not np.isfinite(Gll).all():
             Gll_inv = np.full((6, 6), np.nan)              # S goes non-finite: fails closed below
@@ -713,9 +720,12 @@ def shared_covariance(rig: RigState, object_obs: List[ObjectObs], *,
     assert end == p_s, (end, p_s)
     gauges = _absorbed_boards(rig, object_obs, bases, board_col, bend_col)
     cov, identifiable, absorbed = _sandwich_from_schur(S, M, G_ss, gauges)
+    wres = np.concatenate(wres_parts) if wres_parts else np.zeros(0)
+    sigma_px = float(1.4826 * np.median(np.abs(wres))) if wres.size else float("nan")
     return {"cov": cov, "identifiable": identifiable, "unidentified_structure": absorbed,
             "cam_col": cam_col, "intr_col": intr_col, "n_clusters": n_clusters,
-            "n_blocks": n_blocks, "scale": float(scale), "kernel": kernel}
+            "n_blocks": n_blocks, "scale": float(scale), "kernel": kernel,
+            "bread": S, "bread_G": G_ss, "gauges": gauges, "sigma_px": sigma_px}
 
 
 def _sandwich_from_schur(S: np.ndarray, M: np.ndarray, G: Optional[np.ndarray] = None,
@@ -743,19 +753,9 @@ def _sandwich_from_schur(S: np.ndarray, M: np.ndarray, G: Optional[np.ndarray] =
     if not (np.isfinite(S).all() and np.isfinite(M).all() and np.isfinite(G).all()):
         return unidentified, False, list(range(p))
     absorbed = sorted(j for cols, _n in gauges for j in cols)
-    # basis of the identified subspace: identity outside the gauges, and inside each gauge its
-    # scaled eigenvectors with the `nullity` least-informative ones left out
-    B = np.eye(p)
-    null = []
-    for cols, nullity in gauges:
-        g = np.diag(G)[cols]
-        Dc = np.where(g > 0.0, 1.0 / np.sqrt(np.where(g > 0.0, g, 1.0)), 1.0)
-        ev, V = np.linalg.eigh(Dc[:, None] * S[np.ix_(cols, cols)] * Dc[None, :])
-        if nullity and abs(ev[nullity - 1]) > _ABSORBED_RTOL:
-            return unidentified, False, absorbed
-        B[np.ix_(cols, cols)] = Dc[:, None] * V
-        null.extend(cols[:nullity])
-    B = np.delete(B, null, axis=1)
+    B = _identified_basis(S, G, gauges)
+    if B is None:
+        return unidentified, False, absorbed
     Sr, Mr = B.T @ S @ B, B.T @ M @ B
     d = np.diag(Sr)
     if np.any(d <= 0.0):
@@ -774,6 +774,59 @@ def _sandwich_from_schur(S: np.ndarray, M: np.ndarray, G: Optional[np.ndarray] =
     if not np.isfinite(cov[np.ix_(keep, keep)]).all():
         return unidentified, False, absorbed
     return cov, True, absorbed
+
+
+def _identified_basis(S: np.ndarray, G: np.ndarray,
+                      gauges: Sequence[Tuple[List[int], int]]) -> Optional[np.ndarray]:
+    """Basis of the identified subspace of ``S``: identity outside the absorbed-board gauges,
+    and inside each gauge its ``diag(G)``-scaled eigenvectors with the ``nullity``
+    least-informative ones left out. ``None`` when a listed gauge is not null to
+    ``_ABSORBED_RTOL`` (see :func:`_sandwich_from_schur`)."""
+    p = S.shape[0]
+    B = np.eye(p)
+    null = []
+    for cols, nullity in gauges:
+        g = np.diag(G)[cols]
+        Dc = np.where(g > 0.0, 1.0 / np.sqrt(np.where(g > 0.0, g, 1.0)), 1.0)
+        ev, V = np.linalg.eigh(Dc[:, None] * S[np.ix_(cols, cols)] * Dc[None, :])
+        if nullity and abs(ev[nullity - 1]) > _ABSORBED_RTOL:
+            return None
+        B[np.ix_(cols, cols)] = Dc[:, None] * V
+        null.extend(cols[:nullity])
+    return np.delete(B, null, axis=1)
+
+
+def bread_factor(unc: Dict) -> Optional[Dict[str, np.ndarray]]:
+    """Square-root factor of the bread inverse from a :func:`shared_covariance` result:
+    ``{"L", "N", "BD"}`` with ``S⁻¹ = L Lᵀ`` on the identified subspace, ``N`` the null
+    directions (equilibrated eigenvalue ``<= p·eps·λ_max``, the singularity test of
+    :func:`_sandwich_from_schur`) in parameter coordinates, and ``BD`` the equilibrated basis
+    (``δθ = BD δy``). A quantity whose Jacobian has a component along ``N`` is unbounded; any
+    other stays bounded when ``S`` is singular elsewhere (one camera with a single frame must not
+    make every other camera's lens unbounded). ``None`` when ``S`` is non-finite or a listed
+    gauge is not null.
+
+    ``σ² S⁻¹`` (``σ`` = ``unc["sigma_px"]``) is the classical covariance of a correct model
+    with independent pixel noise (mrcal's ``σ² (JᵀJ)⁻¹``). A quantity ``q = Gθ`` then has
+    variance ``σ² ‖G L‖²``: a sum of squares, so it cannot go negative the way ``G C Gᵀ``
+    with an explicit inverse can when ``S`` is ill conditioned (measured: a double-sphere
+    reference camera with equilibrated condition 3.6e13 gave 83% negative pixel variances
+    through ``G C Gᵀ``)."""
+    S, G, gauges = unc["bread"], unc["bread_G"], unc["gauges"]
+    if not (np.isfinite(S).all() and np.isfinite(G).all()):
+        return None
+    B = _identified_basis(S, G, gauges)
+    if B is None:
+        return None
+    Sr = B.T @ S @ B
+    d = np.diag(Sr)
+    D = np.where(d > 0.0, 1.0 / np.sqrt(np.where(d > 0.0, d, 1.0)), 1.0)   # d <= 0: no information
+    Se = D[:, None] * Sr * D[None, :]
+    lam, V = np.linalg.eigh(0.5 * (Se + Se.T))
+    null = lam <= Sr.shape[0] * np.finfo(float).eps * max(lam[-1], 0.0)
+    BD = B * D[None, :]
+    return {"L": BD @ (V[:, ~null] / np.sqrt(lam[~null])[None, :]), "N": BD @ V[:, null],
+            "BD": BD}
 
 
 def pair_uncertainty(rig: RigState, unc: Dict) -> Dict[Tuple[int, int], Dict[str, float]]:
