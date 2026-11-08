@@ -212,3 +212,17 @@ def test_module_imports_in_isolation(module):
 
 # Traceability: links this suite to the requirement(s) it verifies.
 pytestmark = pytest.mark.req("NFR-ARCH-001", "NFR-ARCH-002")
+
+
+def test_library_never_imports_the_studio_interface():
+    """ds_msp.studio is the top of the stack: only the command-line dispatcher (ds_msp/cli.py)
+    may import it, so the library installs and runs without the ``ui`` extra."""
+    offenders = []
+    for f in PKG.rglob("*.py"):
+        rel = f.relative_to(PKG)
+        if rel.parts[0] == "studio" or rel.as_posix() == "cli.py":
+            continue
+        internal, _ = _internal_imports(f)
+        if any(m == "ds_msp.studio" or m.startswith("ds_msp.studio.") for m in internal):
+            offenders.append(rel.as_posix())
+    assert not offenders, offenders

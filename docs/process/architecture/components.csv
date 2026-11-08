@@ -14,3 +14,4 @@ ARC-RIG,rig,ds_msp/rig,Multi-camera rig calibration pipeline (composes calib + g
 ARC-VO,vo,ds_msp/vo,Monocular visual odometry pipeline (composes mvg),ARC-CORE;ARC-MVG
 ARC-INTEROP,interop,ds_msp/cv.py;ds_msp/ldc.py;ds_msp/isaac_sim,OpenCV-compatible API and TI Jacinto / Isaac Sim LUT export,ARC-CORE;ARC-MODELS;ARC-IO
 ARC-DOCS,docs,docs;mkdocs.yml;docs_src;tests/docs_src,Published MkDocs Material documentation site (tutorials/how-to/reference/explanation) built and link-checked in CI; docs_src holds the real tested code behind every page's samples,(none)
+ARC-UI,ui,ds_msp/studio;web,DS-MSP Studio: read-only results API (FastAPI) and the bundled browser interface; nothing in the library imports it,ARC-RIG

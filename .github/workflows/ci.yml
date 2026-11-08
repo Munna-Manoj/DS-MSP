@@ -31,6 +31,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
@@ -51,6 +52,10 @@ jobs:
             docs:
               - 'docs/**'
               - 'mkdocs.yml'
+            web:
+              - 'web/**'
+              - 'ds_msp/studio/**'
+              - '.github/workflows/**'
 
   # Required check. The JOB always runs so the `lint + types + layering` status always
   # reports (branch protection stays satisfied), but on a docs-only change the heavy
@@ -186,3 +191,34 @@ jobs:
       - name: docs-only change — skipping tests
         if: needs.changes.outputs.code != 'true'
         run: echo "Docs-only change — no code touched, skipping the test suite."
+
+  # The Studio interface (web/): type-check and build the bundle `ds-msp studio` serves, then
+  # check the Python package finds it. Not a required check; skipped when nothing under web/
+  # or ds_msp/studio/ changed.
+  studio-ui:
+    name: studio interface build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build (tsc + vite, studio and Pages modes)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build:studio
+          npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: The package serves the built interface
+        run: |
+          pip install -e ".[ui]"
+          python -c "from ds_msp.studio.server import static_dir; assert static_dir() is not None"

@@ -19,6 +19,7 @@
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
 | IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
+| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR`; read-only `GET /api/runs`, `/api/run?id=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `web/` | FR-UI-001..003 |
 
 ## Stability & conventions
 
@@ -96,3 +97,23 @@ observations; the separate optional rejection stage can do so, and its removals
 remain in the rejection ledger. Final support describes the observations retained
 at the end. Unresolved frames warn even if an earlier recovery succeeded; these
 fields are diagnostic and do not replace physical acceptance or uncertainty gates.
+
+## DS-MSP Studio (IFC-13)
+
+`ds-msp studio` needs the `ui` extra (`pip install "ds-msp[ui]"`). Options: `--root DIR`
+(repeatable; default the current folder), `--host` (default `127.0.0.1`), `--port` (default
+8765), `--token`, `--no-browser`, `--max-depth` (default 6). On any host other than localhost a
+token is generated when none is given, and the printed URL carries it.
+
+The API is read-only and versioned by `api_version` in `GET /api/health`:
+
+- `GET /api/runs`: one summary per result folder (`id`, `path`, `created_utc`, `n_cameras`,
+  `models`, `fit_level`, `median_px`, `p95_px`, `solver_status`, `n_weak`, `lens_failed`).
+  A run id is `<root index>:<folder path relative to that root>`.
+- `GET /api/run?id=`: the run document, `{"schema": "ds-msp-studio-run", "schema_version": 1,
+  "summary", "report", "acceptance", "manifest", "files"}`. `report` is
+  `calibration_report.json` unchanged. `acceptance` is `calibration_acceptance.json` without
+  `solver.frame_support` (replaced by `frame_support_count`) and without the per-pair covariance
+  matrices. Non-finite numbers are `null`.
+- `GET /api/run/file?id=&name=`: one of the known result files, by name only.
+- `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).

@@ -23,6 +23,7 @@ One interface covers calibration, model conversion, 3D geometry, multi-camera ri
 ```bash
 pip install ds-msp                 # core library
 pip install "ds-msp[calib]"        # + AprilGrid detector
+pip install "ds-msp[ui]"           # + DS-MSP Studio, a browser view of rig results
 ```
 
 ---
@@ -228,6 +229,11 @@ ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct �
 - If the chosen model differs from the one in the YAML, the same lens is carried into it via `convert()` plus a warning.
 
 Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds.
+
+To read the results in a browser, run `ds-msp studio --root <results folder>` (needs
+`pip install "ds-msp[ui]"`). It shows each camera's status, the rig in 3D, the lens checks and
+the pair uncertainties, and never changes the files.
+→ [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)
 
 #### Accuracy evidence
 
