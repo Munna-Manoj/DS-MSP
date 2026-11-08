@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.24.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.23.1...v0.24.0) (2026-11-08)
+
+
+### Features
+
+* **rig:** check every camera's lens and make the audit's findings visible ([8fe0afb](https://github.com/Munna-Manoj/DS-MSP/commit/8fe0afb7da8b83d6ce29548418e4e5d6f64aa5f3))
+* **rig:** check every camera's lens and make the audit's findings visible ([7a9eb00](https://github.com/Munna-Manoj/DS-MSP/commit/7a9eb003993ad05e83f364f2693a3daad48c9427))
+
+
+### Bug Fixes
+
+* **rig:** split the lens cross-check into frame blocks and make it opt-in ([b431d52](https://github.com/Munna-Manoj/DS-MSP/commit/b431d520a16293688bfe80338041c777f1712922))
+
+
+### Performance
+
+* **covariance:** form the per-frame Gram products with BLAS ([2039dbc](https://github.com/Munna-Manoj/DS-MSP/commit/2039dbc08a0f8f94280cb2bf515103154b4f054e))
+
 ## [0.23.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.23.0...v0.23.1) (2026-11-06)
 
 
