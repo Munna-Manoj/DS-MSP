@@ -53,6 +53,12 @@ class _Collector:
         if not cams:
             self.rig.append({"level": level, "reason": reason, "check": check})
         if action:
+            same = next((a for a in self.actions if a["text"] == action), None)
+            if same is not None:            # one action per instruction; merge its cameras
+                same["cams"] += [c for c in cams if c not in same["cams"]]
+                if _rank(level) > _rank(same["level"]):
+                    same["level"] = level
+                return
             self.actions.append({"level": level, "text": action, "cams": cams,
                                  "evidence": evidence, "check": check})
 

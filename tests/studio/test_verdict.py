@@ -120,3 +120,12 @@ def test_diagnostics_files_outside_the_folder_are_ignored(results_root, tmp_path
     (dst / "calibration_acceptance.json").write_text(json.dumps(acc))
     d = runs.load_diagnostics(dst, 0)
     assert d["residuals"] is None and d["lens"] is None
+
+
+def test_identical_actions_are_merged():
+    a = _acc()
+    f = {"kind": "rig_weak", "cam": None, "cams": None, "message": "add linking frames"}
+    a["observability"]["findings"] = [f, dict(f), {**f, "cams": [1]}]
+    v = run_verdict(REPORT, a)
+    assert [x["text"] for x in v["actions"]] == ["add linking frames"]
+    assert v["actions"][0]["cams"] == ["1"]
