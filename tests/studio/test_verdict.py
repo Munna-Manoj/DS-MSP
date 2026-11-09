@@ -129,3 +129,4 @@ def test_identical_actions_are_merged():
     v = run_verdict(REPORT, a)
     assert [x["text"] for x in v["actions"]] == ["add linking frames"]
     assert v["actions"][0]["cams"] == ["1"]
+    assert [r["reason"] for r in v["rig_reasons"]] == ["weakly tied to the rest of the rig"]

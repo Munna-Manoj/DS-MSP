@@ -50,7 +50,7 @@ class _Collector:
             if _rank(level) > _rank(e["level"]):
                 e["level"] = level
             e["reasons"].append(reason)
-        if not cams:
+        if not cams and not any(r["reason"] == reason for r in self.rig):
             self.rig.append({"level": level, "reason": reason, "check": check})
         if action:
             same = next((a for a in self.actions if a["text"] == action), None)
