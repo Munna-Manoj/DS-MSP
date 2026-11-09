@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.26.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.26.0...v0.26.1) (2026-11-09)
+
+
+### Documentation
+
+* **studio:** describe remote use without naming a server or data path ([d5dff33](https://github.com/Munna-Manoj/DS-MSP/commit/d5dff339310244651984da4aa2b20b9a88d8579b))
+
 ## [0.26.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.25.0...v0.26.0) (2026-11-09)
 
 
