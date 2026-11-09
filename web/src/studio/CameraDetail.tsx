@@ -1,6 +1,6 @@
 import type { RunDoc } from "./api";
 import { camName, int, num, px } from "./format";
-import { findingsFor, STATE_LABEL, type CamStatus } from "./status";
+import { findingsFor, STATE_LABEL, STATE_TONE, type CamStatus } from "./status";
 import { Badge, Card, Note, Stat } from "./ui";
 
 export function CameraDetail({ doc, cam, status }: { doc: RunDoc; cam: string; status?: CamStatus }) {
@@ -14,7 +14,7 @@ export function CameraDetail({ doc, cam, status }: { doc: RunDoc; cam: string; s
   const extr = doc.report.extrinsics?.find((e) => String(e.cam_id) === cam);
   const atBound = new Set(lens?.params_at_bound ?? []);
   const camFindings = findingsFor(doc, cam);
-  const tone = status?.state === "attention" ? "warn" : status?.state === "check" ? "info" : "ok";
+  const tone = STATE_TONE[status?.state ?? "accept"];
 
   return (
     <Card

@@ -4,7 +4,10 @@ import { api, type RunDoc } from "./api";
 import { CameraDetail } from "./CameraDetail";
 import { camName, int, num, px, when } from "./format";
 import { LinksTable } from "./LinksTable";
-import { cameraStatus, camIds, findings, STATE_LABEL, type CamStatus } from "./status";
+import { cameraStatus, camIds, STATE_LABEL, STATE_TONE, type CamStatus } from "./status";
+import { Actions } from "./Actions";
+import { Evidence } from "./Evidence";
+import { BoardFlatness } from "./BoardFlatness";
 import { TechDetails } from "./TechDetails";
 import { Badge, Card, ErrorBox, Loading, Note } from "./ui";
 
@@ -35,12 +38,13 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
       </main>
     );
 
-  const firstAttention = statuses.find((s) => s.state !== "ready")?.id;
+  const firstAttention = statuses.find((s) => s.state !== "accept")?.id;
   const selected = cam ?? firstAttention ?? statuses[0]?.id ?? "0";
   return (
     <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 grid gap-5">
       <TitleRow doc={doc} />
       <Banner doc={doc} statuses={statuses} />
+      <Actions doc={doc} runId={id} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <Card title="Cameras" aside={`${statuses.length} in the rig`}>
           <CameraTiles runId={id} statuses={statuses} doc={doc} selected={selected} />
@@ -52,6 +56,8 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
         </Card>
       </div>
       <CameraDetail doc={doc} cam={selected} status={statuses.find((s) => s.id === selected)} />
+      <Evidence runId={id} cam={selected} available={!!doc.has_diagnostics} />
+      <BoardFlatness doc={doc} />
       <LinksTable doc={doc} />
       <SetAside doc={doc} />
       <TechDetails doc={doc} />
@@ -78,45 +84,31 @@ function TitleRow({ doc }: { doc: RunDoc }) {
 }
 
 function Banner({ doc, statuses }: { doc: RunDoc; statuses: CamStatus[] }) {
-  const attention = statuses.filter((s) => s.state === "attention");
-  const check = statuses.filter((s) => s.state === "check");
-  const ready = statuses.length - attention.length - check.length;
-  const solver = doc.acceptance?.solver?.final_status;
-  const solverBad = solver != null && solver !== "CONVERGED";
+  const v = doc.verdict;
+  const level = v?.level ?? (statuses.some((s) => s.state === "reject") ? "reject"
+    : statuses.some((s) => s.state === "improve") ? "improve" : statuses.some((s) => s.state === "check") ? "check" : "accept");
+  const tone = STATE_TONE[level];
+  const ready = statuses.filter((s) => s.state === "accept").length;
   const fit = doc.report.fit;
-  const nWeak = findings(doc).length;
-  const tone = attention.length || solverBad ? "warn" : check.length ? "info" : "ok";
-  const headline = solverBad
-    ? `The solver stopped with ${solver.toLowerCase().replace(/_/g, " ")}`
-    : attention.length
-      ? `${attention.length} camera${attention.length === 1 ? " needs" : "s need"} attention`
-      : check.length
-        ? `Calibrated; ${check.length} camera${check.length === 1 ? "" : "s"} to check`
-        : "Your rig is calibrated";
-  const lines: string[] = [];
-  if (attention.length)
-    lines.push(`${attention.map((s) => camName(s.id)).join(", ")}: ${attention[0].reasons[0] ?? ""}${attention.length > 1 ? ", and others" : ""}.`);
-  if (nWeak)
-    lines.push(`${nWeak} part${nWeak === 1 ? " of the rig is" : "s of the rig are"} weakly linked; see the cameras marked Check.`);
+  const box = { ok: "border-s-ok/30 bg-s-ok-soft", info: "border-s-accent/30 bg-s-accent-soft",
+    warn: "border-s-warn/40 bg-s-warn-soft", bad: "border-s-bad/40 bg-s-bad-soft" }[tone];
+  const ink = { ok: "text-s-ok", info: "text-s-accent", warn: "text-s-warn", bad: "text-s-bad" }[tone];
   return (
-    <section
-      className={`rounded-lg border p-4 grid gap-2 ${tone === "warn" ? "border-s-warn/40 bg-s-warn-soft" : tone === "info" ? "border-s-accent/30 bg-s-accent-soft" : "border-s-ok/30 bg-s-ok-soft"}`}
-      aria-live="polite"
-    >
+    <section className={`rounded-lg border p-4 grid gap-2 ${box}`} aria-live="polite">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <h2 className={`text-lg font-semibold ${tone === "warn" ? "text-s-warn" : tone === "info" ? "text-s-accent" : "text-s-ok"}`}>{headline}</h2>
+        <h2 className={`text-lg font-semibold ${ink}`}>{v?.headline ?? "Calibration result"}</h2>
         <span className="text-sm text-s-muted">
           {ready} of {statuses.length} cameras ready · typical error {px(doc.report.overall_errors_px?.median)}, 95% under{" "}
           {px(doc.report.overall_errors_px?.p95)}
         </span>
       </div>
-      {lines.map((l) => (
-        <p key={l} className="text-sm">{l}</p>
+      {(v?.rig_reasons ?? []).map((r) => (
+        <p key={r.reason} className="text-sm">{r.reason}.</p>
       ))}
       <p className="text-sm text-s-muted">
         <span className="font-medium text-s-text">Not validated with a second capture.</span>{" "}
-        These numbers come from the photos the calibration used. To validate, take a second round of
-        board photos and check the calibration against it. {fit?.basis ? `Fit judged on: ${fit.basis}.` : ""}
+        These numbers come from the photos the calibration used; uncertainties are from photo noise
+        only, so the real error is at least as large. {fit?.basis ? `Fit judged on: ${fit.basis}.` : ""}
       </p>
     </section>
   );
@@ -125,7 +117,6 @@ function Banner({ doc, statuses }: { doc: RunDoc; statuses: CamStatus[] }) {
 function CameraTiles({ runId, statuses, doc, selected }: {
   runId: string; statuses: CamStatus[]; doc: RunDoc; selected: string;
 }) {
-  const tone = { ready: "ok", attention: "warn", check: "info" } as const;
   return (
     <ul className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]">
       {statuses.map((s) => {
@@ -146,7 +137,7 @@ function CameraTiles({ runId, statuses, doc, selected }: {
                 {String(doc.report.capture?.ref_cam_id) === s.id && <span className="text-[10px] text-s-faint">ref</span>}
               </div>
               <div className="text-xs text-s-muted">{model ?? "—"} · {num(err?.median)} px</div>
-              <div className="mt-1.5"><Badge tone={tone[s.state]}>{STATE_LABEL[s.state]}</Badge></div>
+              <div className="mt-1.5"><Badge tone={STATE_TONE[s.state]}>{STATE_LABEL[s.state]}</Badge></div>
             </a>
           </li>
         );

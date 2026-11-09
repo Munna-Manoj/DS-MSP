@@ -73,3 +73,11 @@ def test_cli_refuses_a_missing_root(tmp_path, capsys):
 def test_top_level_command_dispatches_to_studio(tmp_path):
     from ds_msp.cli import run
     assert run(["studio", "--root", str(tmp_path / "nope"), "--no-browser"]) == 2
+
+
+@pytest.mark.req("FR-UI-005")
+def test_diagnostics_endpoint(client):
+    d = client.get("/api/run/diagnostics", params={"id": "0:lab/run_a", "cam": 0}).json()
+    assert d["cam"] == 0 and d["residuals"]["n_shown"] > 0 and d["lens"]["nx"] == 24
+    assert client.get("/api/run/diagnostics", params={"id": "0:..", "cam": 0}).status_code == 404
+    assert client.get("/api/run/diagnostics", params={"id": "0:lab/run_a", "cam": -1}).status_code == 422

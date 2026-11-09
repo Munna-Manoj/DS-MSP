@@ -156,6 +156,8 @@ def load_run(folder: os.PathLike | str) -> Dict[str, Any]:
         p = folder / name
         if p.is_file():
             files.append({"name": name, "bytes": p.stat().st_size})
+    from .verdict import run_verdict
+    diag = (acceptance or {}).get("diagnostics") or {}
     return _finite({
         "schema": RUN_SCHEMA,
         "schema_version": RUN_SCHEMA_VERSION,
@@ -164,5 +166,80 @@ def load_run(folder: os.PathLike | str) -> Dict[str, Any]:
         "report": report,
         "acceptance": _trim_acceptance(acceptance) if acceptance else None,
         "manifest": _manifest_summary(manifest) if manifest else None,
+        "verdict": run_verdict(report, acceptance),
+        "has_diagnostics": bool(diag.get("files")),
         "files": files,
     })
+
+
+#: At most this many residual arrows go to the browser per camera; every corner outside the
+#: inlier band is always included.
+MAX_ARROWS = 4000
+N_WORST_FRAMES = 10
+
+
+def _diag_file(folder: Path, acceptance: Dict[str, Any], key: str) -> Optional[Path]:
+    rel = ((acceptance.get("diagnostics") or {}).get("files") or {}).get(key)
+    if not rel:
+        return None
+    p = (folder / rel).resolve()
+    if folder.resolve() not in p.parents or not p.is_file():
+        return None
+    return p
+
+
+def load_diagnostics(folder: os.PathLike | str, cam: int) -> Dict[str, Any]:
+    """Evidence for one camera, from the files FR-RIG-031 writes: residual arrows (subsampled
+    to :data:`MAX_ARROWS`, outliers always kept), the worst frames by residual RMS, and the lens
+    sigma grid. Missing files give ``None`` entries."""
+    import numpy as np
+
+    folder = Path(folder)
+    acc = _read_json(folder / ACCEPTANCE_FILE) or {}
+    report = _read_json(folder / REPORT_FILE) or {}
+    intr = next((i for i in report.get("intrinsics") or [] if i.get("cam_id") == cam), {})
+    out: Dict[str, Any] = {"cam": cam, "width": intr.get("width"), "height": intr.get("height"),
+                           "band_px": acc.get("coverage_band_px"), "residuals": None,
+                           "worst_frames": None, "lens": None,
+                           "outliers": ((acc.get("diagnostics") or {}).get("outliers") or {}).get(str(cam))}
+    rp = _diag_file(folder, acc, "residuals")
+    if rp is not None:
+        with np.load(rp) as z:
+            m = z["cam"] == cam
+            u, v, dx, dy = z["u"][m], z["v"][m], z["dx"][m], z["dy"][m]
+            valid, within, frame = z["valid"][m], z["within_band"][m], z["frame"][m]
+        keep = np.flatnonzero(valid)
+        out_idx = keep[~within[keep]]
+        in_idx = keep[within[keep]]
+        room = max(MAX_ARROWS - len(out_idx), 0)
+        if len(in_idx) > room:
+            in_idx = in_idx[np.linspace(0, len(in_idx) - 1, room).astype(int)] if room else in_idx[:0]
+        sel = np.sort(np.r_[out_idx, in_idx])
+        r = np.hypot(dx, dy)
+        out["residuals"] = {"n_total": int(m.sum()), "n_valid": int(valid.sum()),
+                            "n_shown": int(len(sel)),
+                            "u": np.round(u[sel], 2).tolist(), "v": np.round(v[sel], 2).tolist(),
+                            "dx": np.round(dx[sel], 4).tolist(), "dy": np.round(dy[sel], 4).tolist(),
+                            "within": within[sel].tolist(),
+                            "rms_px": float(np.sqrt(np.mean(r[valid] ** 2))) if valid.any() else None}
+        frames = []
+        for f in np.unique(frame[valid]):
+            fm = valid & (frame == f)
+            rf = r[fm]
+            frames.append({"frame": int(f), "n": int(fm.sum()), "rms_px": float(np.sqrt(np.mean(rf ** 2))),
+                           "max_px": float(rf.max()), "n_outside": int((fm & ~within).sum())})
+        frames.sort(key=lambda x: -x["rms_px"])
+        out["worst_frames"] = frames[:N_WORST_FRAMES]
+        out["n_frames"] = len(frames)
+    gp = _diag_file(folder, acc, "lens_sigma")
+    if gp is not None:
+        with np.load(gp) as z:
+            if f"cam{cam}_sigma_px" in z.files:
+                s = z[f"cam{cam}_sigma_px"]
+                out["lens"] = {"nx": 24, "ny": 18, "u": z[f"cam{cam}_u"].tolist(),
+                               "v": z[f"cam{cam}_v"].tolist(),
+                               "sigma_px": [None if not np.isfinite(x) else float(x) for x in s],
+                               "unbounded": bool(np.isinf(s).all()),
+                               "observed": z[f"cam{cam}_observed"].tolist(),
+                               "limit_px": (acc.get("lens") or {}).get("limit_px")}
+    return _finite(out)

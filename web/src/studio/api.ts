@@ -114,6 +114,44 @@ export interface Acceptance {
   crossval_gate?: string;
   crossval?: { applicable: boolean; reason?: string; limit_px?: number; failed?: string[];
     cameras?: Record<string, CrossvalCam> } | null;
+  diagnostics?: { outliers?: Record<string, { outlier_frac: number | null }>;
+    board_flatness?: Record<string, Record<string, { n_corners: number; sag_ptp: number | null; rms: number | null }>>;
+    files?: Record<string, string> } | null;
+}
+
+export type VerdictLevel = "accept" | "check" | "improve" | "reject";
+
+export interface VerdictAction {
+  level: VerdictLevel;
+  text: string;
+  cams: string[];
+  evidence: "lens" | "frames" | "residuals" | "rig" | "links" | "tech" | null;
+  check: string;
+}
+
+export interface Verdict {
+  level: VerdictLevel;
+  headline: string;
+  cameras: Record<string, { level: VerdictLevel; reasons: string[] }>;
+  rig_reasons: { level: VerdictLevel; reason: string; check: string }[];
+  actions: VerdictAction[];
+  n_actions: number;
+  max_shown: number;
+  outlier_check_frac: number;
+}
+
+export interface CameraDiagnostics {
+  cam: number;
+  width: number | null;
+  height: number | null;
+  band_px: number | null;
+  outliers: { n_observed: number; n_valid: number; n_within: number; outlier_frac: number | null } | null;
+  residuals: { n_total: number; n_valid: number; n_shown: number; u: number[]; v: number[];
+    dx: number[]; dy: number[]; within: boolean[]; rms_px: number | null } | null;
+  worst_frames: { frame: number; n: number; rms_px: number; max_px: number; n_outside: number }[] | null;
+  n_frames?: number;
+  lens: { nx: number; ny: number; u: number[]; v: number[]; sigma_px: (number | null)[];
+    unbounded: boolean; observed: boolean[]; limit_px: number | null } | null;
 }
 
 export interface RunDoc {
@@ -131,6 +169,8 @@ export interface RunDoc {
     configuration?: { resolved?: Record<string, unknown> };
   } | null;
   files: { name: string; bytes: number }[];
+  verdict?: Verdict;
+  has_diagnostics?: boolean;
 }
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -151,6 +191,8 @@ export const api = {
   health: () => getJSON<{ ok: boolean; version: string; api_version: number }>("api/health"),
   runs: () => getJSON<RunSummary[]>("api/runs"),
   run: (id: string) => getJSON<RunDoc>(`api/run?id=${encodeURIComponent(id)}`),
+  diagnostics: (id: string, cam: string) =>
+    getJSON<CameraDiagnostics>(`api/run/diagnostics?id=${encodeURIComponent(id)}&cam=${encodeURIComponent(cam)}`),
   fileUrl: (id: string, name: string) =>
     `api/run/file?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
 };

@@ -63,7 +63,7 @@ export default function RigView({ doc, selected }: { doc: RunDoc; selected: numb
       list: ext.map((e) => {
         const i = intr.get(e.cam_id);
         const f = frustum(e.T_c_ref, depth, i ? i.width / i.height : 4 / 3);
-        return { id: e.cam_id, ref: e.is_ref, state: status.get(e.cam_id) ?? "ready", ...f };
+        return { id: e.cam_id, ref: e.is_ref, state: status.get(e.cam_id) ?? "accept", ...f };
       }),
     };
   }, [doc]);
@@ -73,7 +73,7 @@ export default function RigView({ doc, selected }: { doc: RunDoc; selected: numb
     return [s[0] / n, s[1] / n, s[2] / n];
   }, [cams]);
   const color = (c: { id: number; state: string }) =>
-    c.id === selected ? "#38bdf8" : c.state === "attention" ? "#f59e0b" : c.state === "check" ? "#a78bfa" : "#cbd5e1";
+    c.id === selected ? "#38bdf8" : c.state === "reject" ? "#ef4444" : c.state === "improve" ? "#f59e0b" : c.state === "check" ? "#a78bfa" : "#cbd5e1";
   const labelled = (c: { id: number; ref: boolean }) => cams.list.length <= 8 || c.id === selected || c.ref;
 
   return (
@@ -105,7 +105,8 @@ export default function RigView({ doc, selected }: { doc: RunDoc; selected: numb
       </div>
       <div className="absolute bottom-2 left-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-200">
         <span><span style={{ color: "#38bdf8" }}>■</span> selected</span>
-        <span><span style={{ color: "#f59e0b" }}>■</span> needs photos</span>
+        <span><span style={{ color: "#ef4444" }}>■</span> not ready</span>
+        <span><span style={{ color: "#f59e0b" }}>■</span> improve</span>
         <span><span style={{ color: "#a78bfa" }}>■</span> check</span>
         <span>Top view looks along the reference camera's down axis.</span>
       </div>

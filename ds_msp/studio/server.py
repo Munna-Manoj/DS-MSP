@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..rig.config_schema import config_schema
-from .runs import KNOWN_FILES, RunError, iter_run_dirs, load_run, summarize_run
+from .runs import KNOWN_FILES, RunError, iter_run_dirs, load_diagnostics, load_run, summarize_run
 
 API_VERSION = 1
 TOKEN_COOKIE = "dsmsp_token"
@@ -131,6 +131,14 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
             raise HTTPException(422, str(exc)) from None
         doc["id"] = id
         return doc
+
+    @app.get("/api/run/diagnostics")
+    def get_run_diagnostics(id: str = Query(...), cam: int = Query(..., ge=0)) -> Dict[str, Any]:  # noqa: A002
+        folder = _folder(id)
+        try:
+            return load_diagnostics(folder, cam)
+        except (OSError, ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=f"cannot read diagnostics: {exc}") from exc
 
     @app.get("/api/run/file")
     def get_run_file(id: str = Query(...), name: str = Query(...)):  # noqa: A002
