@@ -386,7 +386,7 @@ normalizes this explicitly before comparison.
 The report ends with the command that opens this result in your browser:
 
 ```text
-view in DS-MSP Studio:  ds-msp studio --open "/home/me/rig/out"
+view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 ```
 
 Add `--studio` to open it as soon as the calibration is done. Studio needs

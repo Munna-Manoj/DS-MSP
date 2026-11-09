@@ -24,7 +24,7 @@ this result's page in your browser:
 ```text
 report saved: out/calibration_report.txt  +  out/calibration_report.json
 run manifest: out/calibration_manifest.json
-view in DS-MSP Studio:  ds-msp studio --open "/home/me/rig/out"
+view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 
 DS-MSP Studio: http://127.0.0.1:8765/#/run/0%3Aout
 Press Ctrl+C to stop.
