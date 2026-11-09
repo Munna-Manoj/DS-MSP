@@ -48,13 +48,14 @@ folder is one that holds `calibration_report.json`. It prints its address,
 `http://127.0.0.1:8765/`, and opens it. Pass `--root` more than once to search several folders,
 and `--no-browser` to skip opening a browser.
 
-## On a lab server
+## On another computer
 
-Studio listens on `127.0.0.1` only, so forward the port over SSH:
+Studio listens on `127.0.0.1` only. If the results are on another computer that you reach
+over SSH, forward the port:
 
 ```bash
-ssh -L 8765:127.0.0.1:8765 lab-server
-ds-msp studio --root /data/calibration --no-browser     # on the server
+ssh -L 8765:127.0.0.1:8765 user@host
+ds-msp studio --root path/to/results --no-browser     # on that computer
 ```
 
 Then open `http://127.0.0.1:8765/` on your own computer. If you bind to another address with

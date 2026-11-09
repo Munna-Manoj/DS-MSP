@@ -272,7 +272,7 @@ view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 - **Evidence per camera:** whether the errors follow a pattern, which parts of the image the lens
   can be trusted in, the worst photos, and the board flatness.
 
-Studio listens on `127.0.0.1` only; on a lab server, forward the port over SSH.
+Studio listens on `127.0.0.1` only; to view results on another computer, forward the port over SSH.
 → [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)
 
 ### Stereo depth
