@@ -89,7 +89,7 @@ def serve(roots: Sequence[str], *, host: str = "127.0.0.1", port: int = 8765,
     if run_id is not None:
         url += f"#/run/{quote(run_id, safe='')}"
     print(f"DS-MSP Studio: {url}")
-    print("Press Ctrl+C to stop.")
+    print("Press Ctrl+C to stop.", flush=True)
     if open_browser:
         webbrowser.open(url)
     try:
