@@ -61,7 +61,7 @@ by default and under production) with
 each BA stage's solver termination status, front-end fallbacks, hand-eye links, the rejection
 ledger, config warnings, the observability audit's findings (`observability`), each camera's lens
 1σ in pixels with the parameters left at an optimizer bound (`lens`), and the block-split
-frame cross-validation of each lens (`crossval`). A numerical failure in any BA stage always refuses export. Filename-based rig ingestion uses the trailing frame
+frame cross-validation of each lens (`crossval`), plus `diagnostics`: per-camera outlier shares (`outliers`), per-board flatness in target units (`board_flatness`) and the paths of `diagnostics/residuals.npz` (signed residual per observed corner) and `diagnostics/lens_sigma.npz` (each camera's 24x18 lens 1σ grid; FR-RIG-031). A numerical failure in any BA stage always refuses export. Filename-based rig ingestion uses the trailing frame
 number (or `frame_pattern`), rejects timestamp-like and trailing-camera-id names, collisions
 within a camera, and cameras that share no frame index.
 

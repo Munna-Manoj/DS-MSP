@@ -24,7 +24,7 @@ from ..io.mccalib import (
     save_reprojection_images,
 )
 from ..models.registry import FISHEYE_MODELS, PINHOLE_MODELS
-from . import bundle
+from . import bundle, diagnostics
 from .accuracy import AccuracyProfile, accuracy_metrics
 from .calibrate import (
     _gated_pnp,
@@ -297,6 +297,16 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         lens = lens_uncertainty(rig, scn.object_obs, unc, limit_px=lens_limit)
         out["lens"] = lens
         _gate_lens(lens, lens_gate)
+    # evidence behind the verdicts, for inspection tools (read only; the solve is unchanged)
+    corner_res = diagnostics.corner_residuals(rig, scn.object_obs, band_px)
+    lens_grids = None
+    if unc is not None and not fix_intrinsics:
+        from .lens_check import lens_sigma_grids
+        lens_grids = lens_sigma_grids(rig, scn.object_obs, unc)
+    diag = {"outliers": diagnostics.outlier_summary(corner_res, band_px),
+            "board_flatness": diagnostics.board_flatness(rig),
+            "files": {}}
+    out["diagnostics"] = diag
     crossval = None
     if crossval_gate != "off" and not fix_intrinsics:
         from .lens_check import crossval_lens
@@ -355,6 +365,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "lens": lens,
         "crossval_gate": crossval_gate,
         "crossval": crossval,
+        "diagnostics": diag,
     }
     if accuracy_gate == "refuse" and not physical_pass:
         raise RuntimeError("accuracy gate refused calibration: independent truth must cover "
@@ -384,6 +395,8 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
             paths["reprojection_images"] = f"Reprojection/ ({nr} images)"
             paths["detection_images"] = f"Detection/ ({nd} images)"
     if save_dir is not None:
+        diag["files"] = diagnostics.write_diagnostics(save_dir, corner_res, lens_grids)
+        paths.update({f"diagnostics_{k}": str(Path(save_dir) / v) for k, v in diag["files"].items()})
         acceptance_path = Path(save_dir) / "calibration_acceptance.json"
         acceptance_path.write_text(json.dumps(out["acceptance"], indent=2, allow_nan=False) + "\n")
         paths["acceptance"] = str(acceptance_path)
