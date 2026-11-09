@@ -3,7 +3,7 @@
 Complements ``test_outlier_robustness.py`` (reweighting, not rejection): this covers the
 *opt-in* ``reproj_gate_px`` gate that hard-drops a board observation that is a genuine
 blunder (e.g. a ChArUco board a different OpenCV build mis-decodes — wrong corner ids, a
-plausible-but-wrong pose) rather than ordinary noise. Real-data acceptance (Seltos rig,
+plausible-but-wrong pose) rather than ordinary noise. Real-data acceptance (two-camera RealSense rig,
 2026-07-09): 294.6px -> 2.61px max camera error, 30.6 -> 0.73px BA rms, extrinsic unchanged
 (1193mm / 178.6deg); on a clean build the gate drops 0 observations (verified again here in
 a portable, deterministic synthetic form — the real bug needs a specific OpenCV build that

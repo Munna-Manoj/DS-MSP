@@ -48,7 +48,7 @@ pinhole intrinsics and does not cover fisheye rig calibration.
    the verdict uses `d_cam_deg` (`ba_consistent = d_cam ≤ max(3·median residual, 0.5°)`);
    `d_frame_deg` is reported separately — a large `d_frame` with small `d_cam` means a
    board-placement node was dragged by a bad measurement, not a wrong calibration
-   (measured on the Seltos rig: one 92° PnP pose produced d_frame 26.8° / d_cam 1.8°,
+   (measured on the two-camera RealSense rig: one 92° PnP pose produced d_frame 26.8° / d_cam 1.8°,
    which the unsplit distance mis-read as a wrong basin). This turns certification into a
    **positive wrong-basin detection**: "the global optimum was found and certified, and
    the calibrated camera rotations are NOT it." Three user-facing verdicts: CERTIFIED
@@ -57,7 +57,7 @@ pinhole intrinsics and does not cover fisheye rig calibration.
 4. **Gross PnP measurement outliers are trimmed and reported, never silently kept or
    dropped.** Both real datasets contained wrong per-view PnP poses that the robust BA
    correctly down-weighted but that would contaminate the certified problem (the
-   garbage-in caveat made concrete): Seltos had one 92° flipped pose; MC-Calib had twelve,
+   garbage-in caveat made concrete): The two-camera RealSense rig had one 92° flipped pose; MC-Calib had twelve,
    five of them 160–177° near-antipodal fisheye-PnP flips (the ADR-0013 failure mode),
    which stalled the chordal refinement (grad 3.8e-2) and failed the certificate
    marginally (η = −1.29e-6). Two-pass scheme: pass 1 refines and scores every edge by
@@ -94,10 +94,10 @@ pinhole intrinsics and does not cover fisheye rig calibration.
   eat its (mutually consistent) edges; a planted single 92°-flipped measurement is
   trimmed, named in `outlier_edges` with its camera/frame identity, and the calibration
   still certifies consistent; no-measurements case skips gracefully (`certified=None`).
-- **Real-data validation** (2026-07-18, both rigs): Seltos 2-cam — CERTIFIED + consistent,
+- **Real-data validation** (2026-07-18, both rigs): Two-camera RealSense — CERTIFIED + consistent,
   `d_cam 0.34°` vs median residual 0.38°, one outlier named (cam0 frame 13); MC-Calib
   8-cam fisheye — CERTIFIED + consistent (η = −1.7e-15), `d_cam 6.2°` vs median residual
-  2.34°, twelve outliers named (worst 176.6°). Before the trim, Seltos raised a *false*
+  2.34°, twelve outliers named (worst 176.6°). Before the trim, the two-camera RealSense rig raised a *false*
   WRONG-BASIN warning and MC-Calib failed certification outright.
 - Characterization (2026-07-18): convention bug caught by the zero-noise sign test,
   measured regime separations quoted above, wall time ~2 s at 3 cam × 20 frames.

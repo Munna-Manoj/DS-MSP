@@ -8,9 +8,9 @@ minority covisibility component); this asserts both cameras calibrate, with the 
 extrinsic close to the previously-measured real-data acceptance numbers (1.192 m baseline,
 178.6 deg rotation -- the cameras face each other across the target).
 
-Dataset-gated: set ``DSMSP_SELTOS_DIR`` to a directory containing ``calib_param_gaze.yml`` +
-imagery, or place ``seltos_cameras_rig/seltos_cams/`` at the repo root (gitignored, local-only
-real data). Skipped (not failed) when absent, like the other ``realdata`` tests -- but
+Dataset-gated: set ``DSMSP_TWO_CAMERA_DIR`` to a directory containing ``calib_param_gaze.yml`` +
+imagery, or place it at ``data/`` in the repo root (gitignored). Skipped (not failed) when
+absent, like the other ``realdata`` tests -- but
 required green for a release-gated rig release (FR-RIG-001 covers this code path).
 """
 from __future__ import annotations
@@ -25,10 +25,10 @@ from ds_msp.rig.calib_param import calibrate_from_config
 
 
 def _root():
-    env = os.environ.get("DSMSP_SELTOS_DIR")
+    env = os.environ.get("DSMSP_TWO_CAMERA_DIR")
     if env and os.path.isdir(env):
         return env
-    repo = Path(__file__).resolve().parents[2] / "seltos_cameras_rig" / "seltos_cams"
+    repo = Path(__file__).resolve().parents[2] / "data"
     return str(repo) if repo.is_dir() else None
 
 
@@ -44,10 +44,10 @@ def _rel_extrinsic(rig):
 pytestmark = [pytest.mark.realdata, pytest.mark.req("FR-RIG-001", "FR-RIG-017", "FR-RIG-029")]
 
 
-def test_non_overlapping_seltos_rig_calibrates_both_cameras(tmp_path):
+def test_non_overlapping_two_camera_rig_calibrates_both_cameras(tmp_path):
     root = _root()
     if root is None:
-        pytest.skip("Seltos rig imagery not present (set DSMSP_SELTOS_DIR)")
+        pytest.skip("Two-camera rig imagery not present (set DSMSP_TWO_CAMERA_DIR)")
     cfg_path = os.path.join(root, "calib_param_gaze.yml")
     if not os.path.exists(cfg_path):
         pytest.skip(f"calib_param_gaze.yml not present under {root}")
