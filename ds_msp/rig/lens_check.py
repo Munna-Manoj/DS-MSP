@@ -162,27 +162,18 @@ def lens_uncertainty(rig: RigState, object_obs: List[ObjectObs], unc: Dict, *,
         ic = unc["intr_col"].get(c)
         if ic is None:
             continue
-        P = len(type(m).param_names)
         G_c = frames.get(c, 0)
         tf = t_widening(G_c)
         bound = params_at_bound(m)
         med = p95 = med_obs = float("inf")
         null_share = None
         if fac is not None and np.isfinite(sigma):
-            w, h = rig.img_size[c]
-            X, ok = _rays(m, _grid(w, h))
-            observed = _observed_cells(rig, object_obs, c, w, h)[ok]
-            if ok.any():
-                _q, Jx, Gm, val = m.project_jacobian(X[ok])
-                val = np.asarray(val, bool).ravel()
-                Gm = _realigned(np.asarray(Gm, float)[val], np.asarray(Jx, float)[val],
-                                X[ok][val], observed[val])
-                null_share = _null_share(Gm, fac["N"][ic:ic + P], fac["BD"][ic:ic + P])
-                GL = np.einsum("nip,pk->nik", Gm, fac["L"][ic:ic + P])
-                s_u = sigma * np.sqrt(np.einsum("nik,nik->n", GL, GL))
+            g = _sigma_on_grid(rig, object_obs, c, fac, ic, sigma)
+            if g is not None:
+                s_u, obs_sel, null_share = g["s_u"], g["observed"], g["null_share"]
                 if s_u.size and null_share <= _NULL_RTOL:
                     med, p95 = float(np.median(s_u)), float(np.percentile(s_u, 95))
-                    so = s_u[observed[val]]
+                    so = s_u[obs_sel]
                     med_obs = float(np.median(so)) if so.size else med
         wid = med * tf if tf is not None else float("inf")
         reasons = []
@@ -201,6 +192,65 @@ def lens_uncertainty(rig: RigState, object_obs: List[ObjectObs], unc: Dict, *,
             "sigma_px": _json(sigma), "factor_ok": fac is not None, "n_null_directions": n_null,
             "limit_px": float(limit_px),
             "cameras": cams, "failed": [c for c, v in cams.items() if not v["ok"]]}
+
+
+def _sigma_on_grid(rig: RigState, object_obs: List[ObjectObs], c: int, fac: Dict, ic: int,
+                   sigma: float, observed_cells: Optional[np.ndarray] = None) -> Optional[Dict]:
+    """Realigned lens 1-sigma (px) of camera ``c`` over the 24 x 18 grid: ``s_u`` and
+    ``observed`` on the cells whose rays unproject and project validly, ``index`` of those cells
+    in the full grid, and ``null_share``. ``None`` when no cell unprojects."""
+    m = rig.cameras[c]
+    P = len(type(m).param_names)
+    w, h = rig.img_size[c]
+    X, ok = _rays(m, _grid(w, h))
+    if observed_cells is None:
+        observed_cells = _observed_cells(rig, object_obs, c, w, h)
+    observed = observed_cells[ok]
+    if not ok.any():
+        return None
+    _q, Jx, Gm, val = m.project_jacobian(X[ok])
+    val = np.asarray(val, bool).ravel()
+    Gm = _realigned(np.asarray(Gm, float)[val], np.asarray(Jx, float)[val],
+                    X[ok][val], observed[val])
+    null_share = _null_share(Gm, fac["N"][ic:ic + P], fac["BD"][ic:ic + P])
+    GL = np.einsum("nip,pk->nik", Gm, fac["L"][ic:ic + P])
+    s_u = sigma * np.sqrt(np.einsum("nik,nik->n", GL, GL))
+    return {"s_u": s_u, "observed": observed[val], "index": np.flatnonzero(ok)[val],
+            "null_share": null_share}
+
+
+def lens_sigma_grids(rig: RigState, object_obs: List[ObjectObs],
+                     unc: Dict) -> Dict[int, Dict[str, np.ndarray]]:
+    """Per camera with free intrinsics, the full grid behind :func:`lens_uncertainty`'s
+    median, for heatmaps and per-pixel noise priors: ``u``, ``v`` (cell centres, px, row-major
+    24 x 18), ``observed`` (cell holds a detected corner) and ``sigma_px`` (432,) -- NaN where
+    the ray does not project, ``inf`` everywhere when the lens lies along a null direction of
+    ``S``. Not widened for few frames (``lens_uncertainty`` reports the factor).
+
+    The sigma is that of the lens alone, at infinity. With the best camera rotation fitted out
+    over the queried rays, it does not depend on range for a central model: a range-dependent
+    error needs the extrinsics too."""
+    fac = bundle.bread_factor(unc)
+    sigma = float(unc.get("sigma_px", float("nan")))
+    out: Dict[int, Dict[str, np.ndarray]] = {}
+    if fac is None or not np.isfinite(sigma):
+        return out
+    for c in sorted(rig.cameras):
+        ic = unc["intr_col"].get(c)
+        if ic is None:
+            continue
+        w, h = rig.img_size[c]
+        uv = _grid(w, h)
+        cells = _observed_cells(rig, object_obs, c, w, h)
+        grid = np.full(GRID[0] * GRID[1], np.nan)
+        g = _sigma_on_grid(rig, object_obs, c, fac, ic, sigma, observed_cells=cells)
+        if g is not None:
+            if g["null_share"] > _NULL_RTOL:
+                grid[:] = np.inf
+            else:
+                grid[g["index"]] = g["s_u"]
+        out[c] = {"u": uv[:, 0], "v": uv[:, 1], "observed": cells, "sigma_px": grid}
+    return out
 
 
 def _fit_rotation(A: np.ndarray, B: np.ndarray) -> np.ndarray:
