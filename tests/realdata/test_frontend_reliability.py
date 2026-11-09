@@ -1,6 +1,6 @@
-"""Dataset-gated frontend regression checks on the local two-camera Seltos capture.
+"""Dataset-gated frontend regression checks on the two-camera RealSense capture.
 
-Set DS_MSP_SELTOS_DATA to a directory containing Cam_001 and Cam_002. These are
+Set DS_MSP_TWO_CAMERA_DATA to a directory containing Cam_001 and Cam_002. These are
 behavior checks on real pixels; the capture has no independent metric pose truth.
 """
 import os
@@ -19,9 +19,9 @@ pytestmark = [pytest.mark.realdata, pytest.mark.req("FR-CALIB-005", "FR-RIG-025"
 
 @pytest.fixture
 def data_root():
-    root = Path(os.environ.get("DS_MSP_SELTOS_DATA", Path(__file__).resolve().parents[2] / "data"))
+    root = Path(os.environ.get("DS_MSP_TWO_CAMERA_DATA", Path(__file__).resolve().parents[2] / "data"))
     if not (root / "calib_param_gaze.yml").exists():
-        pytest.skip("Seltos capture unavailable; set DS_MSP_SELTOS_DATA")
+        pytest.skip("Two-camera capture unavailable; set DS_MSP_TWO_CAMERA_DATA")
     return root
 
 

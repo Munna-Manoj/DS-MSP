@@ -34,7 +34,7 @@ board erases 100% of one camera's observations *before* camera-grouping ever run
 `link_groups` never fires. The rig silently calibrates as a smaller, single-camera "rig" and
 reports a deceptively clean RMS.
 
-**Confirmed on real data**, not assumed: `seltos_cameras_rig/seltos_cams/` (2 RealSense cameras,
+**Confirmed on real data**, not assumed: the two-camera RealSense capture (2 RealSense cameras,
 2 ChArUco boards, `distortion_model: 0`, `fix_intrinsic: 1`, 35 frames/camera) — each camera
 sees a different board, never co-observed in any frame (a double-sided ChArUco target, cameras
 facing each other). Pre-fix: `[groups] 1 group(s): [[1]]` (camera 0 dropped entirely). This is
@@ -80,7 +80,7 @@ through one shared object pose per frame, making the extrinsic jointly identifia
 
 ## Verification (real numbers, not assumed)
 
-- **Real data — `seltos_cameras_rig/seltos_cams/`** (2-camera, 2-board, non-overlapping,
+- **Real data — the two-camera RealSense capture** (2-camera, 2-board, non-overlapping,
   `fix_intrinsic=true`): `[front-end] calibrated 2 cameras` → `[merge] fused to 1 object(s):
   [[0, 1]]` → `[groups] 1 group(s): [[0, 1]]`. Per-camera RMS **0.797px (cam 0) / 0.572px (cam
   1)**. Recovered extrinsic **baseline 1.192 m, rotation 178.6°** (cameras facing each other

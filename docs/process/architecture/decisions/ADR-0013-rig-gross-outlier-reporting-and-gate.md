@@ -17,7 +17,7 @@ BA's own readout) still counts it: a correctly-calibrated rig then displays as a
 and the live 3D view's per-camera depth (driven by mean reprojection error) sinks the affected
 camera to the pond floor, so only the "good" camera appears to have calibrated at all.
 
-Confirmed on the real non-overlapping Seltos rig (`seltos_cameras_rig/seltos_cams/`, the same
+Confirmed on the real non-overlapping two-camera RealSense rig (the same
 dataset ADR-0011 validates against) under an OpenCV build that mis-decodes 3 of 35 frames: max
 per-camera error 294.6px, BA rms 30.6px, despite the recovered extrinsic being correct (1.193m /
 178.6deg, matching ADR-0011's numbers to 3 places). MC-Calib's own config exposes exactly this
@@ -70,7 +70,7 @@ caller didn't ask to have dropped:
 ## Verification
 
 - **Real data, reproduced independently of the authoring session** (this ADR's own review, cv2
-  5.0.0 — a clean build): re-ran `calibrate_from_config` against `seltos_cameras_rig/seltos_cams/`
+  5.0.0 — a clean build): re-ran `calibrate_from_config` against the two-camera RealSense capture
   and confirmed the report shows `n_gross: {0: 0, 1: 0}`, `inlier_rms == rms` for both cameras
   (0.797px / 0.572px, matching ADR-0011 to 3 places), and `_reject_outlier_observations` at
   `gate_px=10.0` drops **0 of 64** real observations — the gate is a genuine no-op on clean data,

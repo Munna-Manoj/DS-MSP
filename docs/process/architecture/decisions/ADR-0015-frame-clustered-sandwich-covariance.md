@@ -14,7 +14,7 @@
 shipped on main but were dead code — only their own unit test called them, nothing in the rig
 pipeline exposed parameter uncertainty to a caller.
 
-A real-data bootstrap validation (frame-resample the real Seltos rig's board views, refit, and
+A real-data bootstrap validation (frame-resample the real two-camera RealSense rig's board views, refit, and
 compare empirical parameter std across resamples to each estimator's single-fit predicted std)
 found the plain sandwich tracks empirical uncertainty roughly 2.4x better than naive, but **both
 still under-cover real uncertainty by ~4-9x**. Root cause: the per-corner "meat" (HC1) treats each
@@ -59,7 +59,7 @@ reports, rather than shipping the known-under-covering estimator with a caveat.
 
 ## Verification
 
-- **Real-data cluster bootstrap — the decisive coverage proof** (2026-07-18): 200 replicates on the real Seltos
+- **Real-data cluster bootstrap — the decisive coverage proof** (2026-07-18): 200 replicates on the real two-camera RealSense
   rig, resampling the 33 board placements (clusters) *with replacement* and refitting each
   replicate (warm-started `bundle.refine`, Cauchy/auto). The empirical std of the fitted
   parameters across replicates is the measured truth (cluster bootstrap, Cameron & Miller 2015
@@ -81,7 +81,7 @@ reports, rather than shipping the known-under-covering estimator with a caveat.
   coverage ratio. Also verified: clustering reduces exactly to the plain sandwich when every
   block is its own cluster (`test_clustered_reduces_to_plain_sandwich_when_every_block_is_its_own_cluster`),
   and the estimator stays symmetric PSD (`test_clustered_covariance_symmetric_psd`).
-- **Real data, actual wired path**: `calibrate_from_config` against `seltos_cameras_rig/seltos_cams/`
+- **Real data, actual wired path**: `calibrate_from_config` against the two-camera RealSense capture
   (`calib_param_gaze.yml`, `overrides={"report_covariance": True}`) — `n_clusters=33` (matching the
   known ~33 board-pose frames), `n_blocks=1365` (matching the known corner count), `K=204` free
   parameters, robust scale `1.142`. Camera 1's clustered extrinsic std, in the documented
@@ -112,7 +112,7 @@ reports, rather than shipping the known-under-covering estimator with a caveat.
   under-coverage relative to the unclustered sandwich (the defect being fixed), not that
   clustered-vs-naive is monotonic for every camera and axis. (The earlier draft of this bullet
   labeled these translation components "rotation deg" — same presentation-layer mislabel as the
-  Seltos bullet, corrected here from a re-run on the trimmed branch.)
+  two-camera RealSense bullet, corrected here from a re-run on the trimmed branch.)
 - **Governance gates**: `ruff check .`, `lint-imports`, `check_traceability.py --check`.
 - **Regression**: full `pytest tests/core tests/rig -m "not realdata"` clean aside from one
   pre-existing seed-borderline statistical flake

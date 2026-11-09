@@ -65,10 +65,10 @@ image in 103 of 168 runs. Three things let this through:
     had a model that does not fit.
 - Real data, against `main` in the same batch:
   - The calibration is unchanged: extrinsics, intrinsics and held-out error are identical on the 10
-    MC-Calib and Seltos datasets, and the output files are byte-identical on the 12 rendered
+    MC-Calib and two-camera RealSense datasets, and the output files are byte-identical on the 12 rendered
     25-camera runs.
   - The lens σ check flags no camera on 7 MC-Calib datasets (34 cameras, widened σ 0.03 to 0.28 px)
-    or on the rendered rigs (300 cameras, at most 0.024 px). The Seltos rig fixes its intrinsics, so
+    or on the rendered rigs (300 cameras, at most 0.024 px). The two-camera RealSense rig fixes its intrinsics, so
     the lens checks are skipped.
   - The split check, when enabled, estimates 0.08 to 0.57 px on 28 cameras of six MC-Calib datasets
     and at most 0.16 px on the rendered rigs (124 of 150 cameras per repeat; S2 is not applicable).

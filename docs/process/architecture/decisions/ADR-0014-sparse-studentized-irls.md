@@ -34,7 +34,7 @@ and a value `<= 0` is the config-layer sentinel for `None` (GNC-TLS disabled). B
 there was no way to express "plain robust IRLS, no GNC-TLS" from a config file at all — a real,
 independently useful configurability gap, kept with its three regression tests.
 
-## Why rejected — the formal trichotomy (measured, real Seltos rig data)
+## Why rejected — the formal trichotomy (measured, real two-camera RealSense rig data)
 
 The keep-or-remove audit had to resolve a formal trichotomy — the implementation is
 incorrect, or the feature helps and should ship, or the feature is measurably valueless on
@@ -68,7 +68,7 @@ this pipeline's regime. Resolved by experiment (2026-07-18), load-bearing number
    undamped arrow assembly per iteration in the hot path, and a two-knob activation
    (`studentize: true` **and** `noise_bound: 0`) that invites misconfiguration.
 
-Predicted no-op magnitude on the unmodified real datasets matches: ≤1.6e-2 mm (Seltos),
+Predicted no-op magnitude on the unmodified real datasets matches: ≤1.6e-2 mm (two-camera RealSense),
 ≤3.8e-3 mm (MC-Calib) extrinsic deltas — the *expected* outcome of a *correct* implementation in
 a regime its assumptions exclude.
 
