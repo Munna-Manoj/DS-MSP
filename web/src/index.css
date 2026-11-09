@@ -1,4 +1,20 @@
 @import "tailwindcss";
+@import "@fontsource/figtree/latin-400.css";
+@import "@fontsource/figtree/latin-500.css";
+@import "@fontsource/figtree/latin-600.css";
+@import "@fontsource/figtree/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/bricolage-grotesque/latin-500.css";
+@import "@fontsource/bricolage-grotesque/latin-700.css";
+@import "@fontsource/bricolage-grotesque/latin-800.css";
 
 /* ============================================================================
    DS-MSP design system — "optical bench at night".
@@ -23,6 +39,85 @@
   --font-display: "Bricolage Grotesque", "IBM Plex Sans", sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Studio (results) pages: light by default, following the design canvas. */
+  --color-s-bg: var(--s-bg);
+  --color-s-surface: var(--s-surface);
+  --color-s-sunken: var(--s-sunken);
+  --color-s-line: var(--s-line);
+  --color-s-text: var(--s-text);
+  --color-s-muted: var(--s-muted);
+  --color-s-faint: var(--s-faint);
+  --color-s-accent: var(--s-accent);
+  --color-s-accent-soft: var(--s-accent-soft);
+  --color-s-warn: var(--s-warn);
+  --color-s-warn-soft: var(--s-warn-soft);
+  --color-s-bad: var(--s-bad);
+  --color-s-bad-soft: var(--s-bad-soft);
+  --color-s-ok: var(--s-ok);
+  --color-s-ok-soft: var(--s-ok-soft);
+  --font-studio: "Figtree", "Inter", system-ui, sans-serif;
+  --font-studio-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --s-bg: #f8fafc;
+  --s-surface: #ffffff;
+  --s-sunken: #f1f3f5;
+  --s-line: #e5e7eb;
+  --s-text: #111827;
+  --s-muted: #4b5563;
+  --s-faint: #6b7280;
+  --s-accent: #0369a1;
+  --s-accent-soft: #e0f2fe;
+  --s-warn: #b45309;
+  --s-warn-soft: #fef3c7;
+  --s-bad: #b91c1c;
+  --s-bad-soft: #fee2e2;
+  --s-ok: #047857;
+  --s-ok-soft: #d1fae5;
+  --s-viewport: #0b1120;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --s-bg: #0b1120;
+    --s-surface: #111827;
+    --s-sunken: #0f172a;
+    --s-line: #1f2937;
+    --s-text: #e5e7eb;
+    --s-muted: #9ca3af;
+    --s-faint: #6b7280;
+    --s-accent: #38bdf8;
+    --s-accent-soft: #0c2a3f;
+    --s-warn: #f59e0b;
+    --s-warn-soft: #3a2a0a;
+    --s-bad: #f87171;
+    --s-bad-soft: #3b1515;
+    --s-ok: #34d399;
+    --s-ok-soft: #0b2e24;
+  }
+}
+:root[data-theme="dark"] {
+  --s-bg: #0b1120;
+  --s-surface: #111827;
+  --s-sunken: #0f172a;
+  --s-line: #1f2937;
+  --s-text: #e5e7eb;
+  --s-muted: #9ca3af;
+  --s-faint: #6b7280;
+  --s-accent: #38bdf8;
+  --s-accent-soft: #0c2a3f;
+  --s-warn: #f59e0b;
+  --s-warn-soft: #3a2a0a;
+  --s-bad: #f87171;
+  --s-bad-soft: #3b1515;
+  --s-ok: #34d399;
+  --s-ok-soft: #0b2e24;
+}
+.studio-root {
+  background: var(--s-bg);
+  color: var(--s-text);
+  font-family: var(--font-studio);
 }
 
 html,
@@ -30,14 +125,16 @@ body,
 #root {
   height: 100%;
 }
-body {
-  margin: 0;
+.learn-root {
   background-color: var(--color-ink);
   background-image:
     radial-gradient(1200px 600px at 70% -10%, rgba(110, 139, 255, 0.08), transparent 60%),
     radial-gradient(900px 500px at 10% 110%, rgba(78, 215, 192, 0.05), transparent 60%);
   color: var(--color-text);
   font-family: var(--font-sans);
+}
+body {
+  margin: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

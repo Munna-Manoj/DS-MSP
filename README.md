@@ -23,6 +23,7 @@ One interface covers calibration, model conversion, 3D geometry, multi-camera ri
 ```bash
 pip install ds-msp                 # core library
 pip install "ds-msp[calib]"        # + AprilGrid detector
+pip install "ds-msp[ui]"           # + DS-MSP Studio, a browser view of rig results
 ```
 
 ---
@@ -37,6 +38,7 @@ pip install "ds-msp[calib]"        # + AprilGrid detector
 | Calibrate any camera from scratch | [→ Calibrate from scratch](#calibrate-from-scratch) |
 | Convert one model to another (no images, no data) | [→ Convert between models](#convert-between-models-no-images-no-data) |
 | Calibrate a multi-camera rig (any FOV) for extrinsics | [→ Multi-camera rig](#multi-camera-rig-extrinsics-any-fov) |
+| See whether a rig calibration is usable, and what to fix | [→ DS-MSP Studio](#read-a-rig-result-in-ds-msp-studio) |
 | Run stereo depth on raw fisheye | [→ Stereo depth](#stereo-depth) |
 | Export to TI hardware | [→ Hardware LDC export](#hardware-ldc-export) |
 | Reproduce a camera in Isaac Sim | [→ Isaac Sim camera LUT](#isaac-sim-camera-lut) |
@@ -229,6 +231,8 @@ ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct �
 
 Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds.
 
+To read the result in a browser, see [DS-MSP Studio](#read-a-rig-result-in-ds-msp-studio).
+
 #### Accuracy evidence
 
 The report separates training reprojection fit from truth-referenced accuracy. With independent
@@ -243,6 +247,33 @@ Every persisted rig run also writes `calibration_manifest.json`, tying the resul
 configuration, source-file and effective-input hashes, numerical environment, and output hashes.
 Use the [reproducibility guide](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/reproduce_rig_calibration.md)
 to verify inputs or reproduce a run without overwriting the original.
+
+### Read a rig result in DS-MSP Studio
+
+DS-MSP Studio shows a rig calibration in your browser. It answers three questions in order:
+can I use it, what should I do, and why. It reads the result folder and never changes it.
+
+```bash
+pip install "ds-msp[ui]"
+ds-msp-calibrate-rig --config calib_param.yml --studio   # calibrate, then open the result
+ds-msp studio --open path/to/result                      # open a saved result later
+ds-msp studio --root path/to/results                     # browse several results
+```
+
+Every saved calibration ends with the command that opens it:
+
+```text
+view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
+```
+
+- **Verdict:** Ready, Check, Improve or Not ready, for the rig and for each camera. Only the
+  checks the calibration recorded set a level.
+- **Next steps:** at most three actions, worst first, each naming its cameras.
+- **Evidence per camera:** whether the errors follow a pattern, which parts of the image the lens
+  can be trusted in, the worst photos, and the board flatness.
+
+Studio listens on `127.0.0.1` only; on a lab server, forward the port over SSH.
+→ [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)
 
 ### Stereo depth
 

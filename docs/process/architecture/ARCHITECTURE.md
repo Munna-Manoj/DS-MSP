@@ -82,6 +82,7 @@ Canonical list with dependencies in [`components.csv`](components.csv). Summary:
 | ARC-RIG | rig | `ds_msp/rig` | Multi-camera rig calibration pipeline (composes calib + geometry) |
 | ARC-VO | vo | `ds_msp/vo` | Monocular visual odometry pipeline (composes mvg) |
 | ARC-INTEROP | interop | `ds_msp/cv.py`, `ds_msp/ldc.py`, `ds_msp/isaac_sim` | OpenCV-compatible API and TI Jacinto / Isaac Sim LUT export |
+| ARC-UI | ui | `ds_msp/studio`, `web/` | DS-MSP Studio: read-only results API and the bundled browser interface; nothing in the library imports it |
 
 ## 4. The contract seam
 
@@ -95,9 +96,10 @@ platform composable without autodiff.
 
 The layering is verified on every PR, two independent ways:
 
-- **import-linter** — six contracts in [`pyproject.toml`](../../../pyproject.toml) (`[tool.importlinter]`):
+- **import-linter** — seven contracts in [`pyproject.toml`](../../../pyproject.toml) (`[tool.importlinter]`):
   core is dependency-free; data depends only on core; geometry only on core+data; capabilities are
-  mutually independent; capabilities never import a pipeline; pipelines stay independent of each other.
+  mutually independent; capabilities never import a pipeline; pipelines stay independent of each other;
+  nothing in the library imports the Studio interface (`ds_msp.studio`).
   Run by the `lint + types + layering` CI job (`lint-imports`).
 - **`tests/contract/test_independence.py`** — a pure-pytest AST gate mirroring those contracts, plus
   `test_math_foundation_is_cv2_and_scipy_free` (core/data/geometry/models import no `cv2`/`scipy`) and

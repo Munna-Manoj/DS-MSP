@@ -22,3 +22,7 @@ mypy==2.1.0
 ruff==0.15.18
 import-linter==2.11
 numpy<2.5
+# DS-MSP Studio server tests (the `ui` extra) and its test client.
+fastapi~=0.162
+uvicorn~=0.54
+httpx~=0.28

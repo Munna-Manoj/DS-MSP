@@ -381,6 +381,25 @@ The extrinsics you want are the `camera_pose_matrix` per camera in
 DS-MSP's internal `RigState.T_c_g` uses the inverse world-to-camera convention; the accuracy module
 normalizes this explicitly before comparison.
 
+### Read the result in DS-MSP Studio
+
+The report ends with the command that opens this result in your browser:
+
+```text
+view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
+```
+
+Add `--studio` to open it as soon as the calibration is done. Studio needs
+`pip install "ds-msp[ui]"`.
+
+```console
+$ ds-msp-calibrate-rig --config calib_param.yml --studio
+```
+
+Studio gives a verdict for the rig and each camera, at most three next steps, and per camera the
+answers to "is there a pattern in the errors?" and "where can I trust this lens?". See
+[View rig results in DS-MSP Studio](how-to/view_rig_results_in_studio.md).
+
 ---
 
 ## 5. Extrinsics-only calibration (intrinsics already known)
@@ -538,6 +557,7 @@ match the scene's up-direction to your own setup, exactly like the live view.
 | Large reprojection on wide lenses | the model under-fits — try `kb` for those cameras ([§7](#7-worked-example-robustness-real-8-camera-rig)) |
 | Want overlays | set `save_detection: true` / `save_reprojection: true` **and** keep `root_path` pointing at the images |
 | Browser window keeps popping open | set `webviewer: false` in the config (or `--no-webviewer` on the CLI) |
+| `--studio` says it needs the ui extra | `pip install "ds-msp[ui]"`; the calibration itself already finished and saved |
 | Wrong real-world scale | `square_size` must be the **physically measured** square size |
 
 ---

@@ -48,6 +48,10 @@ Issues = "https://github.com/Munna-Manoj/DS-MSP/issues"
 [project.optional-dependencies]
 calib = ["aprilgrid"]
 webviewer = []
+# DS-MSP Studio (`ds-msp studio`): the browser interface over calibration results. The
+# server needs FastAPI and Uvicorn; the interface itself is prebuilt and shipped in the wheel
+# (ds_msp/studio/static), so users need no Node.js.
+ui = ["fastapi>=0.110", "uvicorn>=0.29"]
 # Building the published MkDocs Material site (mkdocs.yml) -- not needed to use the library,
 # only to build/preview the docs locally (`pip install -e ".[docs]"`, then `mkdocs serve`).
 docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions", "mkdocs-glightbox",
@@ -82,6 +86,7 @@ include = ["ds_msp*"]
 [tool.setuptools.package-data]
 "ds_msp.rig" = ["configs/*.yml", "configs/*.json"]
 "ds_msp.calib" = ["configs/*.yml"]
+"ds_msp.studio" = ["static/**"]   # recursive: the built UI (index.html, assets/)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -163,6 +168,16 @@ name = "capabilities never import a pipeline (acyclic)"
 type = "forbidden"
 source_modules = ["ds_msp.ops", "ds_msp.adapt", "ds_msp.calib", "ds_msp.mvg", "ds_msp.stereo"]
 forbidden_modules = ["ds_msp.rig", "ds_msp.vo"]
+
+[[tool.importlinter.contracts]]
+name = "nothing in the library imports the Studio interface"
+type = "forbidden"
+source_modules = [
+    "ds_msp.core", "ds_msp.data", "ds_msp.geometry", "ds_msp.models", "ds_msp.detect",
+    "ds_msp.ops", "ds_msp.adapt", "ds_msp.calib", "ds_msp.mvg", "ds_msp.stereo",
+    "ds_msp.rig", "ds_msp.vo", "ds_msp.io", "ds_msp.isaac_sim",
+]
+forbidden_modules = ["ds_msp.studio"]
 
 [[tool.importlinter.contracts]]
 name = "pipelines compose capabilities but stay independent of each other"

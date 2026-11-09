@@ -1,6 +1,7 @@
-# The PyPI package is the algorithm only. The interactive visualiser (web/) and
-# the figure studio (simulations/) are learning/dev tooling — they live in the
-# repo but must never ship in the sdist or wheel. The wheel already contains only
+# The PyPI package is the algorithm only. The interface sources (web/) and the
+# figure studio (simulations/) live in the repo but never ship in the sdist or
+# wheel. The *built* Studio interface does ship, as package data in
+# ds_msp/studio/static (written there by `npm run build:studio` before `python -m build`). The wheel already contains only
 # ds_msp* (see [tool.setuptools.packages.find]); this keeps the sdist lean too.
 prune web
 prune simulations

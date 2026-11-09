@@ -42,6 +42,7 @@ import argparse
 import dataclasses
 import importlib.resources
 import os
+import sys
 
 from ..io.mccalib import load_scenario
 from . import provenance as prov
@@ -94,6 +95,7 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
             files["calibration_manifest_json"], manifest, {**files, **paths})
         print(f"report saved: {paths['report_txt']}  +  {paths['report_json']}")
         print(f"run manifest: {manifest_path}")
+        print(_studio_hint(save_dir))
     return 0 if level in ("PASS", "WARN") else 1
 
 
@@ -137,6 +139,41 @@ def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
                                  lens=res.get("lens"), crossval=res.get("crossval"))
     res["exit_code"] = code
     return res
+
+
+def _ui_available():
+    """True when the ``ui`` extra (FastAPI and uvicorn) is installed. Checked without importing
+    DS-MSP Studio: the library never imports it."""
+    import importlib.util
+    return all(importlib.util.find_spec(m) is not None for m in ("fastapi", "uvicorn"))
+
+
+def _studio_hint(save_dir):
+    """The line the report ends with: how to open this result in DS-MSP Studio."""
+    cmd = f'ds-msp studio --open "{os.path.abspath(save_dir)}"'
+    if _ui_available():
+        return f"view in DS-MSP Studio:  {cmd}"
+    return (f"view in DS-MSP Studio:  {cmd}\n"
+            f'  (needs the ui extra once: pip install "ds-msp[ui]")')
+
+
+def _open_studio(save_dir, port):
+    """``--studio``: serve the finished result in DS-MSP Studio until Ctrl+C, in a child
+    process (``ds-msp studio --open``). The calibration's exit code is kept; a Studio problem
+    only prints a message."""
+    import subprocess
+    if not save_dir:
+        print("--studio: this run saved no result folder (save_path is empty)", file=sys.stderr)
+        return
+    if not _ui_available():
+        print('--studio needs the ui extra: pip install "ds-msp[ui]"', file=sys.stderr)
+        return
+    print(flush=True)                   # the report first, then Studio's own lines
+    try:
+        subprocess.run([sys.executable, "-m", "ds_msp.cli", "studio", "--open",
+                        os.path.abspath(save_dir), "--port", str(port)], check=False)
+    except KeyboardInterrupt:
+        pass
 
 
 def _resolve_spec(args, cam_ids):
@@ -197,6 +234,11 @@ def main():
                     help="suppress live per-stage progress (only the final report prints)")
     ap.add_argument("--no-webviewer", action="store_true",
                     help="don't launch the live browser 3D view (independent of --quiet)")
+    ap.add_argument("--studio", action="store_true",
+                    help="when the calibration is done, open its result in DS-MSP Studio and "
+                         "keep serving it until Ctrl+C (needs the ui extra)")
+    ap.add_argument("--studio-port", type=int, default=8765, metavar="PORT",
+                    help="port for --studio (default 8765; the next free one if taken)")
     ap.add_argument("--report", metavar="PATH", default=None,
                     help="path for the self-contained interactive HTML report "
                          "(default <save-dir>/report.html; --report='' disables it)")
@@ -231,6 +273,8 @@ def main():
             sets.append("webviewer=false")
         res = _run_config(args.config, sets, pass_px=args.pass_px, warn_px=args.warn_px,
                           report_path=args.report or None)
+        if args.studio:
+            _open_studio(res["config"].save_path, args.studio_port)
         raise SystemExit(res["exit_code"])
     if not args.scenario:
         ap.error("provide a scenario directory or --config calib_param.yml")
@@ -314,6 +358,8 @@ def main():
                                  covariance=res.get("covariance"), metrics=m,
                                  output_paths=res.get("paths"), manifest=manifest,
                                  lens=res.get("lens"), crossval=res.get("crossval"))
+    if args.studio:
+        _open_studio(save_dir, args.studio_port)
     raise SystemExit(code)
 
 

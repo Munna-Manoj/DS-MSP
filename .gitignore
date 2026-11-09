@@ -62,3 +62,7 @@ docs/readme-options/
 /diag_*.py
 # Blender rig-evaluation scenario scripts/assets — local-only scratch, not package code.
 /Blender_Images/
+
+# Built Studio interface (npm run build:studio in web/); shipped in the wheel, not committed.
+ds_msp/studio/static/*
+!ds_msp/studio/static/README.md
