@@ -61,7 +61,7 @@ outside this decision.
 `test_supplied_intrinsics.py` check native parameter interpretation and fixed/free
 initialization. `test_pose_recovery.py` checks bad and missing poses, outliers,
 cross-camera disagreement, invalid projections, nonmutation, both recovery
-boundaries and final-audit regression detection. The dataset-gated Seltos test
+boundaries and final-audit regression detection. The dataset-gated two-camera RealSense test
 checks final-ledger consistency and deliberately damaged pose recovery on real
 camera images, with detections and lens/rig parameters held unchanged. Slow synthetic verification
 remains mandatory; these tests do not claim universal nonlinear convergence.

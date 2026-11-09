@@ -84,7 +84,7 @@ def test_planted_wrong_basin_camera_is_positively_detected():
 
 @pytest.mark.req("FR-RIG-022")
 def test_gross_outlier_measurement_is_trimmed_reported_and_does_not_flag_cameras():
-    """Real-data scenario (measured on Seltos 2026-07-18: one 92-deg flipped PnP pose):
+    """Real-data scenario (measured on the two-camera RealSense rig 2026-07-18: one 92-deg flipped PnP pose):
     a single antipodal-flipped measurement must be detected and excluded, the calibration
     must still certify as consistent (cameras were never wrong), and the outlier must be
     named with its camera/frame identity."""

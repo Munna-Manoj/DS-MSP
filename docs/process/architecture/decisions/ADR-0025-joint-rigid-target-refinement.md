@@ -15,7 +15,7 @@ because free per-point motion can absorb detector bias. Its validation measured 
 distance change, which cannot see inter-board pose error.
 
 Measured on the MC-Calib real sequences (held-out frames, shared pose seeds, intrinsics fixed at
-the published values) and on the Seltos two-camera capture with a double-sided board (3-fold frame
+the published values) and on the two-camera RealSense capture with a double-sided board (3-fold frame
 hold-out; dataset-gated, not distributed):
 
 | held-out RMS px | off (9cd1356) | free | rigid (joint) | bend (joint) |
@@ -24,7 +24,7 @@ hold-out; dataset-gated, not distributed):
 | Seq01 | 0.364 | 0.338 | 0.344 | 0.335 |
 | Seq04 | 1.543 | 0.710 (48 px with PnP seeding) | 0.438 | 0.415 |
 | Seq05 | 0.364 | 0.351 | 0.351 | 0.351 |
-| Seltos 2-camera (mean of 3 folds) | 1.067 | 0.823 | 0.927 | 0.889 |
+| Two-camera RealSense (mean of 3 folds) | 1.067 | 0.823 | 0.927 | 0.889 |
 
 Single-board sequences are unchanged in every mode. Alternating structure steps with the bundle
 adjustment (MC-Calib's scheme, and a first rigid prototype) zig-zags and stalls: on a synthetic
@@ -50,7 +50,7 @@ sequences, free mode's *training* RMS is above rigid's despite far more freedom.
 
 - Multi-board extrinsics recover the inter-board pose instead of inheriting PnP-averaging error
   (Seq04 rotation difference to the published fit 0.49° → 0.14°).
-- On a target that is not rigid (the Seltos double-sided board), `rigid` leaves residual
+- On a target that is not rigid (the double-sided board of the two-camera RealSense capture), `rigid` leaves residual
   deformation. `bend` recovers part of it; measuring the board decides between `bend` and
   `free`.
 - One extra 6-column block per board in the shared system; runtime within the alternation's.
