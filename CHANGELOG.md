@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.26.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.25.0...v0.26.0) (2026-11-09)
+
+
+### Features
+
+* **studio:** add DS-MSP Studio, a browser view of rig results with a verdict and next steps ([34b7bde](https://github.com/Munna-Manoj/DS-MSP/commit/34b7bde38a2ccab3a26419518249745907f70c37))
+
 ## [0.25.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.24.0...v0.25.0) (2026-11-09)
 
 
