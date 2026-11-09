@@ -3,8 +3,8 @@
 Examples::
 
   ds-msp studio --root ./runs                 # http://127.0.0.1:8765, opens a browser
-  ds-msp studio --root /data/calib --no-browser --port 9000
-  ds-msp studio --root /data/calib --host 0.0.0.0   # prints a URL with an access token
+  ds-msp studio --root ./runs --no-browser --port 9000
+  ds-msp studio --root ./runs --host 0.0.0.0   # prints a URL with an access token
   ds-msp studio --open ./runs/rig_2026_11_09  # opens straight on that one result
 """
 from __future__ import annotations

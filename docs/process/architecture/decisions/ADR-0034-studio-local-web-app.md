@@ -8,7 +8,7 @@
 Rig results are spread over seven or more files (`calibration_report.json`,
 `calibration_acceptance.json`, the manifest, the MC-Calib YAML files and the text report).
 The per-camera checks added by ADR-0033 are recorded but are hard to read without tooling. The
-interface must run on a laptop, on a lab server reached over SSH, and on a headless rig PC,
+interface must run on a laptop, on a remote computer reached over SSH, and on a headless rig PC,
 and must keep working offline.
 
 Options considered:
