@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.25.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.24.0...v0.25.0) (2026-11-09)
+
+
+### Features
+
+* **rig:** write per-corner residuals, lens sigma grids and board flatness ([52bb6c4](https://github.com/Munna-Manoj/DS-MSP/commit/52bb6c40b96e18b73cc9f1c2dda638da8c08afe8))
+* **rig:** write per-corner residuals, lens sigma grids and board flatness ([28b730f](https://github.com/Munna-Manoj/DS-MSP/commit/28b730fa895942010b21c80efa29bd35038014f9))
+
+
+### Documentation
+
+* **rig:** list the diagnostics files in the rig calibration guide ([33264ec](https://github.com/Munna-Manoj/DS-MSP/commit/33264ecbfc9ec7f8df80420967bfed3dc162ce63))
+
 ## [0.24.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.23.1...v0.24.0) (2026-11-08)
 
 
