@@ -63,7 +63,21 @@ The run writes MC-Calib's exact result set into `save_path/`:
 | `detected_keypoints_data.yml` | the detected 2D corners — save this to skip detection next time (see [§6](#6-detect-once-calibrate-many-keypoints-reuse)) |
 | `calibration_report.txt`, `calibration_report.json` | human- and machine-readable result generated from the same report data |
 | `calibration_manifest.json` | code/data/config/environment provenance, effective-input digests, and output hashes |
+| `calibration_acceptance.json` | every check and gate the run applied; `diagnostics` holds per-camera outlier shares and per-board flatness |
+| `diagnostics/residuals.npz` | one row per observed corner: where it was detected and its signed residual (px) |
+| `diagnostics/lens_sigma.npz` | each camera's lens 1-sigma over a 24 x 18 pixel grid (free intrinsics only) |
 | `Detection/`, `Reprojection/` | (optional) overlay images per camera/frame |
+
+The two `diagnostics/` files are the evidence behind the verdicts, for plotting and inspection
+tools. They take about 2 MB for a 25-camera rig with 100,000 corners.
+
+```python
+import numpy as np
+
+r = np.load("save_path/diagnostics/residuals.npz")       # your save_path
+cam0 = (r["cam"] == 0) & r["valid"]
+print(np.sqrt(np.mean(r["dx"][cam0] ** 2 + r["dy"][cam0] ** 2)))   # camera 0 RMS, px
+```
 
 The console labels reprojection PASS/WARN/FAIL as a **training-fit verdict**. When an independent
 `GroundTruth.yml` is available it also reports full all-pair pose accuracy. MC-Calib `Results/` is
