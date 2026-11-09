@@ -151,7 +151,15 @@ export interface CameraDiagnostics {
   worst_frames: { frame: number; n: number; rms_px: number; max_px: number; n_outside: number }[] | null;
   n_frames?: number;
   lens: { nx: number; ny: number; u: number[]; v: number[]; sigma_px: (number | null)[];
-    unbounded: boolean; observed: boolean[]; limit_px: number | null } | null;
+    unbounded: boolean; observed: boolean[]; limit_px: number | null;
+    zones?: { answer: string; zones: ("trusted" | "extrapolated" | "uncertain" | "none")[];
+      share: { trusted: number; extrapolated: number; uncertain: number }; limit_px: number;
+      sigma_median_px: number | null; sigma_max_trusted_px: number | null } | null } | null;
+  pattern?: { kind: "none" | "edges" | "regional"; answer: string; rms_px: number; typical_px: number;
+    edge_growth: number | null;
+    rings: { from: number; to: number; n: number; median_px: number | null; p90_px: number | null }[];
+    grid: { nx: number; ny: number; cells: { i: number; j: number; n: number; mx: number | null; my: number | null; biased: boolean }[] };
+  } | null;
 }
 
 export interface RunDoc {

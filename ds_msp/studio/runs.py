@@ -231,6 +231,10 @@ def load_diagnostics(folder: os.PathLike | str, cam: int) -> Dict[str, Any]:
         frames.sort(key=lambda x: -x["rms_px"])
         out["worst_frames"] = frames[:N_WORST_FRAMES]
         out["n_frames"] = len(frames)
+        if out["width"] and out["height"]:
+            from .evidence import error_pattern
+            out["pattern"] = error_pattern(u[valid], v[valid], dx[valid], dy[valid],
+                                           out["width"], out["height"])
     gp = _diag_file(folder, acc, "lens_sigma")
     if gp is not None:
         with np.load(gp) as z:
@@ -242,4 +246,7 @@ def load_diagnostics(folder: os.PathLike | str, cam: int) -> Dict[str, Any]:
                                "unbounded": bool(np.isinf(s).all()),
                                "observed": z[f"cam{cam}_observed"].tolist(),
                                "limit_px": (acc.get("lens") or {}).get("limit_px")}
+                if out["width"] and out["height"]:
+                    from .evidence import lens_zones
+                    out["lens"]["zones"] = lens_zones(out["lens"], out["width"], out["height"])
     return _finite(out)
