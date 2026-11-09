@@ -19,7 +19,7 @@
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
 | IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
-| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR`; read-only `GET /api/runs`, `/api/run?id=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `web/` | FR-UI-001..003 |
+| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; read-only `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
 
 ## Stability & conventions
 
@@ -101,9 +101,15 @@ fields are diagnostic and do not replace physical acceptance or uncertainty gate
 ## DS-MSP Studio (IFC-13)
 
 `ds-msp studio` needs the `ui` extra (`pip install "ds-msp[ui]"`). Options: `--root DIR`
-(repeatable; default the current folder), `--host` (default `127.0.0.1`), `--port` (default
-8765), `--token`, `--no-browser`, `--max-depth` (default 6). On any host other than localhost a
-token is generated when none is given, and the printed URL carries it.
+(repeatable; default the current folder), `--open DIR` (serve that result folder's parent and
+link to its page), `--host` (default `127.0.0.1`), `--port` (default 8765; the next free port is
+used when it is taken), `--token`, `--no-browser`, `--max-depth` (default 6). On any host other
+than localhost a token is generated when none is given, and the printed URL carries it.
+
+`ds-msp-calibrate-rig` ends a saved run with `view in DS-MSP Studio:  ds-msp studio --open
+"<save_path>"`. With `--studio` (and `--studio-port`, default 8765) it then runs that command in
+a child process until Ctrl+C and exits with the calibration's own code; without the `ui` extra it
+prints the install command instead. The library never imports `ds_msp.studio`.
 
 The API is read-only and versioned by `api_version` in `GET /api/health`:
 
@@ -115,5 +121,12 @@ The API is read-only and versioned by `api_version` in `GET /api/health`:
   `calibration_report.json` unchanged. `acceptance` is `calibration_acceptance.json` without
   `solver.frame_support` (replaced by `frame_support_count`) and without the per-pair covariance
   matrices. Non-finite numbers are `null`.
+- The run document also carries `verdict` (FR-UI-004: `level` of `accept`, `check`, `improve`
+  or `reject`, `headline`, per-camera `cameras`, `rig_reasons`, worst-first `actions` with
+  `cams` and `evidence`) and `has_diagnostics`.
+- `GET /api/run/diagnostics?id=&cam=`: one camera's evidence from the FR-RIG-031 files
+  (FR-UI-005): `residuals` (at most 4000 arrows, every out-of-band corner kept), `worst_frames`,
+  `pattern` (answer, error by distance from the centre, 6 x 4 region means), `lens` (the 24 x 18
+  grid and its `zones`), `outliers`. Files outside the result folder are ignored.
 - `GET /api/run/file?id=&name=`: one of the known result files, by name only.
 - `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).

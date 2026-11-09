@@ -230,9 +230,11 @@ ds-msp-calibrate-rig --config calib_param.yml        # detect → reconstruct �
 
 Detected corners are saved to `detected_keypoints_data.yml` and reused via `keypoints_path`, so re-calibrating with different models takes seconds.
 
-To read the results in a browser, run `ds-msp studio --root <results folder>` (needs
-`pip install "ds-msp[ui]"`). It shows each camera's status, the rig in 3D, the lens checks and
-the pair uncertainties, and never changes the files.
+To read a result in a browser, add `--studio` to the calibration command, or run the
+`ds-msp studio --open <result folder>` line the report ends with (needs
+`pip install "ds-msp[ui]"`). Studio gives a verdict for the rig and each camera, at most three
+next steps, and per camera where the errors are and where the lens can be trusted. It never
+changes the files.
 → [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)
 
 #### Accuracy evidence

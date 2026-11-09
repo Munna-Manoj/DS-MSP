@@ -18,8 +18,9 @@ Nine recipes are available now:
 - [Read/write Kalibr YAML](read_write_kalibr.md) — load a Kalibr camchain into DS-MSP and write a model back out as Kalibr YAML.
 - [Reproduce and audit a rig calibration](reproduce_rig_calibration.md) — verify immutable inputs,
   replay a calibration safely, interpret mismatches, and retain production evidence.
-- [View rig results in DS-MSP Studio](view_rig_results_in_studio.md) — open rig calibration
-  results in a browser: camera status, the rig in 3D, lens checks and pair uncertainties.
+- [View rig results in DS-MSP Studio](view_rig_results_in_studio.md) — open a rig calibration
+  in a browser: a verdict, the next steps, and per camera where the errors are and where the
+  lens can be trusted.
 
 /// note | More export targets
 COLMAP and nerfstudio export are already available via `ds_msp.io` (`export_colmap`,
