@@ -604,7 +604,10 @@ def save_mccalib_detected_keypoints(object_obs, obj: Object3D, img_size, path: s
         fs.write("img_width", int(w))
         fs.write("img_height", int(h))
         _write_int_seq(fs, "frame_idxs", frame_idxs)
-        if image_root:                                       # MC-Calib's frame_paths field
+        # MC-Calib's frame_paths field: the image each board observation was detected in.
+        # Written whenever it is known, so a result records which photo is which frame
+        # (frame ids are rebased to start at 0 and no longer equal the file numbers).
+        if frame_paths and all(frame_paths):
             _write_str_seq(fs, "frame_paths", frame_paths)
         _write_int_seq(fs, "board_idxs", board_idxs)
         _write_seq_of_seqs(fs, "pts_2d", pts_2d, cast=float)

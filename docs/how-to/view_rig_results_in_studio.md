@@ -70,7 +70,8 @@ A result page answers three questions in order: can I use it, what should I do, 
 
 ### 1. The verdict
 
-The banner gives one verdict for the rig, and each camera tile carries its own level:
+The banner gives one verdict for the rig, and each camera carries its own level, shown as the
+dot on its button:
 
 | Level | Meaning |
 |---|---|
@@ -94,9 +95,40 @@ Improve  Add photos of camera 3 with the board in the areas marked on its uncert
 
 Select **Show all** for the rest.
 
-### 3. Evidence for each camera
+### 3. Explore the result on your own capture
 
-Select a camera tile. Each view starts with its answer in one line.
+The dark panel shows the calibration on the capture itself. Choose a camera with the buttons at
+its top. The strip at its bottom is the capture: one bar per photo, as tall as that photo's
+error. Click a bar, drag along the strip, or press play; every view follows.
+
+- **On your photos.** The photo, with each corner where it was found (white dot) and a line to
+  where the calibration expects it (ring). The line is stretched, by 136 times on a rig with a
+  0.05 px typical error, so a sub-pixel error can be seen. Short lines in all directions are
+  good. **Shade where this lens was never checked** stripes the parts of the image no board ever
+  covered.
+- **The rig in 3D.** The cameras and, in white, the board where it was in the selected photo.
+  Click a second camera to measure to it: distance, position and yaw, pitch and roll, with how
+  well each is known. **Show the uncertainty** makes each camera sway by its own uncertainty,
+  enlarged until it is visible.
+- **What it means.** How exactly two cameras locate a point. Set the distance to the point and
+  how precisely your own detector finds it; the panel gives the uncertainty sideways and in
+  depth, and how far out the pair stays within 1 mm.
+
+Lengths are in the unit of your square size. Tell Studio once whether that was metres,
+centimetres or millimetres and it shows millimetres.
+
+/// note | A lower bound
+The numbers under **What it means** count random error only, as the pair uncertainty does.
+Real errors are usually larger.
+///
+
+Photos show when they lie under a folder given with `--root`. A result written by an
+earlier version does not record which photo is which frame; Studio then matches them by file
+number and says so.
+
+### 4. Evidence for each camera
+
+Open **All the numbers** for the charts below. Each view starts with its answer in one line.
 
 - **Is there a pattern in the errors?**
     - A line chart of the error size from the image centre to its corners. A flat line is good;

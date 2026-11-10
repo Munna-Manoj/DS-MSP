@@ -183,6 +183,40 @@ export interface RunDoc {
   has_config?: boolean;
 }
 
+// -- a result on its own capture ---------------------------------------------------------------
+
+export interface SceneDoc {
+  boards: { id: number; points: number[][]; outline: number[][] }[];
+  /** T maps target coordinates into the reference camera's frame. */
+  frames: { frame: number; T: number[][] }[];
+  /** How photos are matched to frames: recorded in the result, assumed from file numbers, or none. */
+  photos: "recorded" | "assumed" | "none";
+}
+
+export interface FrameStat { frame: number; n: number; rms_px: number; max_px: number; n_outside: number }
+
+export interface FrameCorners {
+  cam: number; frame: number; n: number;
+  u: number[]; v: number[]; dx: number[]; dy: number[]; within: boolean[];
+  photo: boolean;
+}
+
+export interface PairDoc {
+  ok: boolean; reason?: string;
+  distance: number; position: number[];
+  yaw_deg: number; pitch_deg: number; roll_deg: number; angle_deg: number;
+  rotation_sigma_deg: number | null; position_sigma: number | null;
+}
+
+export interface TaskDoc {
+  ok: boolean; reason?: string;
+  distance: number; baseline: number; pixel_noise: number;
+  depth: number; sideways: number;
+  from_cameras: { depth: number; sideways: number };
+  from_pixels: { depth: number; sideways: number };
+  curve?: { distance: number; depth: number; sideways: number }[];
+}
+
 // -- setting up and running a calibration -------------------------------------------------
 
 export interface SchemaProp {
@@ -337,6 +371,17 @@ export const api = {
   run: (id: string) => getJSON<RunDoc>(`api/run?id=${encodeURIComponent(id)}`),
   diagnostics: (id: string, cam: string) =>
     getJSON<CameraDiagnostics>(`api/run/diagnostics?id=${encodeURIComponent(id)}&cam=${encodeURIComponent(cam)}`),
+  scene: (id: string) => getJSON<SceneDoc>(`api/run/scene?id=${encodeURIComponent(id)}`),
+  frames: (id: string, cam: string) =>
+    getJSON<{ cam: number; frames: FrameStat[] }>(`api/run/frames?id=${encodeURIComponent(id)}&cam=${cam}`),
+  frame: (id: string, cam: string, frame: number) =>
+    getJSON<FrameCorners>(`api/run/frame?id=${encodeURIComponent(id)}&cam=${cam}&frame=${frame}`),
+  photoUrl: (id: string, cam: string | number, frame: number, w = 1280) =>
+    `api/run/photo?id=${encodeURIComponent(id)}&cam=${cam}&frame=${frame}&w=${w}`,
+  pair: (id: string, a: string | number, b: string | number) =>
+    getJSON<PairDoc>(`api/run/pair?id=${encodeURIComponent(id)}&a=${a}&b=${b}`),
+  task: (id: string, a: string | number, b: string | number, distance: number, pixelNoise: number) =>
+    getJSON<TaskDoc>(`api/run/task?id=${encodeURIComponent(id)}&a=${a}&b=${b}&distance=${distance}&pixel_noise=${pixelNoise}`),
   fileUrl: (id: string, name: string) =>
     `api/run/file?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
 };

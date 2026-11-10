@@ -1,17 +1,16 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { href } from "../router";
 import { api, type RunDoc } from "./api";
 import { CameraDetail } from "./CameraDetail";
-import { camName, int, num, px, when } from "./format";
+import { int, px, when } from "./format";
 import { LinksTable } from "./LinksTable";
-import { cameraStatus, camIds, STATE_LABEL, STATE_TONE, type CamStatus } from "./status";
+import { cameraStatus, camIds, STATE_TONE, type CamStatus } from "./status";
 import { Actions } from "./Actions";
 import { Evidence } from "./Evidence";
 import { BoardFlatness } from "./BoardFlatness";
 import { TechDetails } from "./TechDetails";
-import { Badge, Card, ErrorBox, Loading, Note } from "./ui";
-
-const RigView = lazy(() => import("./RigView"));
+import { Stage } from "./stage/Stage";
+import { Card, ErrorBox, Loading, Note } from "./ui";
 
 export function RunPage({ id, cam }: { id: string; cam?: string }) {
   const [doc, setDoc] = useState<RunDoc | null>(null);
@@ -45,22 +44,21 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
       <TitleRow doc={doc} runId={id} />
       <Banner doc={doc} statuses={statuses} />
       <Actions doc={doc} runId={id} />
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <Card title="Cameras" aside={`${statuses.length} in the rig`}>
-          <CameraTiles runId={id} statuses={statuses} doc={doc} selected={selected} />
-        </Card>
-        <Card title="Rig" aside="drag to turn, scroll to zoom" className="overflow-hidden">
-          <Suspense fallback={<div className="h-[340px] grid place-items-center text-s-muted text-sm">Loading 3D view…</div>}>
-            <RigView doc={doc} selected={Number(selected)} />
-          </Suspense>
-        </Card>
-      </div>
+      <Stage doc={doc} runId={id} cam={selected} statuses={statuses} />
       <CameraDetail doc={doc} cam={selected} status={statuses.find((s) => s.id === selected)} />
-      <Evidence runId={id} cam={selected} available={!!doc.has_diagnostics} />
-      <BoardFlatness doc={doc} />
-      <LinksTable doc={doc} />
-      <SetAside doc={doc} />
-      <TechDetails doc={doc} />
+      <details className="rounded-lg border border-s-line bg-s-surface group">
+        <summary className="cursor-pointer px-4 py-3.5 flex flex-wrap items-baseline gap-3">
+          <h2 className="text-[15px] font-semibold">All the numbers</h2>
+          <span className="text-xs text-s-muted">Error charts, camera pairs, board flatness, solver stages and files</span>
+        </summary>
+        <div className="px-4 pb-4 grid gap-5">
+          <Evidence runId={id} cam={selected} available={!!doc.has_diagnostics} />
+          <BoardFlatness doc={doc} />
+          <LinksTable doc={doc} />
+          <SetAside doc={doc} />
+          <TechDetails doc={doc} />
+        </div>
+      </details>
     </main>
   );
 }
@@ -117,38 +115,6 @@ function Banner({ doc, statuses }: { doc: RunDoc; statuses: CamStatus[] }) {
         only, so the real error is at least as large. {fit?.basis ? `Fit judged on: ${fit.basis}.` : ""}
       </p>
     </section>
-  );
-}
-
-function CameraTiles({ runId, statuses, doc, selected }: {
-  runId: string; statuses: CamStatus[]; doc: RunDoc; selected: string;
-}) {
-  return (
-    <ul className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]">
-      {statuses.map((s) => {
-        const err = doc.report.per_camera_errors_px?.[s.id];
-        const model = doc.report.models?.[s.id];
-        const active = s.id === selected;
-        return (
-          <li key={s.id}>
-            <a
-              href={href({ page: "run", id: runId, cam: s.id })}
-              aria-current={active ? "true" : undefined}
-              className={`block rounded-md border px-3 py-2 transition ${
-                active ? "border-s-accent ring-1 ring-s-accent bg-s-accent-soft/40" : "border-s-line hover:border-s-accent"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm">{camName(s.id)}</span>
-                {String(doc.report.capture?.ref_cam_id) === s.id && <span className="text-[10px] text-s-faint">ref</span>}
-              </div>
-              <div className="text-xs text-s-muted">{model ?? "—"} · {num(err?.median)} px</div>
-              <div className="mt-1.5"><Badge tone={STATE_TONE[s.state]}>{STATE_LABEL[s.state]}</Badge></div>
-            </a>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 

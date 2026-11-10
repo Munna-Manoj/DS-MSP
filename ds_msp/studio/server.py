@@ -219,6 +219,62 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     def rig_config_schema() -> Dict[str, Any]:
         return config_schema()
 
+    # -- a result on its own capture: photos, frames, the board through time, meaning ---------
+    @app.get("/api/run/scene")
+    def get_run_scene(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        from .scene import run_scene
+        return run_scene(_folder(id))
+
+    @app.get("/api/run/frames")
+    def get_run_frames(id: str = Query(...), cam: int = Query(..., ge=0)) -> Dict[str, Any]:  # noqa: A002
+        from .scene import frame_list
+        return frame_list(_folder(id), cam)
+
+    @app.get("/api/run/frame")
+    def get_run_frame(id: str = Query(...), cam: int = Query(..., ge=0),  # noqa: A002
+                      frame: int = Query(..., ge=0)) -> Dict[str, Any]:
+        from .scene import frame_corners, photo_path
+        doc = frame_corners(_folder(id), cam, frame)
+        doc["photo"] = photo_path(_folder(id), cam, frame, rs.paths) is not None
+        return doc
+
+    @app.get("/api/run/photo")
+    def get_run_photo(id: str = Query(...), cam: int = Query(..., ge=0),  # noqa: A002
+                      frame: int = Query(..., ge=0), w: int = Query(1280, ge=64, le=2000)):
+        from .scene import photo_jpeg, photo_path
+        path = photo_path(_folder(id), cam, frame, rs.paths)
+        if path is None:
+            raise HTTPException(404, "this photo is not under the folders Studio was started with")
+        try:
+            data = photo_jpeg(path, w)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return Response(data, media_type="image/jpeg",
+                        headers={"cache-control": "private, max-age=3600"})
+
+    @app.get("/api/run/pair")
+    def get_run_pair(id: str = Query(...), a: int = Query(..., ge=0),  # noqa: A002
+                     b: int = Query(..., ge=0)) -> Dict[str, Any]:
+        from .scene import pair_geometry
+        return pair_geometry(_folder(id), a, b)
+
+    @app.get("/api/run/task")
+    def get_run_task(id: str = Query(...), a: int = Query(..., ge=0), b: int = Query(..., ge=0),  # noqa: A002
+                     distance: float = Query(..., gt=0), pixel_noise: float = Query(0.5, ge=0, le=50)
+                     ) -> Dict[str, Any]:
+        """What the calibration's uncertainty means for a point seen by two cameras, at
+        ``distance`` and over a range of distances around it (``curve``)."""
+        import numpy as np
+
+        from .scene import task_curve, task_uncertainty
+        folder = _folder(id)
+        doc = task_uncertainty(folder, a, b, distance, pixel_noise)
+        base = doc.get("baseline") if doc.get("ok") else None
+        if base:
+            grid = np.geomspace(max(0.5 * base, distance / 20), max(40 * base, distance * 4), 28)
+            doc["curve"] = task_curve(folder, a, b, pixel_noise, grid.tolist())
+        return doc
+
     # -- folders ---------------------------------------------------------------------------
     @app.get("/api/browse")
     def browse(ref: Optional[str] = Query(None)) -> Dict[str, Any]:

@@ -134,6 +134,19 @@ The API is versioned by `api_version` in `GET /api/health`, which also reports `
 - `GET /api/run/file?id=&name=`: one of the known result files, by name only.
 - `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).
 \n
+A result on its own capture (FR-UI-009):
+
+- `GET /api/run/scene?id=`: the target's boards (points, outline) and its 4x4 pose in every
+  frame, in the reference camera's frame; `photos` says how photos are matched to frames.
+- `GET /api/run/frames?id=&cam=` and `GET /api/run/frame?id=&cam=&frame=`: per-photo error
+  summaries, and one photo's corners with the step to their predicted position.
+- `GET /api/run/photo?id=&cam=&frame=&w=`: that photo as a JPEG no wider than `w`; 404 unless
+  it lies under a root.
+- `GET /api/run/pair?id=&a=&b=`: distance, position and yaw, pitch, roll of camera `b` seen
+  from `a`, with the recorded 1-sigma.
+- `GET /api/run/task?id=&a=&b=&distance=&pixel_noise=`: 1-sigma uncertainty, sideways and in
+  depth, of a point the two cameras triangulate, and the same over a range of distances.
+
 Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
 
 - `GET /api/browse?ref=`: one folder under the roots, with its subfolders (image count, whether
