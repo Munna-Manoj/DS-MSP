@@ -73,7 +73,9 @@ The steps below describe starting from photos.
    under 100° across, a fisheye above. You can change any card afterwards. If you already have
    lens values, from the maker or an earlier calibration, choose the file under **I already have
    lens values for these cameras**, and say whether Studio should improve them or keep them
-   exactly as they are.
+   exactly as they are. The file must be in the format of `calibrated_cameras_data.yml`. Studio
+   names the file it is using; a file it cannot use is named with what kind of file it is, right
+   where you chose it.
 4. **What should happen with a doubtful result?** *Give it to me with warnings* always writes a
    result and lists its warnings. *Refuse it* writes no result unless every check passes, and
    needs the two limits below it: how precisely the angle and the position between two cameras

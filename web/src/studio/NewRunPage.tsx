@@ -65,7 +65,11 @@ export function NewRunPage({ from }: { from?: string }) {
   const [source, setSource] = useState<Source>("photos");
   const [kp, setKp] = useState<KeypointsScan | null>(null);
   const [lens, setLens] = useState<IntrinsicsScan | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  // A file that could not be used is reported where it was chosen, not at the top of the page.
+  const [fileError, setFileError] = useState<{ where: "lens" | "detections" | "config"; message: string } | null>(null);
+  const [reading, setReading] = useState<{ where: "lens" | "detections"; name: string } | null>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const showTop = () => window.setTimeout(() => noticeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
   const [results, setResults] = useState<RunSummary[] | null>(null);
   const [dragging, setDragging] = useState(false);
   const [advice, setAdvice] = useState<Record<number, LensAdvice | "busy">>({});
@@ -124,8 +128,10 @@ export function NewRunPage({ from }: { from?: string }) {
 
   const loadDetections = useCallback((path: string) => {
     setFileError(null);
+    setReading({ where: "detections", name: path.split("/").pop() ?? path });
     api.sourceKeypoints(path).then(
       (doc) => {
+        setReading(null);
         setKp(doc);
         setScan(null);
         setBoard(null);
@@ -138,14 +144,17 @@ export function NewRunPage({ from }: { from?: string }) {
         });
         setModels((old) => Array.from({ length: doc.number_camera }, (_, k) => old[k] ?? old[0] ?? "radtan"));
       },
-      (e: Error) => { setKp(null); setFileError(e.message); },
+      // a file that does not fit leaves the one chosen before in place
+      (e: Error) => { setReading(null); setFileError({ where: "detections", message: e.message }); },
     );
   }, []);
 
   const loadLens = useCallback((path: string) => {
     setFileError(null);
+    setReading({ where: "lens", name: path.split("/").pop() ?? path });
     api.sourceIntrinsics(path).then(
       (doc) => {
+        setReading(null);
         setLens(doc);
         setValues((old) => ({ ...old, cam_params_path: doc.path }));
         // the file states each lens type: take them, so the choice below matches the file
@@ -154,7 +163,7 @@ export function NewRunPage({ from }: { from?: string }) {
           return Array.from({ length: n }, (_, k) => doc.cameras.find((c) => c.index === k)?.model ?? old[k] ?? "radtan");
         });
       },
-      (e: Error) => { setLens(null); setFileError(e.message); },
+      (e: Error) => { setReading(null); setFileError({ where: "lens", message: e.message }); },
     );
   }, []);
 
@@ -303,7 +312,7 @@ export function NewRunPage({ from }: { from?: string }) {
     if (key === "@config") {
       api.sourceConfig(path).then(
         (doc) => adopt(doc.values, `Settings loaded from ${doc.path}.`, doc.unknown),
-        (e: Error) => setFileError(e.message),
+        (e: Error) => { setFileError({ where: "config", message: e.message }); showTop(); },
       );
     } else if (key === "@detections") loadDetections(path);
     else if (key === "@lens") loadLens(path);
@@ -323,8 +332,8 @@ export function NewRunPage({ from }: { from?: string }) {
 
   function importFile(file: File) {
     file.text().then((text) => api.importConfig(text)).then(
-      (doc) => adopt(doc.values, `Settings loaded from ${file.name}.`, doc.unknown),
-      (e: Error) => setNotice(`Could not read ${file.name}: ${e.message}`),
+      (doc) => { adopt(doc.values, `Settings loaded from ${file.name}.`, doc.unknown); showTop(); },
+      (e: Error) => { setFileError({ where: "config", message: `Could not read ${file.name}: ${e.message}` }); showTop(); },
     );
   }
 
@@ -412,7 +421,7 @@ export function NewRunPage({ from }: { from?: string }) {
         setDragging(false);
         const f = e.dataTransfer.files?.[0];
         if (f && /\.(ya?ml|txt)$/i.test(f.name)) importFile(f);
-        else if (f) setFileError(`${f.name} is not a settings file. Drop a calib_param.yml here. Corner files and lens files are chosen with their own buttons, because the calibration reads them from disk.`);
+        else if (f) { setFileError({ where: "config", message: `${f.name} is not a settings file. Drop a calib_param.yml here. Corner files and lens files are chosen with their own buttons, because the calibration reads them from disk.` }); showTop(); }
       }}
     >
       {dragging && (
@@ -451,8 +460,10 @@ export function NewRunPage({ from }: { from?: string }) {
         </div>
       </fieldset>
 
-      {notice && <Callout tone="info">{notice}</Callout>}
-      {fileError && <ErrorBox title="Could not use that file" detail={fileError} />}
+      <div ref={noticeRef} className="grid gap-3 empty:hidden">
+        {notice && <Callout tone="info">{notice}</Callout>}
+        {fileError?.where === "config" && <Callout tone="bad" title="That file was not used">{fileError.message}</Callout>}
+      </div>
 
       {source === "config" && (
         <Step n="→" title="Load your settings file">
@@ -497,6 +508,10 @@ export function NewRunPage({ from }: { from?: string }) {
                 <Button kind={kp ? "secondary" : "primary"} onClick={() => setPicker({ mode: "file", key: "@detections", title: "Choose a corners file" })}>{kp ? "Choose another file" : "Choose the file"}</Button>
               </div>
               {problemOf("keypoints_path") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("keypoints_path")}</div>}
+              {reading?.where === "detections" && <Callout tone="info">Reading {reading.name}…</Callout>}
+              {fileError?.where === "detections" && (
+                <Callout tone="bad" title="That file was not used">{fileError.message}{kp ? ` Studio keeps using ${kp.path.split("/").pop()}.` : ""}</Callout>
+              )}
               {kp && (
                 <Callout tone={kp.problems.length ? "warn" : "ok"}
                   title={`${kp.number_camera} camera${kp.number_camera === 1 ? "" : "s"}, ${int(kp.cameras.reduce((a, c) => a + c.sightings, 0))} board views`}>
@@ -615,7 +630,9 @@ export function NewRunPage({ from }: { from?: string }) {
                   canMeasure={!!viewsFrom && viewCams > 0} measureWhat={source === "detections" ? "saved detections" : "photos"}
                   photos={photoSource} samples={samples} lens={lens} health={health}
                   onLensBrowse={() => setPicker({ mode: "file", key: "@lens", title: "Choose a lens file" })}
-                  onLensRemove={() => { setLens(null); set("cam_params_path", ""); set("fix_intrinsic", ""); }}
+                  onLensRemove={() => { setLens(null); setFileError(null); set("cam_params_path", ""); set("fix_intrinsic", ""); }}
+                  lensError={fileError?.where === "lens" ? fileError.message : null}
+                  lensReading={reading?.where === "lens" ? reading.name : null}
                   fixed={values.fix_intrinsic === true} onFixed={(v) => set("fix_intrinsic", v ? true : "")}
                   problem={problemOf("camera_models")} lensProblem={problemOf("fix_intrinsic")} />}
           </Step>

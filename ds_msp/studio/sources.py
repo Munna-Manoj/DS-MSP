@@ -67,6 +67,49 @@ def settings_of(folder: Path, inside: Sequence[Path]) -> Dict[str, Any]:
     return doc
 
 
+#: What a YAML file is, from the entries it holds: (pattern, what to call it).
+_KINDS = (
+    (r"^\s*(pts_2d|frame_idxs)\s*:", "a file of found corners (like detected_keypoints_data.yml)"),
+    (r"^\s*(number_camera|number_x_square|root_path)\s*:", "a settings file (like calib_param.yml)"),
+    (r"^\s*(object_\d+|nb_object)\s*:", "a target file (like calibrated_objects_data.yml)"),
+    (r"^\s*camera_\d+\s*:", "a lens file (like calibrated_cameras_data.yml)"),
+    (r"^\s*cam\d+\s*:", "a Kalibr camera file"),
+    (r"^\s*(camera_matrix|distortion_coefficients)\s*:", "an OpenCV calibration of a single camera"),
+)
+
+
+def what_is(path: Path) -> str:
+    """What kind of file ``path`` looks like, in words, or ``""`` when it cannot be told. Used
+    to answer a wrong choice with what was chosen instead of only that it does not fit."""
+    import re
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read(200_000)
+    except OSError:
+        return ""
+    for pattern, name in _KINDS:
+        if re.search(pattern, text, re.MULTILINE):
+            return name
+    return ""
+
+
+def _wrong_kind(path: Path, wanted: str, hint: str) -> ValueError:
+    """The error for a file chosen where ``wanted`` was expected."""
+    name = Path(path).name
+    kind = what_is(path).replace(f" (like {name})", "")       # no "like X" for a file named X
+    if kind and not kind.startswith(wanted.split(" (")[0]):
+        return ValueError(f"{name} is {kind}, not {wanted}. {hint}")
+    return ValueError(f"{name} is not {wanted}. {hint}")
+
+
+_LENS_HINT = ("A lens file lists every camera with its camera_matrix. Each DS-MSP or MC-Calib "
+              "result folder holds one, named calibrated_cameras_data.yml; other formats are "
+              "not read here.")
+_CORNERS_HINT = ("A corners file lists, per camera, the frames and the pixels of the corners "
+                 "found. Each result folder holds one, named detected_keypoints_data.yml.")
+
+
 def _count(node) -> int:
     if node.empty():
         return 0
@@ -93,21 +136,24 @@ def scan_keypoints(path: Path) -> Dict[str, Any]:
     import cv2
 
     path = Path(path)
-    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    wrong = _wrong_kind(path, "a file of found corners", _CORNERS_HINT)
+    try:
+        fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    except (cv2.error, SystemError):
+        raise wrong from None
     if not fs.isOpened():
-        raise ValueError("not a readable detections file")
+        raise wrong
     try:
         nb_node = fs.getNode("nb_camera")
         if nb_node.empty():
-            raise ValueError("this is not a detections file: it has no nb_camera entry")
+            raise wrong
         cameras = []
         for ci in range(int(nb_node.real())):
             cn = fs.getNode(f"camera_{ci}")
             if cn.empty():
                 continue
             if cn.getNode("frame_idxs").empty() and cn.getNode("pts_2d").empty():
-                raise ValueError("this is not a detections file: its cameras list no corners "
-                                 "(it looks like a lens file)")
+                raise wrong
             frames = _ints(cn.getNode("frame_idxs"))
             boards = _ints(cn.getNode("board_idxs"))
             cameras.append({"index": ci, "width": int(cn.getNode("img_width").real()),
@@ -139,13 +185,16 @@ def scan_intrinsics(path: Path) -> Dict[str, Any]:
 
     from ..io.mccalib import _camera_model_field
 
-    fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    try:
+        fs = cv2.FileStorage(str(path), cv2.FILE_STORAGE_READ)
+    except (cv2.error, SystemError):
+        raise _wrong_kind(path, "a lens file", _LENS_HINT) from None
     if not fs.isOpened():
-        raise ValueError("not a readable lens file")
+        raise _wrong_kind(path, "a lens file", _LENS_HINT)
     try:
         nb_node = fs.getNode("nb_camera")
         if nb_node.empty():
-            raise ValueError("this is not a lens file: it has no nb_camera entry")
+            raise _wrong_kind(path, "a lens file", _LENS_HINT)
         cameras = []
         for ci in range(int(nb_node.real())):
             cn = fs.getNode(f"camera_{ci}")
@@ -163,5 +212,5 @@ def scan_intrinsics(path: Path) -> Dict[str, Any]:
     finally:
         fs.release()
     if not cameras:
-        raise ValueError("this file holds no camera with a camera_matrix")
+        raise _wrong_kind(path, "a lens file", _LENS_HINT)
     return {"path": str(Path(path).resolve()), "cameras": cameras}

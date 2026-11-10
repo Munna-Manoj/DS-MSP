@@ -33,7 +33,7 @@ def test_saved_detections_are_summarised(results_root):
     assert doc["number_board"] >= 1 and doc["problems"] == []
     # the target file beside it would be reused by a multi-board run: it is named
     assert doc["reused_target"].endswith("calibrated_objects_data.yml")
-    with pytest.raises(ValueError, match="not a detections file"):
+    with pytest.raises(ValueError, match="is a target file, not a file of found corners"):
         sources.scan_keypoints(results_root / RUN / "calibrated_objects_data.yml")
 
 
@@ -108,3 +108,28 @@ def test_config_route_serves_studio_and_terminal_results(tmp_path):
     from ds_msp.studio import configio
     values, problems = configio.check_values(doc["values"])
     assert problems == [] and 'exclude_views: [ "1:2", "0:7:1" ]' in configio.render_config(values)
+
+
+def test_a_wrong_file_is_answered_with_what_it_is(tmp_path, results_root):
+    """Choosing the wrong kind of file names what was chosen and what belongs there."""
+    run = results_root / RUN
+    with pytest.raises(ValueError, match=r"detected_keypoints_data.yml is a file of found corners, "
+                                         r"not a lens file\. A lens file lists every camera"):
+        sources.scan_intrinsics(run / "detected_keypoints_data.yml")
+    with pytest.raises(ValueError, match="is a lens file, not a file of found corners"):
+        sources.scan_keypoints(run / "calibrated_cameras_data.yml")
+    cfg = tmp_path / "calib_param.yml"
+    cfg.write_text("%YAML:1.0\nnumber_camera: 2\nnumber_x_square: 6\n")
+    with pytest.raises(ValueError, match="calib_param.yml is a settings file, not a lens file"):
+        sources.scan_intrinsics(cfg)
+    kalibr = tmp_path / "camchain.yaml"
+    kalibr.write_text("cam0:\n  camera_model: pinhole\n  intrinsics: [600, 600, 320, 240]\n")
+    with pytest.raises(ValueError, match="camchain.yaml is a Kalibr camera file, not a lens file.*"
+                                         "other formats are not read here"):
+        sources.scan_intrinsics(kalibr)
+    odd = tmp_path / "notes.yml"
+    odd.write_text("hello: world\n")
+    with pytest.raises(ValueError, match="notes.yml is not a lens file"):
+        sources.scan_intrinsics(odd)
+    assert sources.what_is(run / "calibrated_cameras_data.yml").startswith("a lens file")
+    assert sources.what_is(tmp_path / "missing.yml") == ""

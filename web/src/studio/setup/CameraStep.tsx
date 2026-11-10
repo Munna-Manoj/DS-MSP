@@ -51,7 +51,9 @@ function AdviceLine({ a, current, onUse }: { a: LensAdvice | "busy" | undefined;
 }
 
 export function CameraStep({ cameras, models, setModel, setAll, advice, onMeasure, measuring, canMeasure, measureWhat, photos, samples,
-  lens, health, onLensBrowse, onLensRemove, fixed, onFixed, problem, lensProblem }: {
+  lens, health, onLensBrowse, onLensRemove, fixed, onFixed, problem, lensProblem, lensError, lensReading }: {
+  /** Why the file just chosen was not used, and the name of a file being read. */
+  lensError: string | null; lensReading: string | null;
   cameras: CameraInfo[]; models: string[]; setModel: (k: number, m: string) => void; setAll: (m: string) => void;
   advice: Record<number, LensAdvice | "busy">; onMeasure: () => void; measuring: boolean; canMeasure: boolean;
   measureWhat: "photos" | "saved detections";
@@ -156,8 +158,18 @@ export function CameraStep({ cameras, models, setModel, setAll, advice, onMeasur
           {lens && <Button kind="quiet" onClick={onLensRemove}>Remove</Button>}
           <Button onClick={onLensBrowse}>{lens ? "Choose another file" : "Choose the file"}</Button>
         </div>
+        {lensReading && <Callout tone="info">Reading {lensReading}…</Callout>}
+        {lensError && (
+          <Callout tone="bad" title="That file was not used">
+            {lensError}{lens ? ` Studio keeps using ${lens.path.split("/").pop()}.` : ""}
+          </Callout>
+        )}
         {lens && (
           <>
+            <Callout tone="ok" title={`Using ${lens.path.split("/").pop()}`}>
+              It holds lens values for {lens.cameras.length} camera{lens.cameras.length === 1 ? "" : "s"}. The lens types of the cameras above were set from it, and each camera's values are checked against your {measureWhat} below.
+              <span className="block font-studio-mono text-[13px] text-s-muted break-all mt-1">{lens.path}</span>
+            </Callout>
             <ul className="grid gap-2">
               {lens.cameras.slice(0, 30).map((c) => {
                 const h = health[c.index];
