@@ -350,6 +350,19 @@ def _int_seq(fs, name) -> List[int]:
     return [int(n.at(i).real()) for i in range(n.size())]
 
 
+def _exclude_field(ov: Dict, fs) -> List[str]:
+    """``exclude_views`` as a checked, sorted list: from ``--set exclude_views=0:3,1:4`` (or a
+    list) or the file's sequence. A malformed entry is an error here, before anything runs."""
+    from .exclude import describe, parse_exclusions
+
+    raw = ov.get("exclude_views")
+    if raw is None:
+        raw = _str_seq(fs, "exclude_views")
+    elif isinstance(raw, str):
+        raw = [s for s in (p.strip() for p in raw.replace(";", ",").split(",")) if s]
+    return describe(parse_exclusions(raw))
+
+
 def _str_seq(fs, name) -> List[str]:
     n = fs.getNode(name)
     if n is None or n.empty() or not n.isSeq():
@@ -387,6 +400,7 @@ class RigConfig:
     structure_prior_sigma: Optional[float] = None
     structure_mode: str = "rigid"               # multi-board target refinement: rigid|bend|free|off
     frame_pattern: Optional[str] = None         # regex; group "frame" = frame number in filename
+    exclude_views: List[str] = field(default_factory=list)  # "cam:frame[:board]" left out (FR-RIG-034)
     keypoints_pixel_convention: Optional[str] = None  # pixel_center|opencv4_charuco (else file label)
     accuracy_gate: str = "off"
     profile: str = "default"                    # default|production (strict gates, FR-RIG-028)
@@ -470,7 +484,7 @@ _KNOWN_KEYS = {
     "frame_pattern", "keypoints_pixel_convention", "accuracy_gate", "profile",
     "uncertainty_gate", "convergence_gate", "coverage_gate", "min_camera_coverage",
     "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
-    "lens_gate", "crossval_gate", "max_lens_sigma_px",
+    "lens_gate", "crossval_gate", "max_lens_sigma_px", "exclude_views",
 }
 #: MC-Calib keys DS-MSP accepts but does not act on, with what happens instead.
 _IGNORED_MCCALIB_KEYS = {
@@ -566,6 +580,7 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         structure_prior_sigma=ov.get("structure_prior_sigma", _scalar(fs, "structure_prior_sigma", None)),
         structure_mode=ov.get("structure_mode", _scalar(fs, "structure_mode", None)),
         frame_pattern=ov.get("frame_pattern", _scalar(fs, "frame_pattern", None)) or None,
+        exclude_views=_exclude_field(ov, fs),
         keypoints_pixel_convention=ov.get("keypoints_pixel_convention",
                                           _scalar(fs, "keypoints_pixel_convention", None)) or None,
         accuracy_gate=str(ov.get("accuracy_gate", _scalar(fs, "accuracy_gate", "off"))),
@@ -700,7 +715,7 @@ def _compose_progress(cfg: RigConfig, animator):
     return cb
 
 
-def _reconstruct(cfg: RigConfig, *, animator=None):
+def _reconstruct(cfg: RigConfig, *, animator=None, exclude: Optional[set] = None):
     """Reconstruct the multi-board object(s) from raw detections, then map observations onto
     them — MC-Calib's ``calibrate3DObjects`` (no pre-built object file needed).
 
@@ -725,14 +740,15 @@ def _reconstruct(cfg: RigConfig, *, animator=None):
     if cfg.keypoints_path:
         objects, obs, img_size = reconstruct_objects_from_keypoints(
             cfg.keypoints_path, cfg.boards, init_models=init_models,
-            pixel_convention=cfg.keypoints_pixel_convention, model_spec=model_spec)
+            pixel_convention=cfg.keypoints_pixel_convention, model_spec=model_spec,
+            exclude=exclude)
     elif cfg.root_path:
         cam_ids = list(range(cfg.number_camera))
         progress_cb = _compose_progress(cfg, animator)
         objects, obs, img_size = reconstruct_objects_from_images(
             cfg.root_path, cam_ids, cfg.boards, cam_prefix=cfg.cam_prefix,
             init_models=init_models, progress_cb=progress_cb, frame_pattern=cfg.frame_pattern,
-            model_spec=model_spec)
+            model_spec=model_spec, exclude=exclude)
     else:
         raise ValueError("config has neither keypoints_path nor root_path")
     return objects, obs, img_size
@@ -860,6 +876,10 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None, *,
         from .progress import ProgressLog
         animator = ProgressLog(progress_path, animator)
 
+    from .exclude import describe, drop_object_obs, parse_exclusions
+
+    exclude = parse_exclusions(cfg.exclude_views)   # views the user asked to leave out
+    unmatched = set(exclude)
     if cfg.number_board == 1:
         obj = single_board_object(cfg.boards[0])
         object_obs, img_size = _detect_obs(cfg, obj, animator=animator)
@@ -872,12 +892,24 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None, *,
         else:                                       # reconstruct the object(s) (MC-Calib
             from .reconstruct import NoBoardDetected
             try:
-                objects, object_obs, img_size = _reconstruct(cfg, animator=animator)  # calibrate3DObjects)
+                objects, object_obs, img_size = _reconstruct(      # calibrate3DObjects)
+                    cfg, animator=animator, exclude=unmatched)     # removes what it matched
             except NoBoardDetected:
                 raise ValueError(_no_board_message(cfg)) from None
             obj = objects[0]                        # primary (largest) object for the Scenario
-    if not object_obs:
+    if not object_obs and not exclude:
         raise ValueError(_no_board_message(cfg))
+    if unmatched:                                   # paths that built their observations whole
+        object_obs, used = drop_object_obs(object_obs, {o.object_id: o for o in objects}, unmatched)
+        unmatched -= used
+    for key in describe(unmatched):
+        _warn(f"exclude_views entry {key} matches no view of the target; nothing was left out for it")
+    if exclude:
+        if not object_obs:
+            raise ValueError("exclude_views leaves no view of the target to calibrate from")
+        if cfg.verbose:
+            print(f"[exclude] left out {len(exclude) - len(unmatched)} view(s) or board(s): "
+                  f"{', '.join(describe(exclude - unmatched))}")
     seen = {o.cam_id for o in object_obs}
     for c in range(cfg.number_camera):
         if c not in seen:
@@ -924,6 +956,7 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None, *,
                              max_rotation_sigma_deg=cfg.max_rotation_sigma_deg,
                              max_centre_sigma=cfg.max_centre_sigma,
                              config_warnings=cfg.config_warnings, profile=cfg.profile,
+                             excluded_views=describe(exclude - unmatched),
                              lens_gate=cfg.lens_gate, crossval_gate=cfg.crossval_gate,
                              max_lens_sigma_px=cfg.max_lens_sigma_px)
     # NB: gross mis-detections are handled by *down-weighting* (GNC-TLS / Cauchy in the BA) plus

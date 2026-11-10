@@ -114,6 +114,12 @@ error. Click a bar, drag along the strip, or press play; every view follows.
   how precisely your own detector finds it; the panel gives the uncertainty sideways and in
   depth, and how far out the pair stays within 1 mm.
 
+A photo that is blurred, has glare, or shows long lines all pointing one way can be left out of
+the next run. Select it and choose **Leave this photo out next time**; its bar turns amber and a
+bar under the timeline lists what you marked. **Run again without them** opens the setup with the
+same settings and those photos listed under **Left out of this calibration**. The result you are
+looking at does not change, and the new result names the photos that were left out of it.
+
 Lengths are in the unit of your square size. Tell Studio once whether that was metres,
 centimetres or millimetres and it shows millimetres.
 

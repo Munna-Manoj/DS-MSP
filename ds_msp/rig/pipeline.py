@@ -133,6 +133,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
                        max_rotation_sigma_deg: Optional[float] = None,
                        max_centre_sigma: Optional[float] = None,
                        config_warnings: Optional[List[str]] = None,
+                       excluded_views: Optional[List[str]] = None,
                        profile: str = "default",
                        lens_gate: str = "warn", crossval_gate: str = "off",
                        max_lens_sigma_px: Optional[float] = None) -> Dict:
@@ -359,6 +360,7 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
         "coverage": {str(c): v for c, v in coverage.items()},
         "outlier_gate_px": reproj_gate_px,
         "rejected_observations": list(getattr(rig, "rejected", [])),
+        "excluded_views": list(excluded_views or []),
         "config_warnings": list(config_warnings or []),
         "observability": observability,
         "lens_gate": lens_gate,

@@ -120,6 +120,23 @@ The calibration board was not found in any image under /path/to/my_rig/Images ..
 Check the board description (number_x_square x number_y_square = 9 x 7 squares, 1 board(s)) ...
 ```
 
+## Run again without a bad photo
+
+On the result page, select a photo that fits badly and choose **Leave this photo out next time**,
+then **Run again without them**. The setup opens with the settings of that result and the marked
+photos under **Left out of this calibration**; the × on an entry puts that photo back. When the
+photos and the board are unchanged, Studio reuses the corners already found, so only the
+calibration itself runs again. The new result goes to its own folder.
+
+The list is the `exclude_views` key of `calib_param.yml`, so the same run works from a terminal:
+
+```yaml
+exclude_views: [ "0:7", "0:29" ]   # camera 0, frames 7 and 29
+```
+
+This also works for a result made from a terminal, when its `calib_param.yml` lies under a
+folder given with `--root`.
+
 ## Repeat a calibration exactly
 
 Every saved calibration records its settings, a checksum of every input file and the software

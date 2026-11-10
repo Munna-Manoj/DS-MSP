@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Sequence, Tuple
 from ..rig.config_schema import PROPERTIES
 
 CONFIG_NAME = "calib_param.yml"
+__all__ = ["CONFIG_NAME", "PATH_KEYS", "PROPERTIES", "check_values", "cli_command", "load_check",
+           "path_problems", "read_values", "render_config", "write_config"]
 
 #: Keys whose value is a file or folder on the computer that runs Studio.
 PATH_KEYS = ("root_path", "keypoints_path", "cam_params_path", "object_path",

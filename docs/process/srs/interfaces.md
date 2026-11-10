@@ -52,7 +52,8 @@ unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration add
 with `max_rotation_sigma_deg` / `max_centre_sigma`, `convergence_gate` (`off`, `warn`,
 `refuse`; judges the final BA stage), `coverage_gate` (`off`, `warn`, `refuse`) with
 `min_camera_coverage` (default 0.75; the share of each camera's corners within the GNC-TLS inlier
-band), `reject_outliers`, `lens_gate` and `crossval_gate` (`off`, `warn`, `refuse`; `crossval_gate` is `off`
+band), `reject_outliers`, `exclude_views` (a list of `cam:frame` or `cam:frame:board` entries left
+out before the target is built; `acceptance.json` records those that matched as `excluded_views`), `lens_gate` and `crossval_gate` (`off`, `warn`, `refuse`; `crossval_gate` is `off`
 by default and under production) with
 `max_lens_sigma_px` (default `noise_bound`, else 1 px), and `profile`
 (`default` or `production`; production sets the audit, uncertainty, convergence and lens gates to
@@ -179,6 +180,9 @@ Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read
   the CLI's own loader; returns `ok`, `problems`, `warnings` and the `yaml` that would be written.
 - `POST /api/config/import` `{text}` and `GET /api/config?id=`: the schema keys set in a
   `calib_param.yml` (uploaded text, or the one in a result folder), with `unknown` keys listed.
+  For a result folder without one, the config its manifest records is read with the recorded
+  `--set` values applied, only when it lies under a root; `changed` says that file no longer has
+  the recorded SHA-256. `save_path` and `webviewer` are left out.
 - `POST /api/jobs` `{root, name, values}`: creates `<root>/<name>/`, writes `calib_param.yml`
   there and queues `python -m ds_msp.rig.cli --config <that file> --no-webviewer --progress-file
   ...`. `GET /api/jobs`, `GET /api/job?id=` (state, progress summary, last output lines) and

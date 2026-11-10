@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from ..rig.config_schema import config_schema
 from . import configio
 from .jobs import ACTIVE, JobError, JobManager
+from .sources import settings_of
 from .runs import KNOWN_FILES, RunError, iter_run_dirs, load_diagnostics, load_run, summarize_run
 
 API_VERSION = 1
@@ -468,14 +469,12 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
             folder = rs.resolve(id)
         except KeyError:
             raise HTTPException(404, "unknown folder") from None
-        path = folder / configio.CONFIG_NAME
-        if not path.is_file():
-            raise HTTPException(404, "this folder has no calib_param.yml")
         try:
-            doc = configio.read_values(path.read_text(encoding="utf-8", errors="replace"))
+            doc = settings_of(folder, rs.paths)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        doc["values"].pop("save_path", None)
         doc["name"] = folder.name
         return doc
 

@@ -88,6 +88,9 @@ PROPERTIES: Dict[str, Dict[str, Any]] = {
                      "<prefix>001."),
     "keypoints_path": _p(_OPT_STR, None, "images", "Pre-detected keypoints file; empty to "
                          "detect the boards in the images.", level="expert"),
+    "exclude_views": _p("array", [], "images", "Views to leave out, as cam:frame or "
+                        "cam:frame:board (camera counted from 0; frame and board numbers as in "
+                        "the result files).", level="expert", items={"type": _STR}),
     "frame_pattern": _p(_OPT_STR, None, "images", "Regex whose group 'frame' is the frame "
                         "number in a file name.", level="expert"),
     "keypoints_pixel_convention": _p(_OPT_STR, None, "images", "Pixel convention of a "

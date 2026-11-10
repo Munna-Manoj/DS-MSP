@@ -2,7 +2,7 @@
 // capture. Photos: how well does the calibration land on what the camera saw? Rig in 3D: where
 // are the cameras, and how sure is that? What it means: how exact is a measurement made with it?
 // One camera selection and one timeline drive all three.
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { href } from "../../router";
 import { api, type CameraDiagnostics, type FrameStat, type PairDoc, type RunDoc, type SceneDoc } from "../api";
 import { camName, num } from "../format";
@@ -11,6 +11,8 @@ import { MeaningStage } from "./MeaningStage";
 import { PhotoStage } from "./PhotoStage";
 import { Timeline } from "./Timeline";
 import { length, UNIT_CHOICES, useUnit, type Unit } from "./units";
+
+import { readMarked, viewList, writeMarked } from "../marks";
 
 const RigStage = lazy(() => import("./RigStage"));
 
@@ -39,6 +41,10 @@ export function Stage({ doc, runId, cam, statuses }: {
   const [distance, setDistance] = useState<number | null>(null);
   const [pixelNoise, setPixelNoise] = useState(0.5);
   const [unit, setUnit] = useUnit();
+  const [marked, setMarked] = useState<string[]>(() => readMarked(runId));
+
+  useEffect(() => { setMarked(readMarked(runId)); }, [runId]);
+  const mark = useCallback((next: string[]) => { writeMarked(runId, next); setMarked(next); }, [runId]);
 
   const camNum = Number(cam);
   const intr = doc.report.intrinsics?.find((i) => i.cam_id === camNum);
@@ -85,6 +91,12 @@ export function Stage({ doc, runId, cam, statuses }: {
   const baseline = pair?.distance ?? null;
   const dist = distance ?? (baseline ? baseline * 5 : null);
   const current = frames.find((f) => f.frame === frame) ?? null;
+  const viewKey = frame != null ? `${camNum}:${frame}` : null;
+  const isMarked = viewKey != null && marked.includes(viewKey);
+  const markedHere = useMemo(
+    () => new Set(marked.filter((k) => k.startsWith(`${camNum}:`)).map((k) => Number(k.split(":")[1]))),
+    [marked, camNum]);
+  const already = doc.acceptance?.excluded_views ?? [];
   const zones = diag?.lens?.zones;
 
   return (
@@ -157,6 +169,18 @@ export function Stage({ doc, runId, cam, statuses }: {
                 <input type="range" min={0} max={3} step={0.01} value={Math.log10(stretch)} aria-label="Error magnification"
                   onChange={(e) => setMagnify(Math.max(1, Math.round(10 ** Number(e.target.value))))} className="w-full accent-sky-400" />
               </Control>
+              {viewKey && (
+                <div className="grid gap-1.5">
+                  <button type="button" aria-pressed={isMarked}
+                    onClick={() => mark(isMarked ? marked.filter((k) => k !== viewKey) : [...marked, viewKey])}
+                    className={`rounded-md px-3 min-h-10 text-sm font-medium border ${isMarked ? "bg-amber-400 text-slate-900 border-amber-300 hover:bg-amber-300" : "bg-white/10 text-slate-100 border-white/15 hover:bg-white/20"}`}>
+                    {isMarked ? "Marked. Put this photo back" : "Leave this photo out next time"}
+                  </button>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    For a photo that is blurred, has glare, or where the board was read wrongly. This result stays as it is; the photo is skipped when you run again.
+                  </p>
+                </div>
+              )}
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" checked={showTrust} onChange={(e) => setShowTrust(e.target.checked)} className="mt-1 accent-sky-400" />
                 <span>
@@ -224,7 +248,25 @@ export function Stage({ doc, runId, cam, statuses }: {
 
       {mode !== "meaning" && (
         <div className="border-t border-white/10 px-3 py-3">
-          <Timeline frames={frames} frame={frame} onFrame={setFrame} playing={playing} onPlaying={setPlaying} />
+          <Timeline frames={frames} frame={frame} onFrame={setFrame} playing={playing} onPlaying={setPlaying} marked={markedHere} />
+        </div>
+      )}
+
+      {already.length > 0 && (
+        <div className="border-t border-white/10 px-4 py-2.5 text-sm text-slate-300">
+          {already.length} view{already.length === 1 ? " was" : "s were"} left out of this calibration on request: {viewList(already)}.
+        </div>
+      )}
+      {marked.length > 0 && (
+        <div className="border-t border-amber-300/30 bg-amber-400/10 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" role="status">
+          <span className="text-amber-100 mr-auto">
+            <b>{marked.length} photo{marked.length === 1 ? "" : "s"} marked</b> to leave out: {viewList(marked)}
+          </span>
+          <button type="button" onClick={() => mark([])} className="text-xs text-slate-300 underline min-h-10 px-1">Clear the marks</button>
+          <a href={href({ page: "new", from: runId })}
+            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-semibold bg-amber-400 text-slate-900 hover:bg-amber-300">
+            Run again without {marked.length === 1 ? "it" : "them"}
+          </a>
         </div>
       )}
     </section>

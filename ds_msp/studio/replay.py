@@ -68,6 +68,17 @@ def fingerprint(folder: Path) -> Dict[str, Any]:
     return doc
 
 
+def manifest_file_sha(folder: Path, path: Path) -> Optional[str]:
+    """The SHA-256 the manifest of ``folder`` recorded for the input file ``path``, or None when
+    the manifest does not list it."""
+    m = _manifest(folder) or {}
+    want = Path(path).resolve()
+    for rec in (m.get("inputs") or {}).get("files") or []:
+        if rec.get("path") and rec.get("sha256") and Path(rec["path"]).resolve() == want:
+            return str(rec["sha256"])
+    return None
+
+
 def check_inputs(folder: Path) -> Dict[str, Any]:
     """Re-hash every input file the manifest lists. Returns counts and, for at most 40 files,
     which are ``missing`` or ``changed``. ``same`` is true only when every file still has its

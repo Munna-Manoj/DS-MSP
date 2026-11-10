@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 from . import configio
 
@@ -23,6 +23,47 @@ def config_file(path: Path) -> Dict[str, Any]:
         if isinstance(value, str) and value and not os.path.isabs(os.path.expanduser(value)):
             doc["values"][key] = str((base / value).resolve())
     doc["path"] = str(Path(path).resolve())
+    return doc
+
+
+def settings_of(folder: Path, inside: Sequence[Path]) -> Dict[str, Any]:
+    """The settings a result folder was calibrated with, to start a new run from them.
+
+    A run started in Studio keeps its ``calib_param.yml`` in the folder. A run started from a
+    terminal does not, so the config its manifest records is read instead, with the ``--set``
+    values of that run applied; ``changed`` is true when that file no longer has the recorded
+    SHA-256. ``save_path`` and ``webviewer`` are left out: the new run gets its own.
+
+    Raises ``FileNotFoundError`` when there is no settings file under ``inside``."""
+    from ..rig.provenance import sha256_file
+    from .replay import fingerprint, manifest_file_sha
+
+    folder = Path(folder)
+    path = folder / configio.CONFIG_NAME
+    overrides: List[str] = []
+    changed = False
+    if not path.is_file():
+        fp = fingerprint(folder)
+        recorded = Path(str(fp["config_path"])).resolve() if fp.get("config_path") else None
+        if recorded is None or not recorded.is_file():
+            raise FileNotFoundError("the settings file this result was made from is no longer there")
+        if not any(r == recorded or r in recorded.parents for r in inside):
+            raise FileNotFoundError("the settings file of this result is outside the folders "
+                                    "Studio was started with")
+        path, overrides = recorded, [str(o) for o in fp.get("overrides") or []]
+        want = manifest_file_sha(folder, recorded)
+        changed = want is not None and sha256_file(recorded) != want
+    doc = config_file(path)
+    for item in overrides:
+        key, _sep, value = item.partition("=")
+        key = key.strip()
+        if key in configio.PROPERTIES and key != "number_camera":
+            checked, _problems = configio.check_values({"number_camera": 1, key: value})
+            if key in checked:
+                doc["values"][key] = checked[key]
+    doc["values"].pop("save_path", None)
+    doc["values"].pop("webviewer", None)
+    doc["changed"] = changed
     return doc
 
 

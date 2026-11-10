@@ -63,6 +63,10 @@ fix_intrinsic: "false"      # false => initialize+refine intrinsics  //  true =>
 root_path: "../data/Images"   # folder of per-camera subfolders <cam_prefix><camID+1:03d>/ (e.g. Cam_001/)
 cam_prefix: "Cam_"            # 1-indexed: camera 0 -> Cam_001, camera 1 -> Cam_002, ...
 keypoints_path: "None"       # pre-detected keypoints yml; "None" => detect ChArUco corners from raw images
+# --- DS-MSP EXTENSION --- views to leave out: "cam:frame" (a whole photo) or "cam:frame:board"
+# (one board in it). Camera counted from 0; frame and board numbers as in the result files
+# (detected_keypoints_data.yml). They are removed before the target is built.
+exclude_views: []
 
 ######################################## Optimization Parameters #############################################
 quaternion_averaging: 1    # [IGNORED by DS-MSP — uses its own rotation averaging]

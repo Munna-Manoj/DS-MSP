@@ -18,9 +18,11 @@ function tickLabel(v: number, step: number): string {
   return v.toFixed(Math.min(d, 4));
 }
 
-export function Timeline({ frames, frame, onFrame, playing, onPlaying }: {
+export function Timeline({ frames, frame, onFrame, playing, onPlaying, marked }: {
   frames: FrameStat[]; frame: number | null; onFrame: (f: number) => void;
   playing: boolean; onPlaying: (p: boolean) => void;
+  /** Frames of this camera marked to be left out of the next run. */
+  marked?: Set<number>;
 }) {
   const index = frames.findIndex((f) => f.frame === frame);
   const latest = useRef({ frames, index, onFrame });
@@ -96,8 +98,10 @@ export function Timeline({ frames, frame, onFrame, playing, onPlaying }: {
             const h = Math.max(1.5, (f.rms_px / axis.max) * H);
             return (
               <rect key={f.frame} x={k * bw + bw * 0.12} y={H - h} width={bw * 0.76} height={h}
-                fill={k === index ? "#38bdf8" : f.n_outside > 0 ? "#f87171" : "#64748b"}>
-                <title>{`Photo ${k + 1}: ${num(f.rms_px, 3)} px`}</title>
+                fill={marked?.has(f.frame) ? "#fbbf24" : k === index ? "#38bdf8" : f.n_outside > 0 ? "#f87171" : "#64748b"}
+                fillOpacity={marked?.has(f.frame) && k !== index ? 0.5 : 1}
+                stroke={marked?.has(f.frame) && k === index ? "#38bdf8" : "none"} strokeWidth={2} vectorEffect="non-scaling-stroke">
+                <title>{`Photo ${k + 1} (frame ${f.frame}): ${num(f.rms_px, 3)} px${marked?.has(f.frame) ? ", marked to leave out" : ""}`}</title>
               </rect>
             );
           })}
@@ -109,7 +113,7 @@ export function Timeline({ frames, frame, onFrame, playing, onPlaying }: {
       </div>
       <div className="flex justify-between text-[11px] text-slate-400 pl-14">
         <span>start of capture</span>
-        <span>each bar is one photo; its height is that photo's error in pixels{frames.some((f) => f.n_outside > 0) ? " · red = has corners far off" : ""}</span>
+        <span>each bar is one photo; its height is that photo's error in pixels{frames.some((f) => f.n_outside > 0) ? " · red = has corners far off" : ""}{marked && marked.size > 0 ? " · amber = marked to leave out" : ""}</span>
         <span>end</span>
       </div>
     </div>

@@ -324,6 +324,7 @@ Behaviour (verified on real data, [§7](#7-worked-example-robustness-real-8-came
 | `root_path` | folder containing the `Cam_00N/` subfolders (raw images) |
 | `cam_prefix` | folder prefix (default `Cam_`) |
 | `keypoints_path` | a pre-detected `detected_keypoints_data.yml`; `"None"` ⇒ detect from images. **Set this to skip detection** ([§6](#6-detect-once-calibrate-many-keypoints-reuse)). |
+| `exclude_views` | views to leave out, e.g. `[ "0:12", "2:40:1" ]`: `cam:frame` is one camera's photo of the target, `cam:frame:board` one board in it. The camera is counted from 0; frame and board numbers are those in `detected_keypoints_data.yml`. The corners are removed before the target is built, so they influence nothing, and `acceptance.json` lists them under `excluded_views`. An entry that matches no view gives a warning. |
 
 ### Optimization / output
 | Key | Meaning |

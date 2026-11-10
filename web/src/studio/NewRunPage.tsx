@@ -10,6 +10,7 @@ import {
   type RunSummary, type ScanDoc, type SchemaProp, type Values,
 } from "./api";
 import { FolderPicker } from "./FolderPicker";
+import { readMarked, viewWords, writeMarked } from "./marks";
 import { int, num, when } from "./format";
 import { Badge, Button, Callout, Card, ErrorBox, Field, INPUT, Loading, Note } from "./ui";
 
@@ -26,6 +27,7 @@ const PLACED = new Set([
   "root_path", "cam_prefix", "number_camera", "camera_models", "number_x_square",
   "number_y_square", "square_size", "number_board", "profile", "max_rotation_sigma_deg",
   "max_centre_sigma", "save_path", "webviewer", "keypoints_path", "cam_params_path", "fix_intrinsic",
+  "exclude_views",
 ]);
 const FILE_KEYS = new Set(["object_path", "accuracy_profile_path"]);
 
@@ -194,8 +196,15 @@ export function NewRunPage({ from }: { from?: string }) {
     if (!from) return;
     api.configOf(from).then(
       (doc) => {
-        adopt(doc.values, `Started from the settings of ${doc.name}.`, doc.unknown);
-        setName(`${doc.name}_again`);
+        // photos marked on that result's page are left out, on top of those it already left out
+        const before = Array.isArray(doc.values.exclude_views) ? (doc.values.exclude_views as string[]) : [];
+        const marks = readMarked(from);
+        const all = [...new Set([...before, ...marks])];
+        adopt(all.length ? { ...doc.values, exclude_views: all } : doc.values,
+          `Started from the settings of ${doc.name}${marks.length ? `, leaving out the ${marks.length} photo${marks.length === 1 ? "" : "s"} you marked` : ""}.${doc.changed ? " Its settings file was edited after that run, so these are the settings as they are now." : ""}`,
+          doc.unknown);
+        setName(`${doc.name}_${marks.length ? "cleaned" : "again"}`);
+        writeMarked(from, []);
         const k = Number(from.split(":", 1)[0]);
         if (Number.isInteger(k)) setRoot(k);
       },
@@ -213,6 +222,7 @@ export function NewRunPage({ from }: { from?: string }) {
   payloadRef.current = payload;
 
   const problemOf = (key: string) => problems.find((p) => p.key === key)?.message ?? null;
+  const excluded = Array.isArray(values.exclude_views) ? (values.exclude_views as string[]) : [];
 
   // Check each camera's lens type on a few of its photos, one camera at a time.
   const runAdvice = useCallback(async (vals: Values, n: number) => {
@@ -526,6 +536,27 @@ export function NewRunPage({ from }: { from?: string }) {
           </Card>
           )}
 
+          {excluded.length > 0 && (
+            <Card title="Left out of this calibration" aside={`${excluded.length} view${excluded.length === 1 ? "" : "s"}`}>
+              <div className="grid gap-3">
+                <p className="text-sm text-s-muted leading-relaxed">
+                  These photos take no part: they are removed before the target is built and before any lens is fitted. The result records the list.
+                </p>
+                <ul className="flex flex-wrap gap-2">
+                  {excluded.map((k) => (
+                    <li key={k} className="inline-flex items-center gap-1 rounded-full border border-s-line bg-s-sunken pl-3 pr-1 min-h-9 text-sm">
+                      {viewWords(k)}
+                      <button type="button" aria-label={`Put ${viewWords(k)} back`} title="Put it back"
+                        onClick={() => set("exclude_views", excluded.filter((x) => x !== k))}
+                        className="size-7 grid place-items-center rounded-full hover:bg-s-line text-s-muted">×</button>
+                    </li>
+                  ))}
+                </ul>
+                {problemOf("exclude_views") && <div className="text-xs text-s-bad" role="alert">{problemOf("exclude_views")}</div>}
+              </div>
+            </Card>
+          )}
+
           {source === "photos" && hist && hist.runs.length > 0 && (
             <Card title="These photos were calibrated before" aside={`${hist.runs.length} earlier result${hist.runs.length === 1 ? "" : "s"}`}>
               <div className="grid gap-3">
@@ -797,6 +828,7 @@ export function NewRunPage({ from }: { from?: string }) {
                 <Check ok={nCam > 0}>{nCam > 0 ? lensSummary(models, nCam) : "Lens types"}</Check>
                 <Check ok>{production ? "Production checks" : "Standard checks"}</Check>
                 {source === "photos" && hist?.reusable && reuse && <Check ok>Reusing the corners already found</Check>}
+                {excluded.length > 0 && <Check ok>{`${excluded.length} photo${excluded.length === 1 ? "" : "s"} left out`}</Check>}
                 {Object.values(advice).some((a) => a !== "busy" && a.verdict === "misfit") && (
                   <Check ok={false}><span className="text-s-bad font-medium">A lens type does not fit its photos (see step 3)</span></Check>
                 )}

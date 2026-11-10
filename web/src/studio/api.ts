@@ -103,6 +103,8 @@ export interface Acceptance {
   min_camera_coverage?: number;
   coverage?: Record<string, { coverage: number; n_observed: number }> | null;
   rejected_observations?: Record<string, unknown>[];
+  /** Views ("cam:frame" or "cam:frame:board") left out of this calibration on request. */
+  excluded_views?: string[];
   config_warnings?: string[];
   solver?: { final_stage?: string; final_status?: string;
     stages?: { stage: string; status: string; iterations: number; rms: number }[] } | null;
@@ -421,7 +423,7 @@ export const api = {
   importConfig: (text: string) =>
     postJSON<{ values: Values; unknown: string[]; problems: Problem[] }>("api/config/import", { text }),
   configOf: (id: string) =>
-    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string }>(
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string; changed?: boolean }>(
       `api/config?id=${encodeURIComponent(id)}`),
   sourceConfig: (path: string) =>
     getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string }>(

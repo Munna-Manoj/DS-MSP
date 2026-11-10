@@ -84,7 +84,7 @@ function TitleRow({ doc, runId }: { doc: RunDoc; runId: string }) {
             Repeat exactly
           </a>
         )}
-        {doc.has_config && (
+        {(doc.has_config || doc.manifest) && (
           <a href={href({ page: "new", from: runId })}
             className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
             Change settings and run again
