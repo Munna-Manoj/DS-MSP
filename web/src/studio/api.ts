@@ -302,10 +302,48 @@ export interface JobProgress {
   final_rms?: number | null;
 }
 
+export interface RepeatCompare { ok: boolean; reason?: string; same?: boolean; rows?: { what: string; same: boolean }[] }
+
 export interface JobDoc extends JobBrief {
   progress: JobProgress;
   command: string;
   log: string[];
+  /** Set on a job that repeats a result: its id, and once done whether it reproduced it. */
+  repeat_of?: string | null;
+  repeat?: RepeatCompare;
+}
+
+export interface KeypointsScan {
+  path: string;
+  number_camera: number;
+  number_board: number;
+  cameras: { index: number; width: number; height: number; frames: number; sightings: number; boards: number[] }[];
+  pixel_convention: string | null;
+  reused_target: string | null;
+  problems: string[];
+}
+
+export interface IntrinsicsScan {
+  path: string;
+  cameras: { index: number; model: string | null; fx: number; fy: number; cx: number; cy: number;
+    width: number | null; height: number | null }[];
+}
+
+export interface Fingerprint {
+  ok: boolean; reason?: string;
+  run_id?: string; created_utc?: string; configuration_sha256?: string;
+  config_path?: string; overrides?: string[];
+  n_inputs?: number; input_bytes?: number;
+  observations?: { n_corners?: number; n_observations?: number; sha256?: string } | null;
+  software?: { version?: string | null; commit?: string | null; dirty?: boolean | null };
+  python?: string | null;
+  can_repeat?: boolean;
+}
+
+export interface InputCheck {
+  ok: boolean; checked: number; same: boolean;
+  n_missing: number; n_changed: number; n_appeared: number;
+  missing: string[]; changed: string[]; appeared: string[];
 }
 
 /** An error from the API; `problems` names the settings at fault when the server listed them. */
@@ -362,6 +400,14 @@ export const api = {
   configOf: (id: string) =>
     getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string }>(
       `api/config?id=${encodeURIComponent(id)}`),
+  sourceConfig: (path: string) =>
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string }>(
+      `api/source/config?path=${encodeURIComponent(path)}`),
+  sourceKeypoints: (path: string) => getJSON<KeypointsScan>(`api/source/keypoints?path=${encodeURIComponent(path)}`),
+  sourceIntrinsics: (path: string) => getJSON<IntrinsicsScan>(`api/source/intrinsics?path=${encodeURIComponent(path)}`),
+  fingerprint: (id: string) => getJSON<Fingerprint>(`api/run/fingerprint?id=${encodeURIComponent(id)}`),
+  fingerprintCheck: (id: string) => getJSON<InputCheck>(`api/run/fingerprint/check?id=${encodeURIComponent(id)}`),
+  repeatJob: (id: string, root: number, name: string) => postJSON<JobDoc>("api/jobs/repeat", { id, root, name }),
   jobs: () => getJSON<JobBrief[]>("api/jobs"),
   job: (id: string) => getJSON<JobDoc>(`api/job?id=${encodeURIComponent(id)}`),
   startJob: (root: number, name: string, values: Values) =>

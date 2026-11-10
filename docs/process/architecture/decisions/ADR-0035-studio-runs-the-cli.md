@@ -35,6 +35,11 @@ showed up only after a run, the second as `IndexError: list index out of range`.
    route that writes. The process started is always the rig CLI on a file Studio wrote from
    checked values; no request supplies a command.
 8. **A board found in no image is an error that says so,** in the CLI as well as in Studio.
+9. **A repeat is rebuilt from the manifest, not replayed from it.** The recorded config path and
+   overrides are parsed and checked (config under a served root, overrides limited to config
+   keys) and only the output folder is replaced. Its inputs are re-hashed on request, and the
+   finished repeat is compared with the original by the digests and file checksums both
+   manifests hold.
 
 ## Consequences
 
@@ -46,6 +51,8 @@ showed up only after a run, the second as `IndexError: list index out of range`.
 - Photos and results must lie under a `--root` folder. Photos elsewhere need Studio restarted
   with that folder as a root.
 - A job still running when Studio stops is stopped with it and shown as interrupted afterwards.
+- A repeat of the rendered three-camera capture reproduced all five calibration files
+  byte for byte.
 - Not in this decision: pause and resume, a memory estimate before a run, excluding photos
   before a run, export to other formats, and capture guidance.
 

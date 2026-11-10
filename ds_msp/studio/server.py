@@ -321,6 +321,55 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
                 "is_root": folder == rs.paths[k], "images": n_images(folder),
                 "dirs": dirs, "files": files}
 
+    # -- other things a calibration can start from -----------------------------------------
+    def _source(path: str, reader):
+        target = _inside(path)
+        if not target.is_file():
+            raise HTTPException(404, "no such file")
+        try:
+            return reader(target)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @app.get("/api/source/config")
+    def source_config(path: str = Query(...)) -> Dict[str, Any]:
+        from .sources import config_file
+        return _source(path, config_file)
+
+    @app.get("/api/source/keypoints")
+    def source_keypoints(path: str = Query(...)) -> Dict[str, Any]:
+        from .sources import scan_keypoints
+        return _source(path, scan_keypoints)
+
+    @app.get("/api/source/intrinsics")
+    def source_intrinsics(path: str = Query(...)) -> Dict[str, Any]:
+        from .sources import scan_intrinsics
+        return _source(path, scan_intrinsics)
+
+    # -- a result's fingerprint, and repeating it --------------------------------------------
+    @app.get("/api/run/fingerprint")
+    def run_fingerprint(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        from .replay import fingerprint
+        return fingerprint(_folder(id))
+
+    @app.get("/api/run/fingerprint/check")
+    def run_fingerprint_check(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        """Re-hash every input of the run and say which changed. Slow on a large capture."""
+        from .replay import check_inputs
+        return check_inputs(_folder(id))
+
+    @app.post("/api/jobs/repeat")
+    def repeat_job(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        _folder(str(body.get("id")))
+        try:
+            job = _manager().submit_repeat(str(body.get("id")), int(body.get("root", 0)),
+                                           str(body.get("name") or ""))
+        except JobError as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "bad request") from None
+        return _manager().snapshot(job.id, log_lines=0)
+
     # -- setting up a calibration ----------------------------------------------------------
     @app.post("/api/photos/scan")
     def photos_scan(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:

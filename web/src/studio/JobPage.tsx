@@ -89,7 +89,7 @@ export function JobPage({ id }: { id: string }) {
         <div className="ml-auto flex flex-wrap gap-2">
           {active && !confirming && <Button kind="danger" onClick={() => setConfirming(true)}>Cancel</Button>}
           {!active && (
-            <a href={href({ page: "new", from: id })}
+            <a href={href({ page: "new", from: job.repeat_of ?? id })}
               className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
               New calibration with these settings
             </a>
@@ -126,6 +126,27 @@ export function JobPage({ id }: { id: string }) {
           {p.final_rms != null && <>The worst camera's typical error is {num(p.final_rms)} px. </>}
           Open the result to see whether every camera can be trusted.
           {job.exit_code !== 0 && <> The fit to the photos is poor (exit code {job.exit_code}); the result page says why.</>}
+        </Callout>
+      )}
+      {job.repeat_of && (
+        <Callout tone={job.repeat?.ok ? (job.repeat.same ? "ok" : "warn") : "info"}
+          title={!job.repeat ? "This is a repeat of an earlier result"
+            : !job.repeat.ok ? "Could not compare with the original"
+            : job.repeat.same ? "Same calibration as the original" : "The repeat differs from the original"}>
+          {!job.repeat && <>When it finishes, Studio compares its calibration files with the original's.</>}
+          {job.repeat && !job.repeat.ok && <>{job.repeat.reason}</>}
+          {job.repeat?.rows && (
+            <ul className="grid gap-0.5 mt-1 text-xs">
+              {job.repeat.rows.map((r) => (
+                <li key={r.what} className="flex items-center gap-2">
+                  <span className={r.same ? "text-s-ok" : "text-s-bad"} aria-hidden="true">{r.same ? "✓" : "×"}</span>
+                  <span className="font-studio-mono">{r.what}</span>
+                  <span className="text-s-muted">{r.same ? "identical" : "different"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <a href={href({ page: "run", id: job.repeat_of })} className="inline-block mt-2 text-s-accent hover:underline text-xs">Open the original</a>
         </Callout>
       )}
       {job.state === "failed" && (

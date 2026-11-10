@@ -77,12 +77,20 @@ function TitleRow({ doc, runId }: { doc: RunDoc; runId: string }) {
         <div><dt className="inline text-s-faint">Photos </dt><dd className="inline tnum">{int(cap?.n_frames)} frames</dd></div>
         <div><dt className="inline text-s-faint">Lens </dt><dd className="inline">{models.join(", ") || "—"}</dd></div>
       </dl>
-      {doc.has_config && (
-        <a href={href({ page: "new", from: runId })}
-          className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
-          New calibration with these settings
-        </a>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {doc.manifest && (
+          <a href={href({ page: "repeat", id: runId })}
+            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+            Repeat exactly
+          </a>
+        )}
+        {doc.has_config && (
+          <a href={href({ page: "new", from: runId })}
+            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+            Change settings and run again
+          </a>
+        )}
+      </div>
     </div>
   );
 }

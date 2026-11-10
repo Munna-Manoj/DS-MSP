@@ -147,6 +147,17 @@ A result on its own capture (FR-UI-009):
 - `GET /api/run/task?id=&a=&b=&distance=&pixel_noise=`: 1-sigma uncertainty, sideways and in
   depth, of a point the two cameras triangulate, and the same over a range of distances.
 
+Other starting points and repeats (FR-UI-010):
+
+- `GET /api/source/config?path=`, `/api/source/keypoints?path=`, `/api/source/intrinsics?path=`:
+  a `calib_param.yml` on disk as form values, and summaries of a saved-detections file and of
+  a lens file. The path must lie under a root.
+- `GET /api/run/fingerprint?id=`: what the run's manifest records. `GET
+  /api/run/fingerprint/check?id=` re-hashes its inputs and lists those that changed.
+- `POST /api/jobs/repeat` `{id, root, name}`: runs the recorded config and overrides into a new
+  folder. The job's document then carries `repeat_of` and, once done, `repeat` (`same` and one
+  row per compared digest or file).
+
 Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
 
 - `GET /api/browse?ref=`: one folder under the roots, with its subfolders (image count, whether

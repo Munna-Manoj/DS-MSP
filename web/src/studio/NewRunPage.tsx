@@ -1,14 +1,15 @@
 // Set up a calibration and start it. The form holds only the settings the user changed; the
 // server writes them as calib_param.yml into a new result folder and runs the rig CLI on it,
 // so a run started here and the same file run from a terminal are the same calibration.
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { href } from "../router";
 import {
-  api, ApiError, type BoardCheck, type ConfigCheck, type ConfigSchema, type Problem,
-  type ScanDoc, type SchemaProp, type Values,
+  api, ApiError, type BoardCheck, type ConfigCheck, type ConfigSchema, type IntrinsicsScan,
+  type KeypointsScan, type Problem, type RunSummary, type ScanDoc, type SchemaProp, type Values,
 } from "./api";
 import { FolderPicker } from "./FolderPicker";
-import { int } from "./format";
+import { int, num, when } from "./format";
 import { Badge, Button, Callout, Card, ErrorBox, Field, INPUT, Loading, Note } from "./ui";
 
 const LENSES: { id: string; label: string; hint: string }[] = [
@@ -23,11 +24,20 @@ const LENSES: { id: string; label: string; hint: string }[] = [
 const PLACED = new Set([
   "root_path", "cam_prefix", "number_camera", "camera_models", "number_x_square",
   "number_y_square", "square_size", "number_board", "profile", "max_rotation_sigma_deg",
-  "max_centre_sigma", "save_path", "webviewer",
+  "max_centre_sigma", "save_path", "webviewer", "keypoints_path", "cam_params_path", "fix_intrinsic",
 ]);
-const FILE_KEYS = new Set(["cam_params_path", "keypoints_path", "object_path", "accuracy_profile_path"]);
+const FILE_KEYS = new Set(["object_path", "accuracy_profile_path"]);
 
+// A picker either fills one setting, or loads a whole starting point ("@config", ...).
 type Picker = { mode: "folder" | "file"; key: string; title: string } | null;
+type Source = "photos" | "config" | "detections" | "result";
+
+const SOURCES: { id: Source; title: string; text: string }[] = [
+  { id: "photos", title: "Photos", text: "A folder of calibration photos, one subfolder per camera." },
+  { id: "config", title: "A config file", text: "A calib_param.yml from DS-MSP or MC-Calib. It fills in everything it sets." },
+  { id: "detections", title: "Saved detections", text: "A detected_keypoints_data.yml from an earlier run. The photos are not read again." },
+  { id: "result", title: "A finished result", text: "Repeat a calibration exactly, or change one thing and run it again." },
+];
 
 function defaultName(): string {
   const d = new Date();
@@ -55,6 +65,12 @@ export function NewRunPage({ from }: { from?: string }) {
   const [boardBusy, setBoardBusy] = useState(false);
   const [boardError, setBoardError] = useState<string | null>(null);
   const [picker, setPicker] = useState<Picker>(null);
+  const [source, setSource] = useState<Source>("photos");
+  const [kp, setKp] = useState<KeypointsScan | null>(null);
+  const [lens, setLens] = useState<IntrinsicsScan | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [results, setResults] = useState<RunSummary[] | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [name, setName] = useState(defaultName);
   const [root, setRoot] = useState(0);
   const [roots, setRoots] = useState<{ name: string; path: string }[]>([]);
@@ -103,6 +119,42 @@ export function NewRunPage({ from }: { from?: string }) {
     );
   }, []);
 
+  const loadDetections = useCallback((path: string) => {
+    setFileError(null);
+    api.sourceKeypoints(path).then(
+      (doc) => {
+        setKp(doc);
+        setScan(null);
+        setBoard(null);
+        setValues((old) => {
+          const next: Values = { ...old, keypoints_path: doc.path, number_camera: doc.number_camera };
+          delete next.root_path;
+          delete next.cam_prefix;
+          if (doc.number_board > 1) next.number_board = doc.number_board;
+          return next;
+        });
+        setModels((old) => Array.from({ length: doc.number_camera }, (_, k) => old[k] ?? old[0] ?? "radtan"));
+      },
+      (e: Error) => { setKp(null); setFileError(e.message); },
+    );
+  }, []);
+
+  const loadLens = useCallback((path: string) => {
+    setFileError(null);
+    api.sourceIntrinsics(path).then(
+      (doc) => {
+        setLens(doc);
+        setValues((old) => ({ ...old, cam_params_path: doc.path }));
+        // the file states each lens type: take them, so the choice below matches the file
+        setModels((old) => {
+          const n = Math.max(old.length, doc.cameras.length);
+          return Array.from({ length: n }, (_, k) => doc.cameras.find((c) => c.index === k)?.model ?? old[k] ?? "radtan");
+        });
+      },
+      (e: Error) => { setLens(null); setFileError(e.message); },
+    );
+  }, []);
+
   // Fill the form from settings read out of a file or an earlier run.
   const adopt = useCallback((incoming: Values, label: string, ignored: string[]) => {
     const next: Values = { ...incoming };
@@ -116,10 +168,16 @@ export function NewRunPage({ from }: { from?: string }) {
     setBoard(null);
     setProblems([]);
     setPreview(null);
+    setKp(null);
+    setLens(null);
     setNotice(`${label}${ignored.length ? ` Keys DS-MSP does not use were left out: ${ignored.join(", ")}.` : ""}`);
-    if (typeof next.root_path === "string" && next.root_path)
+    const detections = typeof next.keypoints_path === "string" && next.keypoints_path !== "";
+    setSource(detections ? "detections" : "photos");
+    if (detections) loadDetections(next.keypoints_path as string);
+    else if (typeof next.root_path === "string" && next.root_path)
       runScan(next.root_path, typeof next.cam_prefix === "string" ? next.cam_prefix : undefined);
-  }, [runScan]);
+    if (typeof next.cam_params_path === "string" && next.cam_params_path) loadLens(next.cam_params_path);
+  }, [runScan, loadDetections, loadLens]);
 
   useEffect(() => {
     api.health().then((h) => setCanRun(h.can_run !== false), () => undefined);
@@ -157,6 +215,30 @@ export function NewRunPage({ from }: { from?: string }) {
       const k = Number(ref.split(":", 1)[0]);
       if (Number.isInteger(k)) setRoot(k);
       runScan(path);
+    }
+  }
+
+  function pickFile(path: string) {
+    const key = picker?.key ?? "";
+    setPicker(null);
+    if (key === "@config") {
+      api.sourceConfig(path).then(
+        (doc) => adopt(doc.values, `Settings loaded from ${doc.path}.`, doc.unknown),
+        (e: Error) => setFileError(e.message),
+      );
+    } else if (key === "@detections") loadDetections(path);
+    else if (key === "@lens") loadLens(path);
+    else set(key, path);
+  }
+
+  function chooseSource(next: Source) {
+    setSource(next);
+    setFileError(null);
+    if (next === "result" && results == null) api.runs().then(setResults, () => setResults([]));
+    if (next === "photos" && kp) {                 // back from detections to photos
+      setKp(null);
+      setValues((old) => { const v = { ...old }; delete v.keypoints_path; delete v.number_camera; return v; });
+      setModels([]);
     }
   }
 
@@ -232,7 +314,22 @@ export function NewRunPage({ from }: { from?: string }) {
   const blocking = scan?.problems ?? [];
 
   return (
-    <Page>
+    <Page
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f && /\.(ya?ml|txt)$/i.test(f.name)) importFile(f);
+        else if (f) setFileError(`${f.name} is not a .yml file. Drop a calib_param.yml here; choose detections and lens files with Browse, so the calibration can read them from disk.`);
+      }}
+    >
+      {dragging && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-s-accent/20 pointer-events-none" aria-hidden="true">
+          <div className="rounded-xl bg-s-surface border-2 border-dashed border-s-accent px-8 py-6 text-lg font-semibold">Drop the calib_param.yml to load it</div>
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-4">
         <div className="grid gap-1 min-w-0">
           <a href={href({ page: "runs" })} className="text-xs text-s-accent hover:underline">← All results</a>
@@ -242,25 +339,109 @@ export function NewRunPage({ from }: { from?: string }) {
             cameras have. Everything else has a default.
           </p>
         </div>
-        <div className="ml-auto">
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".yml,.yaml,.txt"
-            className="sr-only"
-            aria-label="Load settings from a calib_param.yml file"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }}
-          />
-          <Button onClick={() => fileInput.current?.click()}>Load a calib_param.yml</Button>
-        </div>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".yml,.yaml,.txt"
+          className="sr-only"
+          aria-label="Load settings from a calib_param.yml file on your own computer"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }}
+        />
       </div>
 
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium mb-2">What are you starting from?</legend>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {SOURCES.map((o) => {
+            const on = source === o.id;
+            return (
+              <label key={o.id}
+                className={`rounded-lg border p-3 cursor-pointer grid gap-1 content-start ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:bg-s-sunken"}`}>
+                <span className="flex items-center gap-2 font-medium text-sm">
+                  <input type="radio" name="source" checked={on} onChange={() => chooseSource(o.id)} />
+                  {o.title}
+                </span>
+                <span className="text-xs text-s-muted leading-relaxed">{o.text}</span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
       {notice && <Callout tone="info">{notice}</Callout>}
+      {fileError && <ErrorBox title="Could not use that file" detail={fileError} />}
+
+      {source === "config" && (
+        <Card title="Load a config file">
+          <div className="grid gap-3">
+            <Note>
+              Every setting in the file is filled in below, and you can change any of them before
+              starting. Paths written relative to the file are resolved against its own folder.
+            </Note>
+            <div className="flex flex-wrap gap-2">
+              <Button kind="primary" onClick={() => setPicker({ mode: "file", key: "@config", title: "Choose a calib_param.yml" })}>
+                Choose a file on this computer
+              </Button>
+              <Button onClick={() => fileInput.current?.click()}>Upload one from my device</Button>
+            </div>
+            <Note>You can also drop a <Mono>.yml</Mono> file anywhere on this page.</Note>
+          </div>
+        </Card>
+      )}
+
+      {source === "result" && (
+        <Card title="Start from a finished result" aside={results ? `${results.length} here` : undefined}>
+          {!results && <Loading what="results" />}
+          {results && results.length === 0 && <Note>No results under the folders Studio was started with.</Note>}
+          {results && results.length > 0 && (
+            <ul className="grid divide-y divide-s-line">
+              {results.slice(0, 40).map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
+                  <div className="min-w-0 mr-auto">
+                    <div className="font-medium text-sm break-all">{r.path || r.name}</div>
+                    <div className="text-xs text-s-muted">{when(r.created_utc)} · {int(r.n_cameras)} cameras · {(r.models ?? []).join(", ") || "—"}</div>
+                  </div>
+                  <a href={href({ page: "repeat", id: r.id })} className="inline-flex items-center rounded-md px-3 min-h-9 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">Repeat exactly</a>
+                  <a href={href({ page: "new", from: r.id })} className="inline-flex items-center rounded-md px-3 min-h-9 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">Change settings</a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
         <div className="grid gap-5 min-w-0">
           {/* 1 ---------------------------------------------------------------------------- */}
-          <Card title="1. Photos" aside={usesKeypoints ? "using saved corner detections" : undefined}>
+          {source === "detections" ? (
+            <Card title="1. Saved detections">
+              <div className="grid gap-3">
+                <Field htmlFor="keypoints_path" label="Detections file" problem={problemOf("keypoints_path")}
+                  help={<>The <Mono>detected_keypoints_data.yml</Mono> an earlier calibration wrote. The corners in it are used as they are, so the photos are not needed.</>}>
+                  <div className="flex gap-2">
+                    <input id="keypoints_path" className={`${INPUT} font-studio-mono text-xs`} readOnly placeholder="No file chosen"
+                      value={typeof values.keypoints_path === "string" ? values.keypoints_path : ""} />
+                    <Button kind={kp ? "secondary" : "primary"} onClick={() => setPicker({ mode: "file", key: "@detections", title: "Choose a detections file" })}>Browse</Button>
+                  </div>
+                </Field>
+                {kp && (
+                  <Callout tone={kp.problems.length ? "warn" : "ok"}
+                    title={`${kp.number_camera} camera${kp.number_camera === 1 ? "" : "s"}, ${int(kp.cameras.reduce((a, c) => a + c.sightings, 0))} board views`}>
+                    {kp.number_board > 1 ? `${kp.number_board} boards. ` : ""}Set the board below exactly as it was when these corners were found.
+                  </Callout>
+                )}
+                {kp?.problems.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
+                {kp?.reused_target && Number(values.number_board ?? 1) > 1 && (
+                  <Callout tone="warn" title="A saved target sits next to this file">
+                    A calibration with several boards will load <Mono>{kp.reused_target}</Mono> instead of
+                    rebuilding the target from these detections. Move the detections file to an empty
+                    folder if you want the target rebuilt.
+                  </Callout>
+                )}
+              </div>
+            </Card>
+          ) : (
+          <Card title="1. Photos">
             <div className="grid gap-3">
               <Field
                 htmlFor="root_path"
@@ -289,6 +470,7 @@ export function NewRunPage({ from }: { from?: string }) {
               {blocking.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
             </div>
           </Card>
+          )}
 
           {/* 2 ---------------------------------------------------------------------------- */}
           <Card title="2. Calibration board" aside="ChArUco, 6×6 markers">
@@ -309,10 +491,10 @@ export function NewRunPage({ from }: { from?: string }) {
             </div>
             <div className="mt-4 grid gap-3">
               <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={runBoardCheck} busy={boardBusy} disabled={!rootPath || !scan?.number_camera}>
+                <Button onClick={runBoardCheck} busy={boardBusy} disabled={source === "detections" || !rootPath || !scan?.number_camera}>
                   Look for this board in my photos
                 </Button>
-                <span className="text-xs text-s-muted">Tries a few photos per camera. Takes a few seconds.</span>
+                <span className="text-xs text-s-muted">{source === "detections" ? "Needs photos: with saved detections the board is not looked for again." : "Tries a few photos per camera. Takes a few seconds."}</span>
               </div>
               {boardError && <ErrorBox title="Could not check the board" detail={boardError} />}
               {board && (
@@ -332,20 +514,8 @@ export function NewRunPage({ from }: { from?: string }) {
 
           {/* 3 ---------------------------------------------------------------------------- */}
           <Card title="3. Cameras" aside={nCam ? `${nCam} in the rig` : undefined}>
-            {!scan?.number_camera && (
-              <div className="grid gap-3 sm:max-w-xs">
-                {usesKeypoints ? (
-                  <NumberField id="number_camera" label="Number of cameras" value={values.number_camera}
-                    prop={props.number_camera} problem={problemOf("number_camera")}
-                    onChange={(k, v) => {
-                      set(k, v);
-                      const n = Number(v) || 0;
-                      setModels((old) => Array.from({ length: n }, (_, i) => old[i] ?? old[0] ?? "radtan"));
-                    }} />
-                ) : (
-                  <Note>Choose the photo folder first: the cameras are read from it.</Note>
-                )}
-              </div>
+            {nCam === 0 && (
+              <Note>{source === "detections" ? "Choose the detections file first: the cameras are read from it." : "Choose the photo folder first: the cameras are read from it."}</Note>
             )}
             {nCam > 0 && (
               <div className="grid gap-3">
@@ -371,7 +541,8 @@ export function NewRunPage({ from }: { from?: string }) {
                     </thead>
                     <tbody>
                       {Array.from({ length: nCam }, (_, k) => {
-                        const c = scan?.cameras[k];
+                        const d = kp?.cameras.find((x) => x.index === k);
+                        const c = scan?.cameras[k] ?? (d ? { folder: `camera ${k}`, images: d.frames, width: d.width, height: d.height } : undefined);
                         return (
                           <tr key={k} className="border-b border-s-line last:border-0">
                             <td className="px-3 py-2 font-studio-mono text-xs">{c?.folder ?? `camera ${k}`}</td>
@@ -397,6 +568,47 @@ export function NewRunPage({ from }: { from?: string }) {
                   </table>
                 </div>
                 {problemOf("camera_models") && <div className="text-xs text-s-bad" role="alert">{problemOf("camera_models")}</div>}
+                <div className="rounded-lg border border-s-line p-3 grid gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="mr-auto min-w-0">
+                      <div className="text-sm font-medium">Lens values I already have</div>
+                      <div className="text-xs text-s-muted leading-relaxed">
+                        A lens file from an earlier calibration or the factory (<Mono>calibrated_cameras_data.yml</Mono> format). Optional.
+                      </div>
+                    </div>
+                    {lens && <Button kind="quiet" onClick={() => { setLens(null); set("cam_params_path", ""); set("fix_intrinsic", ""); }}>Remove</Button>}
+                    <Button onClick={() => setPicker({ mode: "file", key: "@lens", title: "Choose a lens file" })}>{lens ? "Change" : "Browse"}</Button>
+                  </div>
+                  {lens && (
+                    <>
+                      <ul className="grid gap-0.5 text-xs text-s-muted tnum">
+                        {lens.cameras.slice(0, 12).map((c) => (
+                          <li key={c.index}><Mono>camera {c.index}</Mono>: {c.model ?? "lens type not stated"}, focal {num(c.fx, 1)} px, centre {num(c.cx, 1)}, {num(c.cy, 1)}</li>
+                        ))}
+                        {lens.cameras.length > 12 && <li>and {lens.cameras.length - 12} more</li>}
+                      </ul>
+                      {lens.cameras.length < nCam && <Callout tone="warn">The file has {lens.cameras.length} of {nCam} cameras. The others are worked out from the photos.</Callout>}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {[
+                          { v: false, title: "Start from them and refine", text: "The lenses are adjusted to fit these photos. The lens type of each camera can still be changed above." },
+                          { v: true, title: "Keep them fixed", text: "Only the camera positions are worked out. Needs every camera in the file, with the lens type the file states." },
+                        ].map((o) => {
+                          const on = (values.fix_intrinsic === true) === o.v;
+                          return (
+                            <label key={o.title} className={`rounded-lg border p-3 cursor-pointer grid gap-1 ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line hover:bg-s-sunken"}`}>
+                              <span className="flex items-center gap-2 font-medium text-sm">
+                                <input type="radio" name="fix_intrinsic" checked={on} onChange={() => set("fix_intrinsic", o.v ? true : "")} />
+                                {o.title}
+                              </span>
+                              <span className="text-xs text-s-muted leading-relaxed">{o.text}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {problemOf("fix_intrinsic") && <div className="text-xs text-s-bad" role="alert">{problemOf("fix_intrinsic")}</div>}
+                    </>
+                  )}
+                </div>
                 <details className="text-sm">
                   <summary className="cursor-pointer text-s-accent">Which lens type should I pick?</summary>
                   <ul className="mt-2 grid gap-1 text-s-muted">
@@ -465,7 +677,7 @@ export function NewRunPage({ from }: { from?: string }) {
               )}
               {roots.length === 1 && <div className="text-xs text-s-muted break-all">Saved in <Mono>{roots[0].path}</Mono></div>}
               <ul className="grid gap-1.5 text-sm">
-                <Check ok={photosReady}>{photosReady ? `${nCam} camera${nCam === 1 ? "" : "s"}` : "Choose the photo folder"}</Check>
+                <Check ok={photosReady}>{photosReady ? `${nCam} camera${nCam === 1 ? "" : "s"}${usesKeypoints ? ", from saved detections" : ""}` : source === "detections" ? "Choose the detections file" : "Choose the photo folder"}</Check>
                 <Check ok>{`Board ${nx} × ${ny}, squares of ${sq}`}</Check>
                 <Check ok={nCam > 0}>{nCam > 0 ? lensSummary(models, nCam) : "Lens types"}</Check>
                 <Check ok>{production ? "Production checks" : "Standard checks"}</Check>
@@ -481,7 +693,7 @@ export function NewRunPage({ from }: { from?: string }) {
               <Button kind="primary" onClick={start} busy={starting} disabled={!ready} className="min-h-11">
                 Start calibration
               </Button>
-              {!ready && !scanning && <Note>{photosReady ? "Give the calibration a name." : "Choose the folder with the photos to continue."}</Note>}
+              {!ready && !scanning && <Note>{photosReady ? "Give the calibration a name." : source === "detections" ? "Choose the detections file to continue." : "Choose the folder with the photos to continue."}</Note>}
             </div>
           </Card>
 
@@ -514,14 +726,14 @@ export function NewRunPage({ from }: { from?: string }) {
 
       {picker && (
         <FolderPicker mode={picker.mode} title={picker.title} onClose={() => setPicker(null)}
-          onPick={(path, ref) => (picker.mode === "folder" ? pickFolder(path, ref) : (setPicker(null), set(picker.key, path)))} />
+          onPick={(path, ref) => (picker.mode === "folder" ? pickFolder(path, ref) : pickFile(path))} />
       )}
     </Page>
   );
 }
 
-function Page({ children }: { children: ReactNode }) {
-  return <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 grid gap-5">{children}</main>;
+function Page({ children, ...drop }: { children: ReactNode } & Pick<React.HTMLAttributes<HTMLElement>, "onDragOver" | "onDragLeave" | "onDrop">) {
+  return <main {...drop} className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 grid gap-5">{children}</main>;
 }
 
 function Mono({ children }: { children: ReactNode }) {

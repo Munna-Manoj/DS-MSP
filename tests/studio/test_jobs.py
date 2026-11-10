@@ -177,3 +177,48 @@ def test_names_and_log_reading(tmp_path):
         "Calibration failed: non-finite cost"
     assert error_headline(["nothing here"]) is None
     assert jobs_mod.ACTIVE == ("queued", "running")
+
+
+@pytest.mark.req("FR-UI-010")
+def test_a_result_is_repeated_from_its_fingerprint(keypoints, tmp_path):
+    """Check the inputs against the manifest, repeat the run into a new folder, and get the same
+    calibration files; a changed input is named, not silently used."""
+    from ds_msp.studio import replay
+
+    root, values = keypoints
+    c = TestClient(create_app([str(root)]))
+    first = c.post("/api/jobs", headers=SEND, json={"root": 0, "name": "original", "values": values}).json()
+    _wait(lambda: c.get("/api/job", params={"id": first["id"]}).json(), lambda d: d["state"] == "done")
+
+    fp = c.get("/api/run/fingerprint", params={"id": "0:original"}).json()
+    assert fp["ok"] and fp["can_repeat"] and fp["n_inputs"] >= 2
+    assert fp["config_path"].endswith("original/calib_param.yml") and len(fp["run_id"]) >= 8
+    check = c.get("/api/run/fingerprint/check", params={"id": "0:original"}).json()
+    assert check["same"] and check["checked"] == fp["n_inputs"]
+
+    again = c.post("/api/jobs/repeat", headers=SEND, json={"id": "0:original", "root": 0, "name": "repeat"})
+    assert again.status_code == 200, again.text
+    assert again.json()["repeat_of"] == "0:original"
+    done = _wait(lambda: c.get("/api/job", params={"id": "0:repeat"}).json(), lambda d: d["state"] not in ("queued", "running"))
+    assert done["state"] == "done", done["log"][-5:]
+    assert done["repeat"]["ok"] and done["repeat"]["same"], done["repeat"]
+    names = {r["what"] for r in done["repeat"]["rows"]}
+    assert {"corner detections used", "target used", "calibrated_cameras_data.yml"} <= names
+    assert "--set save_path=" in done["command"] and "original/calib_param.yml" in done["command"]
+
+    # an input that changed since is reported by name
+    kp = root / "capture" / "detected_keypoints_data.yml"
+    text = kp.read_text()
+    try:
+        kp.write_text(text + "\n# edited\n")
+        changed = replay.check_inputs(root / "original")
+        assert not changed["same"] and changed["changed"] == [str(kp)]
+    finally:
+        kp.write_text(text)
+
+    # what a manifest may ask the CLI to do is checked, not passed through
+    with pytest.raises(ValueError, match="outside the folders"):
+        replay.replay_command(root / "original", tmp_path / "x", [tmp_path])
+    bad = c.post("/api/jobs/repeat", headers=SEND, json={"id": "0:original", "root": 0, "name": "repeat"})
+    assert bad.status_code == 400 and "already exists" in bad.json()["detail"]
+    assert replay.fingerprint(root / "capture")["ok"] is False

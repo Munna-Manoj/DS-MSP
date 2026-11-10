@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -75,6 +76,7 @@ class Job:
     exit_code: Optional[int] = None
     error: Optional[str] = None
     pid: Optional[int] = None
+    repeat_of: Optional[str] = None      # id of the result this job repeats, if it is a repeat
     folder: Path = field(default=Path("."), repr=False, compare=False)
 
     def record(self) -> Dict[str, Any]:
@@ -244,18 +246,11 @@ class JobManager:
                 "yaml": configio.render_config(clean), "values": clean}
 
     def submit(self, root: int, name: str, values: Dict[str, Any], parent: str = "") -> Job:
-        if not 0 <= int(root) < len(self.roots):
-            raise JobError("Unknown folder.", [{"key": "root", "message": "is not a served folder"}])
-        base = (self.roots[int(root)] / parent).resolve()
-        if base != self.roots[int(root)] and self.roots[int(root)] not in base.parents:
-            raise JobError("Unknown folder.", [{"key": "parent", "message": "is outside the roots"}])
-        folder = base / folder_name(name)
+        folder_name(name)                                # a bad name is reported first
         checked = self.prepare(values)
         if not checked["ok"]:
             raise JobError("The settings have problems.", checked["problems"])
-        if folder.exists():
-            raise JobError(f"A folder named {folder.name} already exists there. Pick another name.",
-                           [{"key": "name", "message": "already exists"}])
+        folder = self._target(root, name, parent)
         clean = dict(checked["values"])
         clean["save_path"] = str(folder) + os.sep
         folder.mkdir(parents=True)
@@ -266,10 +261,45 @@ class JobManager:
             config.unlink()
             folder.rmdir()
             raise JobError(loaded["error"], [{"key": "", "message": loaded["error"]}])
-        command = [self.python, "-m", "ds_msp.rig.cli", "--config", str(config),
+        return self._enqueue(folder, ["--config", str(config)])
+
+    def _target(self, root: int, name: str, parent: str = "") -> Path:
+        """The new result folder for a job: under a served root, named ``name``, not there yet."""
+        if not 0 <= int(root) < len(self.roots):
+            raise JobError("Unknown folder.", [{"key": "root", "message": "is not a served folder"}])
+        base = (self.roots[int(root)] / parent).resolve()
+        if base != self.roots[int(root)] and self.roots[int(root)] not in base.parents:
+            raise JobError("Unknown folder.", [{"key": "parent", "message": "is outside the roots"}])
+        folder = base / folder_name(name)
+        if folder.exists():
+            raise JobError(f"A folder named {folder.name} already exists there. Pick another name.",
+                           [{"key": "name", "message": "already exists"}])
+        return folder
+
+    def submit_repeat(self, original_id: str, root: int, name: str) -> Job:
+        """Repeat the calibration of result ``original_id`` into a new folder, from the
+        configuration and inputs its manifest records (:mod:`ds_msp.studio.replay`)."""
+        from . import replay
+
+        k_str, _sep, rel = original_id.partition(":")
+        if not k_str.isdigit() or int(k_str) >= len(self.roots):
+            raise JobError("Unknown result.", [{"key": "id", "message": "is not a result here"}])
+        original = (self.roots[int(k_str)] / rel).resolve()
+        if not any(original == r or r in original.parents for r in self.roots):
+            raise JobError("Unknown result.", [{"key": "id", "message": "is not a result here"}])
+        folder = self._target(root, name)
+        try:
+            args = replay.replay_command(original, folder, self.roots)
+        except ValueError as exc:
+            raise JobError(f"This result cannot be repeated: {exc}.") from None
+        folder.mkdir(parents=True)
+        return self._enqueue(folder, args, repeat_of=original_id)
+
+    def _enqueue(self, folder: Path, cli_args: List[str], repeat_of: Optional[str] = None) -> Job:
+        command = [self.python, "-m", "ds_msp.rig.cli", *cli_args,
                    "--no-webviewer", "--progress-file", str(folder / PROGRESS_FILE)]
         job = Job(id=self._id(folder), name=folder.name, state="queued", created_utc=_now(),
-                  command=command, folder=folder)
+                  command=command, repeat_of=repeat_of, folder=folder)
         job.save()
         with self._lock:
             self._jobs[job.id] = job
@@ -387,9 +417,24 @@ class JobManager:
             doc = self._brief(job, waiting)
             reader = self._progress.setdefault(job_id, _Progress(job.folder / PROGRESS_FILE))
             doc["progress"] = dict(reader.update())
-        doc["command"] = configio.cli_command(str(job.folder / configio.CONFIG_NAME))
+        doc["command"] = self._terminal_command(job)
         doc["log"] = log_tail(job.folder / LOG_FILE, max_lines=log_lines)
+        if job.repeat_of and job.state == "done":
+            from . import replay
+            k_str, _sep, rel = job.repeat_of.partition(":")
+            doc["repeat"] = replay.compare((self.roots[int(k_str)] / rel).resolve(), job.folder)
         return doc
+
+    @staticmethod
+    def _terminal_command(job: Job) -> str:
+        """The same calibration as a terminal command: the job's own arguments without the two
+        Studio adds to follow it."""
+        args = list(job.command[3:])
+        if "--progress-file" in args:
+            k = args.index("--progress-file")
+            del args[k:k + 2]
+        args = [a for a in args if a != "--no-webviewer"]
+        return "ds-msp-calibrate-rig " + shlex.join(args)
 
 
 def _stop(proc: subprocess.Popen, grace: float = 5.0) -> None:
