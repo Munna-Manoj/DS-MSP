@@ -60,6 +60,12 @@ The steps below describe starting from photos.
    shows a whole board, it says so and you count the squares yourself. Then enter the size of
    one square and its unit; the drawing marks the square to measure. Studio looks for the board
    in a few photos of each camera and draws every corner it finds on them.
+   The same button measures how wide a marker is against its square. Most boards are printed at
+   75 %. When your photos show another value, Studio says so under the button and offers to set
+   it; it changes nothing by itself. Under **My board was not printed with the usual settings**
+   a close-up drawing of one square shows both lengths: drag the slider until it looks like
+   your board, or type the width of one marker as measured with a ruler. A wrong value does not
+   stop the calibration: the corners are still found, but off their true place.
    For a target of several boards, set how many are fixed together. If they differ, switch off
    **All boards are printed the same** and each board gets its own row.
    **Is your board really flat?** Choose *It may be slightly bowed* for a board on paper, foam

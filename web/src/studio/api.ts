@@ -276,6 +276,10 @@ export interface BoardGuess {
   ok: boolean; number_x_square: number | null; number_y_square: number | null;
   /** How many different boards appeared in the photos that were read. */
   boards_seen: number; markers: number; photos: number; message: string;
+  /** Marker width over square width as measured in the photos; null when they do not settle it. */
+  marker_fill?: number | null;
+  /** How many pairs of touching markers the measurement rests on. */
+  marker_fill_pairs?: number;
 }
 
 export interface ConfigCheck {

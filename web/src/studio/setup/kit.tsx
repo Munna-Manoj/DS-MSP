@@ -85,10 +85,14 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
 }
 
 /** A number chosen on a slider, shown large with its unit; `words` says what the value means. */
-export function Range({ id, value, min, max, step, unit, format, words, onChange, ends }: {
+export function Range({ id, value, min, max, step, unit, format, words, onChange, ends, marks }: {
   id: string; value: number; min: number; max: number; step: number; unit?: string;
   format?: (v: number) => string; words?: ReactNode; onChange: (v: number) => void; ends?: [string, string];
+  /** Values worth pointing at on the track, each with a short name. */
+  marks?: { at: number; label: string; tone?: "plain" | "info" }[];
 }) {
+  // the thumb is 16 px wide, so the track's values run from 8 px to 8 px short of the end
+  const place = (at: number) => `calc(8px + (100% - 16px) * ${Math.min(1, Math.max(0, (at - min) / (max - min)))})`;
   return (
     <div className="grid gap-1.5">
       <div className="flex items-baseline gap-2">
@@ -98,6 +102,19 @@ export function Range({ id, value, min, max, step, unit, format, words, onChange
       </div>
       <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
         className="w-full h-2 accent-s-accent cursor-pointer" />
+      {marks && marks.length > 0 && (
+        <div className="relative h-12">
+          {marks.map((m) => (
+            <button key={m.label} type="button" onClick={() => onChange(m.at)} title={`Set to ${format ? format(m.at) : m.at}${unit ? ` ${unit}` : ""}`}
+              className={`absolute top-0 -translate-x-1/2 grid justify-items-center gap-0.5 text-[13px] font-medium leading-tight cursor-pointer hover:underline ${m.tone === "info" ? "text-s-info" : "text-s-muted"}`}
+              style={{ left: place(m.at) }}>
+              {/* a finding sits one line lower, so that it never covers a plain mark next to it */}
+              <span className={`block w-0.5 ${m.tone === "info" ? "h-7 bg-s-info" : "h-2 bg-s-faint"}`} />
+              <span className="whitespace-nowrap">{m.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {ends && <div className="flex justify-between text-[13px] text-s-faint"><span>{ends[0]}</span><span>{ends[1]}</span></div>}
     </div>
   );

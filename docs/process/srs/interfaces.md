@@ -184,6 +184,9 @@ Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read
 - `POST /api/photos/find-board` `{values}`: reads the board size from the ArUco markers in about
   48 photos: `ok`, `number_x_square`, `number_y_square`, `boards_seen`, `markers`, `photos`,
   `message`. `ok` is false when no whole board is seen at least twice; the size is not guessed.
+  `marker_fill` is the marker width over the square width measured in the same photos, from
+  `marker_fill_pairs` pairs of markers that touch at a corner; it is `null` below 20 pairs or
+  when the readings disagree, and is given whether or not the size was settled.
 - `GET /api/photos/thumb?path=&cam=&photo=&prefix=`: one photo of one camera of a photo folder
   under a root, as a JPEG at most 640 pixels wide.
 - `POST /api/photos/check-board` `{values}`: detects the configured board in up to 4 photos per

@@ -196,7 +196,7 @@ def test_read_only_studio_has_no_setup_or_runs(tmp_path):
     assert r.status_code == 403 and "read-only" in r.json()["detail"]
 
 
-def _board_photo(n_x, n_y, *, offset=0, size=(960, 720), bend=0.0, seed=0):
+def _board_photo(n_x, n_y, *, offset=0, size=(960, 720), bend=0.0, seed=0, fill=0.75):
     """A photo of an ``n_x`` by ``n_y`` ChArUco board: tilted, and with ``bend`` > 0 pulled
     through a strong barrel distortion like a fisheye lens."""
     import cv2
@@ -204,7 +204,7 @@ def _board_photo(n_x, n_y, *, offset=0, size=(960, 720), bend=0.0, seed=0):
 
     from ds_msp.detect.charuco import _DICT, BoardSpec, _make_board
 
-    board = _make_board(BoardSpec(n_x, n_y, 0.04, 0.03, 1.0), cv2.aruco.getPredefinedDictionary(_DICT),
+    board = _make_board(BoardSpec(n_x, n_y, 0.04, 0.04 * fill, 1.0), cv2.aruco.getPredefinedDictionary(_DICT),
                         offset, True)
     cell = 60
     flat = board.generateImage((n_x * cell, n_y * cell), marginSize=0)
@@ -239,6 +239,42 @@ def test_board_size_is_read_from_the_markers(tmp_path, n_x, n_y, bend):
         cv2.imwrite(str(cam / f"{k:04d}.png"), _board_photo(n_x, n_y, bend=bend, seed=k))
     out = find_board(str(tmp_path), {"number_camera": 1})
     assert out["ok"] and (out["number_x_square"], out["number_y_square"]) == (n_x, n_y), out
+
+
+@pytest.mark.req("FR-UI-015")
+@pytest.mark.parametrize("fill", [0.5, 0.6, 0.75, 0.9])
+@pytest.mark.parametrize("bend", [0.0, 0.45])
+def test_marker_width_is_measured_from_the_photos(tmp_path, fill, bend):
+    """The ratio of marker to square is read from markers that touch at a corner, to within
+    0.02 here, through a tilt and a strong barrel distortion."""
+    import cv2
+
+    from ds_msp.studio.photos import find_board
+
+    cam = tmp_path / "Cam_001"
+    cam.mkdir()
+    for k in range(4):
+        cv2.imwrite(str(cam / f"{k:04d}.png"), _board_photo(7, 5, bend=bend, seed=k, fill=fill))
+    out = find_board(str(tmp_path), {"number_camera": 1})
+    assert out["marker_fill_pairs"] >= 20
+    assert out["marker_fill"] == pytest.approx(fill, abs=0.02), out
+    # the board size is read as before, whatever the marker width
+    assert out["ok"] and (out["number_x_square"], out["number_y_square"]) == (7, 5), out
+
+
+@pytest.mark.req("FR-UI-015")
+def test_marker_width_is_not_stated_from_a_few_markers(tmp_path):
+    import cv2
+
+    from ds_msp.studio.photos import find_board
+
+    cam = tmp_path / "Cam_001"
+    cam.mkdir()
+    img = _board_photo(6, 5)
+    img[:, 420:] = 255            # a strip of the board: a handful of touching markers
+    cv2.imwrite(str(cam / "0000.png"), img)
+    out = find_board(str(tmp_path), {"number_camera": 1})
+    assert 0 < out["marker_fill_pairs"] < 20 and out["marker_fill"] is None, out
 
 
 @pytest.mark.req("FR-UI-014")

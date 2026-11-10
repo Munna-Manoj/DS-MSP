@@ -20,6 +20,13 @@ from ..detect.charuco import (
 
 #: Widest picture :func:`thumbnail` returns, in pixels.
 THUMB_WIDTH = 640
+#: cosine of 20 degrees: how well a marker's diagonal must line up with a neighbour to be a
+#: corner-to-corner neighbour
+_FILL_COS = 0.94
+#: pairs of touching markers needed before the marker width is stated
+_FILL_PAIRS = 20
+#: widest middle half of the readings that still counts as one answer
+_FILL_SPREAD = 0.05
 
 _CAM_FOLDER = re.compile(r"^(?P<prefix>.*?)(?P<number>\d{3})$")
 
@@ -275,6 +282,38 @@ def _groups(n: int, pairs: List[tuple]) -> List[List[int]]:
     return list(out.values())
 
 
+def _marker_fill(quads, centres) -> List[float]:
+    """Marker width over square width, once per pair of markers that touch at a corner.
+
+    Two such markers lie on one diagonal of the board: along it come the diagonal of one
+    marker, a gap, and the diagonal of the other. The three lengths sit next to each other on
+    one line, so the lens and the tilt of the board stretch them alike, and
+    ``diagonal / (diagonal + gap)`` is the ratio the board was printed with."""
+    import numpy as np
+
+    out: List[float] = []
+    d = np.linalg.norm(centres[:, None, :] - centres[None, :, :], axis=2)
+    np.fill_diagonal(d, np.inf)
+    for a in range(len(centres)):
+        for b in np.argsort(d[a])[:4]:
+            b = int(b)
+            if b < a or d[a, b] > 1.3 * d[a].min() or d[a, b] > 1.3 * d[b].min():
+                continue
+            ka = int(np.argmin(np.linalg.norm(quads[a] - centres[b], axis=1)))
+            kb = int(np.argmin(np.linalg.norm(quads[b] - centres[a], axis=1)))
+            pa, pb = quads[a, ka], quads[b, kb]
+            along = (centres[b] - centres[a]) / d[a, b]
+            da, db = quads[a, ka] - quads[a, (ka + 2) % 4], quads[b, (kb + 2) % 4] - quads[b, kb]
+            la, lb = float(np.linalg.norm(da)), float(np.linalg.norm(db))
+            # markers in one row or column are neighbours too; their diagonals point 45 degrees
+            # away from the line that joins them
+            if min(float(da @ along) / la, float(db @ along) / lb) < _FILL_COS:
+                continue
+            diagonal = 0.5 * (la + lb)
+            out.append(diagonal / (diagonal + float((pb - pa) @ along)))
+    return out
+
+
 def _layout_score(n_x: int, n_y: int, views: List[tuple]) -> float:
     """Share of marker pairs that are neighbours in a photo and also neighbours on an ``n_x`` by
     ``n_y`` board. Uses only which markers are next to which, so lens distortion does not
@@ -305,15 +344,21 @@ def find_board(root_path: str, values: Dict[str, Any], *, photos: int = 48,
     ``photos`` photos are read, spread over the first ``max_cameras`` cameras.
 
     Returns ``{"ok", "number_x_square", "number_y_square", "boards_seen", "markers", "photos",
-    "message"}``; ``ok`` is false, with the reason in ``message``, when the photos do not
-    settle it: the size is not guessed."""
+    "marker_fill", "marker_fill_pairs", "message"}``; ``ok`` is false, with the reason in
+    ``message``, when the photos do not settle it: the size is not guessed. ``marker_fill`` is
+    the marker width over the square width measured in the same photos, whether or not the size
+    was settled; it is ``None`` when too few markers touch or the readings disagree."""
     import cv2
     import numpy as np
 
     root = Path(root_path)
     prefix = values.get("cam_prefix") or guess_prefix(root) or "Cam_"
-    detector = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(_DICT))
+    params = cv2.aruco.DetectorParameters()
+    # marker corners to a fraction of a pixel: the marker width is measured from them
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    detector = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(_DICT), params)
     views: List[tuple] = []          # one per board per photo: ids, centres, clear of the border
+    fills: List[float] = []
     seen: set = set()
     tried = 0
     n_cam = min(max_cameras, max(1, int(values.get("number_camera") or 1)))
@@ -334,6 +379,7 @@ def find_board(root_path: str, values: Dict[str, Any], *, photos: int = 48,
             centres = quads.mean(axis=1)
             side = np.linalg.norm(quads[:, 0] - quads[:, 1], axis=1)
             h, w = gray.shape[:2]
+            fills.extend(_marker_fill(quads, centres))
             for group in _groups(len(ids), _neighbours(centres)):
                 if len(group) < 4:
                     continue                      # a stray reading, or too little of a board
@@ -344,7 +390,12 @@ def find_board(root_path: str, values: Dict[str, Any], *, photos: int = 48,
                 views.append((ids[g], centres[g], clear))
                 seen.update(int(i) for i in ids[g])
     out: Dict[str, Any] = {"ok": False, "number_x_square": None, "number_y_square": None,
-                           "boards_seen": 0, "markers": len(seen), "photos": tried}
+                           "boards_seen": 0, "markers": len(seen), "photos": tried,
+                           "marker_fill": None, "marker_fill_pairs": len(fills)}
+    if len(fills) >= _FILL_PAIRS:
+        low, mid, high = np.percentile(fills, [25, 50, 75])
+        if high - low <= _FILL_SPREAD and 0.2 < mid < 0.98:
+            out["marker_fill"] = round(float(mid), 3)
     if not views:
         out["message"] = ("No board markers were found in the sample photos. The target must be a "
                           "ChArUco board with 6x6 markers.")
