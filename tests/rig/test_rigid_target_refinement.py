@@ -174,3 +174,69 @@ def test_bend_recovers_a_bowed_board_that_rigid_cannot(monkeypatch):
            for m, r in (("rigid", rigid), ("bend", bend))}
     assert err["bend"] < 2e-4 and err["rigid"] > 1e-3
     assert max(bundle.reprojection_rms(bend, obs).values()) < 0.02
+
+
+def _single_board(sag_m, seed=0, noise_px=0.1):
+    """Two cameras and one board that sags by ``sag_m`` along its long axis and twists by 0.3
+    of that. Returns the true (bowed) target, the printed (flat) one and the observations."""
+    from . import _synth
+    flat_maker = _synth.make_object
+
+    def bowed_maker(board_poses, **kw):
+        obj = flat_maker(board_poses, **kw)
+        q = obj.pts_3d - obj.pts_3d.mean(0)
+        _u, _s, Vt = np.linalg.svd(q, full_matrices=False)
+        u, v = q @ Vt[0], q @ Vt[1]
+        u, v = u / np.abs(u).max(), v / np.abs(v).max()
+        w = sag_m * u ** 2 + 0.3 * sag_m * u * v
+        obj.pts_3d = obj.pts_3d + np.outer(w - w.mean(), Vt[2])
+        return obj
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(_synth, "make_object", bowed_maker)
+        truth, obs, img_size, _gt_ext, gt_models = _synth.make_rig(
+            n_cam=2, n_frame=40, noise_px=noise_px, seed=seed, multi_board=False)
+    return truth, _synth.make_object({0: np.eye(4)}), obs, img_size, gt_models
+
+
+def _free_lens_run(flat, obs, img_size, gt_models, mode):
+    from ds_msp.rig import diagnostics
+
+    rig = calibrate_rig(flat, copy.deepcopy(obs), img_size, fix_intrinsics=False, structure_mode=mode)
+    focal = max(abs(rig.cameras[c].fx - gt_models[c].fx) / gt_models[c].fx for c in rig.cameras)
+    bow = next(iter(next(iter(diagnostics.board_flatness(rig).values())).values()))["sag_ptp"]
+    return rig, focal, bow
+
+
+@pytest.mark.req("FR-RIG-035")
+def test_bend_measures_the_bow_of_a_single_board():
+    """One board that sags by 2 mm and twists (2.6 mm from lowest to highest point), lenses free. Held flat, the bow goes into the lenses: the
+    focal length is off by several per cent. With bend the bow is measured and the focal length
+    is as good as with a flat board."""
+    from ds_msp.rig import diagnostics
+
+    truth, flat, obs, img_size, gt_models = _single_board(0.002)
+    true_bow = next(iter(next(iter(diagnostics.board_flatness(
+        type("R", (), {"objects": {0: truth}})()).values())).values()))["sag_ptp"]
+    rigid, f_rigid, bow_rigid = _free_lens_run(flat, obs, img_size, gt_models, "rigid")
+    bend, f_bend, bow_bend = _free_lens_run(flat, obs, img_size, gt_models, "bend")
+    assert bow_rigid == 0.0 and np.array_equal(rigid.objects[0].pts_3d, flat.pts_3d)
+    assert f_rigid > 0.025 and f_bend < 0.01, (f_rigid, f_bend)
+    assert abs(bow_bend - true_bow) < 0.15 * true_bow, (bow_bend, true_bow)
+    # the shape, free of where the target sits: distances between corners
+    err = np.abs(_pairwise(bend.objects[0].pts_3d) - _pairwise(truth.pts_3d)).max()
+    assert err < 2e-5 < np.abs(_pairwise(flat.pts_3d) - _pairwise(truth.pts_3d)).max()
+    assert max(bundle.reprojection_rms(bend, obs).values()) < max(bundle.reprojection_rms(rigid, obs).values())
+    assert any(s["stage"] == "d_bend_boards" for s in bend.solver_report["stages"])
+    assert not any(s["stage"].startswith("d_") for s in rigid.solver_report["stages"])
+
+
+@pytest.mark.req("FR-RIG-035")
+def test_bend_invents_little_on_a_flat_single_board():
+    """On a flat board with 0.1 px noise, bend reports a bow well under half a millimetre on a
+    0.3 m board and leaves the focal length where a flat fit puts it."""
+    _truth, flat, obs, img_size, gt_models = _single_board(0.0)
+    _rigid, f_rigid, _b = _free_lens_run(flat, obs, img_size, gt_models, "rigid")
+    _bend, f_bend, bow = _free_lens_run(flat, obs, img_size, gt_models, "bend")
+    assert bow < 4e-4, bow
+    assert abs(f_bend - f_rigid) < 0.003, (f_rigid, f_bend)

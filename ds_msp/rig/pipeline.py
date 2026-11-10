@@ -167,8 +167,9 @@ def calibrate_scenario(scn: Scenario, model_spec, *, fix_intrinsics: bool = Fals
     graph — opt-in like ``report_covariance``.
     ``accuracy_gate="refuse"`` requires a profile with limits and independent truth;
     incomplete or failing comparisons refuse export. Both refusal gates run before saving.
-    ``structure_mode`` (``rigid`` default | ``bend`` | ``free`` | ``off``) selects multi-board target
-    refinement (see :func:`~ds_msp.rig.calibrate.calibrate_rig`); legacy
+    ``structure_mode`` (``rigid`` default | ``bend`` | ``free`` | ``off``) selects target
+    refinement (see :func:`~ds_msp.rig.calibrate.calibrate_rig`); it acts on multi-board
+    targets, and ``bend`` also on a single board; legacy
     ``refine_structure=True`` means ``free``. ``structure_prior_sigma`` specifies free-mode
     target geometry uncertainty in scene length units, fixed across refinement rounds.
     ``uncertainty_gate`` (``warn`` default | ``refuse`` | ``off``) evaluates the

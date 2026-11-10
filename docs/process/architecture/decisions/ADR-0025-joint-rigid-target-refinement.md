@@ -60,10 +60,46 @@ sequences, free mode's *training* RMS is above rigid's despite far more freedom.
   RMS 1.1 px and 4.3 px against 0.56 px and 0.41 px). Pose initialization for non-planar
   bowed boards is the follow-up.
 
+## Update 2026-11-11: `bend` on a single board
+
+Stage (d) was skipped for a single-board target in every mode, so a bowed single board was
+treated as flat. `bend` now runs the stage for one board too, with its three bow coefficients as
+the only target parameters. `rigid`, `free` and `off` still leave a single board as printed and
+add no stage, so the default calibration is unchanged.
+
+Simulated, two cameras, 40 frames, a 0.3 m board, 0.1 px corner noise, lenses estimated; median
+of four seeds:
+
+| board (bow from lowest to highest point) | mode | focal-length error | camera-centre error | reported bow |
+|---|---|---|---|---|
+| bows by 2.58 mm | rigid | 4.7 % | 3.9 mm | 0 |
+| bows by 2.58 mm | bend | 0.31 % | 1.3 mm | 2.59 mm |
+| bows by 0.64 mm | rigid | 1.3 % | 1.9 mm | 0 |
+| bows by 0.64 mm | bend | 0.34 % | 1.3 mm | 0.67 mm |
+| flat | rigid | 0.33 % | 1.2 mm | 0 |
+| flat | bend | 0.34 % | 1.3 mm | 0.11 mm |
+
+With the board tilted by at most 6 degrees instead of 32, `bend` reports 0.27 mm on the flat
+board and 2.50 mm on the 2.58 mm one.
+
+Real single-board sequences, full pipeline from images, evaluated on held-out frames
+(27.45 cm boards):
+
+| sequence | reported bow | held-out RMS px, rigid → bend | held-out median px | held-out poses that failed |
+|---|---|---|---|---|
+| Stereo_Fisheye | 0.21 mm | 0.270 → 0.217 | 0.225 → 0.159 | 0 of 19 |
+| Seq02 | 0.25 mm | 0.392 → 0.390 | 0.236 → 0.230 | 0 of 295 |
+| Seq03 | 0.14 mm | 0.118 → 0.117 | 0.082 → 0.082 | 0 of 624 |
+
+The training RMS over all corners rose with `bend` on Stereo_Fisheye (2.28 → 2.69 px) and Seq02
+(0.47 → 0.52 px) while the held-out error did not; the cause is not established. `bend` stays
+experimental, and the held-out pose failures on multi-board targets noted above are unchanged.
+
 ## Verification
 
 - `tests/rig/test_rigid_target_refinement.py`: finite-difference check of the board-pose and bow
   Jacobian columns; recovery of a perturbed board with exact shape; bend recovers a 12 mm bow
-  that rigid cannot.
+  that rigid cannot; a 2.6 mm bow of a single board is measured with estimated lenses, and a flat
+  single board gets a bow under 0.4 mm.
 - `tests/rig/test_image_truth_benchmark.py`: rendered-image ground truth; rigid beats a frozen
   inter-board pose.

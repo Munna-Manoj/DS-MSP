@@ -47,7 +47,7 @@ in an optional parallel `pixel_covariances` sequence, and a top-level `pixel_con
 (`pixel_center`; readers accept `keypoints_pixel_convention: opencv4_charuco` to migrate
 unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration adds
 `structure_mode` (`rigid` default, `bend`, `free`, `off`; legacy `refine_structure: true` means
-`free`), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
+`free`; `bend` is the one mode that also acts on a single-board target), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
 `frame` group), `accuracy_gate` (`off` or `refuse`), `uncertainty_gate` (`off`, `warn`, `refuse`)
 with `max_rotation_sigma_deg` / `max_centre_sigma`, `convergence_gate` (`off`, `warn`,
 `refuse`; judges the final BA stage), `coverage_gate` (`off`, `warn`, `refuse`) with

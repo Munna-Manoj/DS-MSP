@@ -109,7 +109,8 @@ PROPERTIES: Dict[str, Dict[str, Any]] = {
                       level="expert", enum=[0, 1]),
     "noise_bound": _p(_OPT_NUM, 1.0, "solver", "Expected corner noise in pixels; also the "
                       "default lens limit.", level="expert"),
-    "structure_mode": _p(_STR, "rigid", "solver", "Target refinement: rigid, bend, free or off.",
+    "structure_mode": _p(_STR, "rigid", "solver", "Target refinement: rigid, bend, free or off. "
+                         "bend also measures the bow of a single board.",
                          level="expert", enum=["rigid", "bend", "free", "off"]),
     "refine_structure": _p(_BOOL, False, "solver", "Legacy: true means structure_mode free.",
                            level="expert"),
