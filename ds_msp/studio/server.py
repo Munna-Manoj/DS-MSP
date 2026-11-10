@@ -1,23 +1,36 @@
-"""DS-MSP Studio HTTP server: a read-only JSON API over result folders, plus the bundled UI.
+"""DS-MSP Studio HTTP server: a JSON API over result folders, plus the bundled UI.
 
-Needs the ``ui`` extra (``pip install "ds-msp[ui]"``). The server only reads result folders
-under the roots it was started with; every requested path is resolved and checked to lie
-inside one of them. When bound to anything other than localhost it requires a token, given
-once as ``?token=`` and then kept in a cookie.
+Needs the ``ui`` extra (``pip install "ds-msp[ui]"``). The server reads result folders under
+the roots it was started with, and, unless started read-only, sets up and runs calibrations
+whose photos and results lie under those roots (:mod:`ds_msp.studio.jobs`). Every requested
+path is resolved and checked to lie inside one of them. When bound to anything other than
+localhost it requires a token, given once as ``?token=`` and then kept in a cookie.
+
+Requests that change something are POSTs and must carry the ``x-dsmsp-studio`` header, which
+a page on another site cannot send, and come from this server's own page. With
+``allowed_hosts`` set, a request addressed to any other host name is refused, so another
+site cannot reach a local Studio by pointing its own name at this computer.
 """
 from __future__ import annotations
 
 import hmac
 import importlib.resources
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..rig.config_schema import config_schema
+from . import configio
+from .jobs import ACTIVE, JobError, JobManager
 from .runs import KNOWN_FILES, RunError, iter_run_dirs, load_diagnostics, load_run, summarize_run
 
 API_VERSION = 1
 TOKEN_COOKIE = "dsmsp_token"
 TOKEN_HEADER = "x-dsmsp-token"
+WRITE_HEADER = "x-dsmsp-studio"
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+_LISTED_FILES = (".yml", ".yaml", ".json")
+_MAX_LISTED = 400
 
 _FALLBACK_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>DS-MSP Studio</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:46rem;margin:3rem auto;padding:0 1rem}
@@ -60,10 +73,20 @@ class _Roots:
         return folder
 
 
-def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: int = 6):
+def _host_name(host: str) -> str:
+    """The name part of a ``Host`` header value (``[::1]:8765`` -> ``::1``)."""
+    host = host.strip().lower()
+    if host.startswith("["):
+        return host[1:host.find("]")] if "]" in host else host
+    return host.rsplit(":", 1)[0] if ":" in host else host
+
+
+def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: int = 6,
+               read_only: bool = False, allowed_hosts: Optional[Sequence[str]] = None):
     """The Studio ASGI app over result folders under ``roots``. ``token`` (when given) is
-    required on every request."""
-    from fastapi import FastAPI, HTTPException, Query, Request
+    required on every request. ``read_only`` leaves out everything that writes or starts a
+    calibration. ``allowed_hosts`` (host names) refuses requests addressed to another name."""
+    from fastapi import Body, FastAPI, HTTPException, Query, Request
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
     from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -72,6 +95,25 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     rs = _Roots(roots)
     app = FastAPI(title="DS-MSP Studio", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url="/api/openapi.json")
+    jobs = None if read_only else JobManager(rs.paths, max_depth=max_depth)
+    app.state.jobs = jobs
+    hosts = None if allowed_hosts is None else {h.lower() for h in allowed_hosts}
+
+    class _Guard(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            host = request.headers.get("host", "")
+            if hosts is not None and _host_name(host) not in hosts:
+                return JSONResponse({"detail": "request addressed to another host"},
+                                    status_code=403)
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                origin = request.headers.get("origin")
+                same = origin is None or origin.split("://", 1)[-1].lower() == host.lower()
+                if request.headers.get(WRITE_HEADER) != "1" or not same:
+                    return JSONResponse({"detail": "not sent by the Studio page"},
+                                        status_code=403)
+            return await call_next(request)
+
+    app.add_middleware(_Guard)
 
     if token:
         secret: str = token
@@ -98,10 +140,31 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
             raise HTTPException(404, "unknown run")
         return folder
 
+    def _manager() -> JobManager:
+        if jobs is None:
+            raise HTTPException(403, "this Studio was started read-only")
+        return jobs
+
+    def _inside(path: str) -> Path:
+        """``path`` resolved, refused unless it lies under a root."""
+        target = Path(str(path)).expanduser()
+        if not target.is_absolute():
+            raise HTTPException(400, "give a full path")
+        target = target.resolve()
+        if not any(target == r or r in target.parents for r in rs.paths):
+            raise HTTPException(400, "that folder is outside the folders Studio was started with")
+        return target
+
+    def _ref(folder: Path) -> str:
+        for k, root in enumerate(rs.paths):
+            if folder == root or root in folder.parents:
+                return rs.run_id(k, folder)
+        raise KeyError(str(folder))
+
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
         return {"ok": True, "version": __version__, "api_version": API_VERSION,
-                "ui_bundled": static_dir() is not None}
+                "ui_bundled": static_dir() is not None, "can_run": jobs is not None}
 
     @app.get("/api/roots")
     def list_roots() -> List[Dict[str, Any]]:
@@ -155,6 +218,156 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     @app.get("/api/schema/rig-config")
     def rig_config_schema() -> Dict[str, Any]:
         return config_schema()
+
+    # -- folders ---------------------------------------------------------------------------
+    @app.get("/api/browse")
+    def browse(ref: Optional[str] = Query(None)) -> Dict[str, Any]:
+        """One folder under the roots: its subfolders (with how many images each holds), and
+        its config-like files. Without ``ref``: the roots themselves."""
+        if ref is None:
+            return {"ref": None, "path": None, "name": "", "parent": None, "images": 0,
+                    "files": [], "dirs": [{"name": p.name or str(p), "ref": f"{k}:",
+                                           "path": str(p), "images": 0, "result": False}
+                                          for k, p in enumerate(rs.paths)]}
+        try:
+            folder = rs.resolve(ref)
+        except KeyError:
+            raise HTTPException(404, "unknown folder") from None
+        if not folder.is_dir():
+            raise HTTPException(404, "unknown folder")
+
+        def n_images(d: Path) -> int:
+            try:
+                return sum(1 for e in os.scandir(d)
+                           if e.is_file() and e.name.lower().endswith(_IMAGE_EXT))
+            except OSError:
+                return 0
+
+        dirs, files = [], []
+        try:
+            entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
+        except OSError as exc:
+            raise HTTPException(422, f"cannot read this folder: {exc}") from None
+        for e in entries:
+            if e.name.startswith("."):
+                continue
+            if e.is_dir(follow_symlinks=False):
+                if len(dirs) < _MAX_LISTED:
+                    child = folder / e.name
+                    dirs.append({"name": e.name, "ref": _ref(child), "path": str(child),
+                                 "images": n_images(child),
+                                 "result": (child / "calibration_report.json").is_file()})
+            elif e.name.lower().endswith(_LISTED_FILES) and len(files) < _MAX_LISTED:
+                files.append({"name": e.name, "path": str(folder / e.name)})
+        k = int(ref.split(":", 1)[0])
+        parent = None if folder == rs.paths[k] else _ref(folder.parent)
+        return {"ref": ref, "path": str(folder), "name": folder.name, "parent": parent,
+                "is_root": folder == rs.paths[k], "images": n_images(folder),
+                "dirs": dirs, "files": files}
+
+    # -- setting up a calibration ----------------------------------------------------------
+    @app.post("/api/photos/scan")
+    def photos_scan(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        from .photos import scan_photos
+        _manager()
+        root = _inside(str(body.get("root_path") or ""))
+        return scan_photos(str(root), body.get("cam_prefix") or None,
+                           body.get("frame_pattern") or None)
+
+    @app.post("/api/photos/check-board")
+    def photos_check_board(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        from .photos import check_board
+        _manager()
+        values, problems = configio.check_values(dict(body.get("values") or {}))
+        board_keys = ("number_x_square", "number_y_square", "number_board", "length_square",
+                      "length_marker", "boards_index", "number_x_square_per_board",
+                      "number_y_square_per_board")
+        bad = [p for p in problems if p["key"] in board_keys]
+        if bad:
+            raise HTTPException(400, f"{bad[0]['key']} {bad[0]['message']}")
+        root = _inside(str(values.get("root_path") or ""))
+        try:
+            return check_board(str(root), values)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, f"this board cannot be built: {exc}") from None
+
+    @app.post("/api/config/check")
+    def config_check(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Check form values the way a run would: the schema, the paths, then the CLI's own
+        loader on the file that would be written."""
+        import tempfile
+
+        out = _manager().prepare(dict(body.get("values") or {}))
+        if out["ok"]:
+            with tempfile.TemporaryDirectory(prefix="dsmsp-studio-") as tmp:
+                path = Path(tmp) / configio.CONFIG_NAME
+                configio.write_config(path, out["values"])
+                loaded = configio.load_check(path)
+            out["warnings"] = loaded["warnings"]
+            if not loaded["ok"]:
+                out["ok"] = False
+                out["problems"] = [{"key": "", "message": loaded["error"]}]
+        return out
+
+    @app.post("/api/config/import")
+    def config_import(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        text = body.get("text")
+        if not isinstance(text, str) or len(text) > 400_000:
+            raise HTTPException(400, "send the file's text")
+        try:
+            return configio.read_values(text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.get("/api/config")
+    def config_of(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        """The settings a folder was calibrated with, to start a new run from them."""
+        try:
+            folder = rs.resolve(id)
+        except KeyError:
+            raise HTTPException(404, "unknown folder") from None
+        path = folder / configio.CONFIG_NAME
+        if not path.is_file():
+            raise HTTPException(404, "this folder has no calib_param.yml")
+        try:
+            doc = configio.read_values(path.read_text(encoding="utf-8", errors="replace"))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        doc["values"].pop("save_path", None)
+        doc["name"] = folder.name
+        return doc
+
+    # -- running ---------------------------------------------------------------------------
+    @app.get("/api/jobs")
+    def list_jobs() -> List[Dict[str, Any]]:
+        return [] if jobs is None else jobs.list()
+
+    @app.post("/api/jobs")
+    def start_job(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        try:
+            job = _manager().submit(int(body.get("root", 0)), str(body.get("name") or ""),
+                                    dict(body.get("values") or {}),
+                                    parent=str(body.get("parent") or ""))
+        except JobError as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "bad request") from None
+        return _manager().snapshot(job.id, log_lines=0)
+
+    @app.get("/api/job")
+    def get_job(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        try:
+            return _manager().snapshot(id)
+        except KeyError:
+            raise HTTPException(404, "unknown calibration") from None
+
+    @app.post("/api/job/cancel")
+    def cancel_job(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        try:
+            job = _manager().cancel(str(body.get("id")))
+        except KeyError:
+            raise HTTPException(404, "unknown calibration") from None
+        return {"id": job.id, "state": job.state, "active": job.state in ACTIVE}
 
     @app.get("/api/{rest:path}", include_in_schema=False)
     def api_not_found(rest: str):

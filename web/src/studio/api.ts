@@ -179,24 +179,160 @@ export interface RunDoc {
   files: { name: string; bytes: number }[];
   verdict?: Verdict;
   has_diagnostics?: boolean;
+  /** The folder holds the calib_param.yml it was calibrated with. */
+  has_config?: boolean;
 }
 
-async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(path, { credentials: "same-origin" });
+// -- setting up and running a calibration -------------------------------------------------
+
+export interface SchemaProp {
+  type: string | string[];
+  default: unknown;
+  description: string;
+  enum?: unknown[];
+  minimum?: number;
+  items?: { type: string };
+  "x-group": string;
+  "x-level": "basic" | "expert";
+}
+
+export interface ConfigSchema {
+  properties: Record<string, SchemaProp>;
+  "x-groups": { id: string; title: string }[];
+}
+
+export type Values = Record<string, unknown>;
+export interface Problem { key: string; message: string }
+
+export interface BrowseDoc {
+  ref: string | null;
+  path: string | null;
+  name: string;
+  parent: string | null;
+  images: number;
+  dirs: { name: string; ref: string; path: string; images: number; result: boolean }[];
+  files: { name: string; path: string }[];
+}
+
+export interface ScanDoc {
+  cam_prefix: string | null;
+  number_camera: number;
+  cameras: { index: number; folder: string; images: number; width: number | null;
+    height: number | null; frames: number }[];
+  shared_frames: number;
+  problems: string[];
+}
+
+export interface BoardCheck {
+  cameras: { index: number; folder: string; tried: number; found: number;
+    corners_max: number; corners_of: number }[];
+  found: number;
+  tried: number;
+  message: string;
+}
+
+export interface ConfigCheck {
+  ok: boolean;
+  problems: Problem[];
+  warnings: string[];
+  yaml: string;
+  values: Values;
+}
+
+export type JobState = "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
+
+export interface JobBrief {
+  id: string;
+  name: string;
+  state: JobState;
+  created_utc: string;
+  started_utc: string | null;
+  finished_utc: string | null;
+  exit_code: number | null;
+  error: string | null;
+  has_result: boolean;
+  queue_position: number | null;
+}
+
+export interface JobProgress {
+  phase: "starting" | "detecting" | "solving" | "saving" | "done";
+  stage: string | null;
+  stage_index: number;
+  stages: { name: string; t: number }[];
+  detect: Record<string, [number, number]> | null;
+  save: Record<string, [number, number]> | null;
+  iter: { it: number; max_iter: number; rms: number | null; cost: number | null } | null;
+  elapsed: number | null;
+  history: [number, number][];
+  scene?: { cameras: number; observations: number };
+  final_rms?: number | null;
+}
+
+export interface JobDoc extends JobBrief {
+  progress: JobProgress;
+  command: string;
+  log: string[];
+}
+
+/** An error from the API; `problems` names the settings at fault when the server listed them. */
+export class ApiError extends Error {
+  problems: Problem[];
+  constructor(message: string, problems: Problem[] = []) {
+    super(message);
+    this.problems = problems;
+  }
+}
+
+async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
+    let problems: Problem[] = [];
     try {
-      detail = (await res.json()).detail ?? detail;
+      const body = await res.json();
+      detail = body.detail ?? detail;
+      problems = body.problems ?? [];
     } catch {
       /* not JSON */
     }
-    throw new Error(`${res.status} ${detail}`);
+    throw new ApiError(typeof detail === "string" ? detail : `${res.status}`, problems);
   }
   return (await res.json()) as T;
 }
 
+async function getJSON<T>(path: string): Promise<T> {
+  return parse<T>(await fetch(path, { credentials: "same-origin" }));
+}
+
+// The header marks the request as sent by this page: the server refuses changes without it.
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  return parse<T>(await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", "x-dsmsp-studio": "1" },
+    body: JSON.stringify(body),
+  }));
+}
+
 export const api = {
-  health: () => getJSON<{ ok: boolean; version: string; api_version: number }>("api/health"),
+  health: () =>
+    getJSON<{ ok: boolean; version: string; api_version: number; can_run?: boolean }>("api/health"),
+  schema: () => getJSON<ConfigSchema>("api/schema/rig-config"),
+  browse: (ref: string | null) =>
+    getJSON<BrowseDoc>(ref == null ? "api/browse" : `api/browse?ref=${encodeURIComponent(ref)}`),
+  scanPhotos: (root_path: string, cam_prefix?: string) =>
+    postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix }),
+  checkBoard: (values: Values) => postJSON<BoardCheck>("api/photos/check-board", { values }),
+  checkConfig: (values: Values) => postJSON<ConfigCheck>("api/config/check", { values }),
+  importConfig: (text: string) =>
+    postJSON<{ values: Values; unknown: string[]; problems: Problem[] }>("api/config/import", { text }),
+  configOf: (id: string) =>
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string }>(
+      `api/config?id=${encodeURIComponent(id)}`),
+  jobs: () => getJSON<JobBrief[]>("api/jobs"),
+  job: (id: string) => getJSON<JobDoc>(`api/job?id=${encodeURIComponent(id)}`),
+  startJob: (root: number, name: string, values: Values) =>
+    postJSON<JobDoc>("api/jobs", { root, name, values }),
+  cancelJob: (id: string) => postJSON<{ id: string; state: JobState }>("api/job/cancel", { id }),
   runs: () => getJSON<RunSummary[]>("api/runs"),
   run: (id: string) => getJSON<RunDoc>(`api/run?id=${encodeURIComponent(id)}`),
   diagnostics: (id: string, cam: string) =>

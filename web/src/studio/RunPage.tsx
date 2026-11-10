@@ -42,7 +42,7 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
   const selected = cam ?? firstAttention ?? statuses[0]?.id ?? "0";
   return (
     <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 grid gap-5">
-      <TitleRow doc={doc} />
+      <TitleRow doc={doc} runId={id} />
       <Banner doc={doc} statuses={statuses} />
       <Actions doc={doc} runId={id} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -65,7 +65,7 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
   );
 }
 
-function TitleRow({ doc }: { doc: RunDoc }) {
+function TitleRow({ doc, runId }: { doc: RunDoc; runId: string }) {
   const cap = doc.report.capture;
   const models = [...new Set(Object.values(doc.report.models ?? {}))];
   return (
@@ -79,6 +79,12 @@ function TitleRow({ doc }: { doc: RunDoc }) {
         <div><dt className="inline text-s-faint">Photos </dt><dd className="inline tnum">{int(cap?.n_frames)} frames</dd></div>
         <div><dt className="inline text-s-faint">Lens </dt><dd className="inline">{models.join(", ") || "—"}</dd></div>
       </dl>
+      {doc.has_config && (
+        <a href={href({ page: "new", from: runId })}
+          className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+          New calibration with these settings
+        </a>
+      )}
     </div>
   );
 }

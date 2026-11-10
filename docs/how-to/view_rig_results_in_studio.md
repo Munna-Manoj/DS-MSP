@@ -4,6 +4,9 @@ DS-MSP Studio shows a rig calibration result in your browser: a verdict, what to
 the evidence for each camera. It reads the folders that `ds-msp-calibrate-rig` writes and never
 changes them.
 
+To set up and start a calibration from the browser instead, see
+[Calibrate a rig in DS-MSP Studio](calibrate_a_rig_in_studio.md).
+
 ## Install
 
 ```bash

@@ -45,6 +45,10 @@ from .types import BoardObs, Object3D, ObjectObs
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
 
+class NoBoardDetected(ValueError):
+    """Detection found the configured boards in no image: nothing to reconstruct from."""
+
+
 def _T_from_rt(rvec, tvec) -> np.ndarray:
     T = np.eye(4)
     T[:3, :3] = cv2.Rodrigues(np.asarray(rvec, float))[0]
@@ -328,7 +332,10 @@ def reconstruct_objects(board_obs: List[BoardObs], specs: List[BoardSpec],
     smallest board id) and ``object_id`` is reassigned to the sorted index. ``init_models``
     resects each board with the camera's native model (see :func:`_resect_boards`).
 
-    Raises ``ValueError`` if no board resects successfully."""
+    Raises :class:`NoBoardDetected` when there is no detection at all, and ``ValueError`` if no
+    board resects successfully."""
+    if not board_obs:
+        raise NoBoardDetected("no board was detected in any image")
     board_points = _resect_boards(board_obs, specs, img_size, init_models, model_spec)
     valid = [o for o in board_obs if o.valid and o.T_c_b is not None]
     objects = build_objects(valid, board_points)

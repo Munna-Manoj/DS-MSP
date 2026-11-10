@@ -400,6 +400,28 @@ Studio gives a verdict for the rig and each camera, at most three next steps, an
 answers to "is there a pattern in the errors?" and "where can I trust this lens?". See
 [View rig results in DS-MSP Studio](how-to/view_rig_results_in_studio.md).
 
+Studio can also set up and start the calibration, with no config file to write: see
+[Calibrate a rig in DS-MSP Studio](how-to/calibrate_a_rig_in_studio.md).
+
+### Follow a run from another program
+
+`--progress-file PATH` writes the run's progress to `PATH` as JSON, one object per line:
+
+```console
+$ ds-msp-calibrate-rig --config calib_param.yml --progress-file progress.jsonl
+```
+
+```text
+{"t": 0.0, "event": "start"}
+{"t": 0.61, "event": "detect", "cameras": {"0": [30, 30], "1": [30, 30]}}
+{"t": 1.02, "event": "stage", "name": "(c) global joint BA + intrinsics", "index": 4}
+{"t": 1.48, "event": "iter", "it": 3, "max_iter": 60, "rms": 0.066, "cost": 12.4}
+{"t": 2.9, "event": "done", "rms": 0.066}
+```
+
+`t` is seconds since the start. `detect` and `save` map each camera to `[images done, images]`.
+The log only listens: the calibration and its files are the same with or without it.
+
 ---
 
 ## 5. Extrinsics-only calibration (intrinsics already known)

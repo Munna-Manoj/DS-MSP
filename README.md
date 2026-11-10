@@ -23,7 +23,7 @@ One interface covers calibration, model conversion, 3D geometry, multi-camera ri
 ```bash
 pip install ds-msp                 # core library
 pip install "ds-msp[calib]"        # + AprilGrid detector
-pip install "ds-msp[ui]"           # + DS-MSP Studio, a browser view of rig results
+pip install "ds-msp[ui]"           # + DS-MSP Studio: set up, run and read rig calibrations in a browser
 ```
 
 ---
@@ -251,7 +251,7 @@ to verify inputs or reproduce a run without overwriting the original.
 ### Read a rig result in DS-MSP Studio
 
 DS-MSP Studio shows a rig calibration in your browser. It answers three questions in order:
-can I use it, what should I do, and why. It reads the result folder and never changes it.
+can I use it, what should I do, and why. Opening a result never changes it.
 
 ```bash
 pip install "ds-msp[ui]"
@@ -271,6 +271,10 @@ view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 - **Next steps:** at most three actions, worst first, each naming its cameras.
 - **Evidence per camera:** whether the errors follow a pattern, which parts of the image the lens
   can be trusted in, the worst photos, and the board flatness.
+
+Studio also sets up and runs a calibration: choose the photo folder, describe the board, pick
+the lens types and start. It writes the `calib_param.yml` it used, so the same run repeats from a
+terminal. → [Calibrate a rig in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/calibrate_a_rig_in_studio.md)
 
 Studio listens on `127.0.0.1` only; to view results on another computer, forward the port over SSH.
 → [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)

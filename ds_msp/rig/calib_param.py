@@ -766,6 +766,16 @@ def _gt_and_mccalib(cfg: RigConfig):
     return gt, mccalib
 
 
+def _no_board_message(cfg: RigConfig) -> str:
+    """What to check when detection found the board in no image at all."""
+    sizes = ", ".join(f"{b.n_x} x {b.n_y}" for b in cfg.boards[:4])
+    source = (f"the keypoints file {cfg.keypoints_path}" if cfg.keypoints_path
+              else f"any image under {cfg.root_path} (camera folders {cfg.cam_prefix}001, ...)")
+    return (f"the calibration board was not found in {source}. Check the board description "
+            f"(number_x_square x number_y_square = {sizes} squares, {cfg.number_board} board(s)): "
+            f"it must match the printed target, a ChArUco board with 6x6 markers")
+
+
 def _warn(msg: str) -> None:
     print(f"[ds-msp][rig] WARNING: {msg}", file=sys.stderr)
 
@@ -825,13 +835,16 @@ def _resolve_init_intrinsics(cfg: RigConfig, cam_ids: List[int], spec: Dict[int,
     return (init_cameras or None), (init_K or None)
 
 
-def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) -> Dict:
+def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None, *,
+                          progress_path: Optional[str] = None) -> Dict:
     """Run the full rig calibration from one MC-Calib ``calib_param.yml``.
 
     Detects ChArUco corners from ``root_path`` (or loads ``keypoints_path``), builds the
     per-camera model map, optimizes extrinsics-only (``fix_intrinsic=true``) or
     intrinsics+extrinsics, and writes MC-Calib-format results to ``save_path``. Returns the
     :func:`~ds_msp.rig.pipeline.calibrate_scenario` result dict plus the parsed ``config``.
+    ``progress_path`` also appends progress as JSON lines to that file
+    (:class:`ds_msp.rig.progress.ProgressLog`); it only listens and does not affect the result.
     """
     cfg = load_config(config_path, overrides)
 
@@ -843,6 +856,9 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
     # every phase instead of leaving the browser blank until the first BA iteration exists.
     from .web3d import WebLive3DAnimator
     animator = WebLive3DAnimator(verbose=cfg.webviewer)
+    if progress_path:
+        from .progress import ProgressLog
+        animator = ProgressLog(progress_path, animator)
 
     if cfg.number_board == 1:
         obj = single_board_object(cfg.boards[0])
@@ -854,8 +870,19 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None) ->
             object_obs, img_size = _detect_obs(cfg, obj, animator=animator)
             objects = [obj]
         else:                                       # reconstruct the object(s) (MC-Calib
-            objects, object_obs, img_size = _reconstruct(cfg, animator=animator)  # calibrate3DObjects)
+            from .reconstruct import NoBoardDetected
+            try:
+                objects, object_obs, img_size = _reconstruct(cfg, animator=animator)  # calibrate3DObjects)
+            except NoBoardDetected:
+                raise ValueError(_no_board_message(cfg)) from None
             obj = objects[0]                        # primary (largest) object for the Scenario
+    if not object_obs:
+        raise ValueError(_no_board_message(cfg))
+    seen = {o.cam_id for o in object_obs}
+    for c in range(cfg.number_camera):
+        if c not in seen:
+            _warn(f"camera {c} ({cfg.cam_prefix}{c + 1:03d}): the board was not found in any of "
+                  f"its images; this camera is left out of the result")
     animator.bind_scene(obj, object_obs)
 
     cam_ids = sorted({o.cam_id for o in object_obs})

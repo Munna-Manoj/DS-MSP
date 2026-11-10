@@ -168,6 +168,7 @@ def load_run(folder: os.PathLike | str) -> Dict[str, Any]:
         "manifest": _manifest_summary(manifest) if manifest else None,
         "verdict": run_verdict(report, acceptance),
         "has_diagnostics": bool(diag.get("files")),
+        "has_config": (folder / "calib_param.yml").is_file(),
         "files": files,
     })
 

@@ -1,5 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { href, useRoute, type Route } from "./router";
+import { JobPage } from "./studio/JobPage";
+import { NewRunPage } from "./studio/NewRunPage";
 import { RunPage } from "./studio/RunPage";
 import { RunsPage } from "./studio/RunsPage";
 
@@ -19,6 +21,8 @@ export function App() {
         )}
         {route.page === "runs" && (__HAS_SERVER__ ? <RunsPage /> : <NoServer />)}
         {route.page === "run" && (__HAS_SERVER__ ? <RunPage id={route.id} cam={route.cam} /> : <NoServer />)}
+        {route.page === "new" && (__HAS_SERVER__ ? <NewRunPage from={route.from} /> : <NoServer />)}
+        {route.page === "job" && (__HAS_SERVER__ ? <JobPage id={route.id} /> : <NoServer />)}
       </div>
     </div>
   );
@@ -30,7 +34,7 @@ function Header({ route }: { route: Route }) {
     <a
       href={href(target)}
       aria-current={active ? "page" : undefined}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+      className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition ${
         active
           ? learn ? "bg-panel-2 text-text" : "bg-s-accent-soft text-s-accent"
           : learn ? "text-muted hover:text-text" : "text-s-muted hover:text-s-text"
@@ -46,10 +50,11 @@ function Header({ route }: { route: Route }) {
           <span className={`font-bold tracking-tight ${learn ? "font-display text-lg" : "text-[17px]"}`}>
             DS-MSP
           </span>
-          <span className={`text-sm ${learn ? "text-muted" : "text-s-muted"}`}>Studio</span>
+          <span className={`text-sm hidden sm:inline ${learn ? "text-muted" : "text-s-muted"}`}>Studio</span>
         </a>
-        <nav className="flex items-center gap-1" aria-label="Main">
-          {tab({ page: "runs" }, "Results", route.page !== "learn")}
+        <nav className="flex items-center gap-1 overflow-x-auto min-w-0" aria-label="Main">
+          {tab({ page: "runs" }, "Results", route.page === "runs" || route.page === "run")}
+          {__HAS_SERVER__ && tab({ page: "new" }, "New calibration", route.page === "new" || route.page === "job")}
           {tab({ page: "learn" }, "Learn", learn)}
         </nav>
         <a

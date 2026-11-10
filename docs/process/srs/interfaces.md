@@ -19,7 +19,7 @@
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
 | IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
-| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; read-only `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
+| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
 
 ## Stability & conventions
 
@@ -111,7 +111,10 @@ than localhost a token is generated when none is given, and the printed URL carr
 a child process until Ctrl+C and exits with the calibration's own code; without the `ui` extra it
 prints the install command instead. The library never imports `ds_msp.studio`.
 
-The API is read-only and versioned by `api_version` in `GET /api/health`:
+`--read-only` leaves out everything that writes: Studio then only shows results.
+
+The API is versioned by `api_version` in `GET /api/health`, which also reports `can_run`
+(false under `--read-only`). Reading results:
 
 - `GET /api/runs`: one summary per result folder (`id`, `path`, `created_utc`, `n_cameras`,
   `models`, `fit_level`, `median_px`, `p95_px`, `solver_status`, `n_weak`, `lens_failed`).
@@ -130,3 +133,27 @@ The API is read-only and versioned by `api_version` in `GET /api/health`:
   grid and its `zones`), `outliers`. Files outside the result folder are ignored.
 - `GET /api/run/file?id=&name=`: one of the known result files, by name only.
 - `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).
+\n
+Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
+
+- `GET /api/browse?ref=`: one folder under the roots, with its subfolders (image count, whether
+  it is a result) and its `.yml`/`.yaml`/`.json` files; without `ref`, the roots.
+- `POST /api/photos/scan` `{root_path, cam_prefix?, frame_pattern?}`: the cameras found in the
+  layout the calibration reads, image sizes, shared frame count and `problems`.
+- `POST /api/photos/check-board` `{values}`: detects the configured board in up to 4 photos per
+  camera.
+- `POST /api/config/check` `{values}`: checks form values against the schema, the roots and
+  the CLI's own loader; returns `ok`, `problems`, `warnings` and the `yaml` that would be written.
+- `POST /api/config/import` `{text}` and `GET /api/config?id=`: the schema keys set in a
+  `calib_param.yml` (uploaded text, or the one in a result folder), with `unknown` keys listed.
+- `POST /api/jobs` `{root, name, values}`: creates `<root>/<name>/`, writes `calib_param.yml`
+  there and queues `python -m ds_msp.rig.cli --config <that file> --no-webviewer --progress-file
+  ...`. `GET /api/jobs`, `GET /api/job?id=` (state, progress summary, last output lines) and
+  `POST /api/job/cancel` `{id}` follow and stop it. States: `queued`, `running`, `done`,
+  `failed`, `cancelled`, `interrupted`. Jobs run one at a time.
+
+`values` holds only the keys the user set; a key left out keeps the loader's default, so a
+`profile` can still raise it. Path values must lie under a root. A POST must carry the header
+`x-dsmsp-studio: 1` and, when the browser sends `Origin`, come from the server's own address;
+when Studio is bound to a local address it answers only requests addressed to `127.0.0.1`,
+`localhost` or `::1`.

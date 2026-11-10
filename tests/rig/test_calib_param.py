@@ -563,3 +563,29 @@ def test_try_load_object_warns_on_target_next_to_keypoints(tmp_path, monkeypatch
     assert cp._try_load_object(cp.RigConfig(**base, keypoints_path=str(kp),
                                             object_path=str(target))) == str(target)
     assert "WARNING" not in capsys.readouterr().err
+
+
+@pytest.mark.req("FR-RIG-002")
+@pytest.mark.parametrize("n_board", [1, 2])
+def test_a_board_found_in_no_image_is_reported_as_that(tmp_path, n_board):
+    """A board description that does not match the target used to end in
+    ``IndexError: list index out of range``."""
+    import cv2
+
+    for cam in ("Cam_001", "Cam_002"):
+        (tmp_path / "Images" / cam).mkdir(parents=True)
+        for k in range(3):
+            cv2.imwrite(str(tmp_path / "Images" / cam / f"{k:04d}.png"),
+                        np.full((120, 160), 128, np.uint8))
+    cfgp = _write_cfg(tmp_path, f"""
+        number_camera: 2
+        number_board: {n_board}
+        number_x_square: 9
+        number_y_square: 7
+        root_path: "{tmp_path / 'Images'}"
+        save_path: "{tmp_path / 'out'}/"
+        verbose: "false"
+        webviewer: "false"
+        """)
+    with pytest.raises(ValueError, match="board was not found in any image.*9 x 7"):
+        calibrate_from_config(cfgp)
