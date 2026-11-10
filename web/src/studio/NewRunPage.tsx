@@ -23,6 +23,14 @@ const LENSES: { id: string; label: string; hint: string }[] = [
   { id: "ucm", label: "Fisheye (UCM)", hint: "simplest fisheye model; not for ordinary lenses" },
 ];
 
+/** Form values for a lens check: with saved detections as the source, the photo folder is not sent. */
+function viewValues(values: Values, source: string): Values {
+  if (source !== "detections") return values;
+  const out = { ...values };
+  delete out.root_path;
+  return out;
+}
+
 // Settings with their own place in the form, or set by Studio itself.
 const PLACED = new Set([
   "root_path", "cam_prefix", "number_camera", "camera_models", "number_x_square",
@@ -232,26 +240,29 @@ export function NewRunPage({ from }: { from?: string }) {
     setAdvice(Object.fromEntries(Array.from({ length: n }, (_, k) => [k, "busy" as const])));
     for (let k = 0; k < n; k++) {
       try {
-        const a = await api.lensAdvice(vals, k);
+        const a = await api.lensAdvice(viewValues(vals, source), k);
         setAdvice((old) => ({ ...old, [k]: a }));
       } catch {
         setAdvice((old) => { const next = { ...old }; delete next[k]; return next; });
       }
     }
-  }, []);
+  }, [source]);
 
-  // A lens file is checked against the photos as soon as both are known.
+  // A lens file is checked against the photos, or the saved detections, as soon as both are known.
   const lensPath = lens?.path ?? null;
   const scanned = scan?.number_camera ?? 0;
+  // What the lens checks look at: the photo folder, or the detections file when there are no photos.
+  const viewsFrom = source === "detections" ? (kp?.path ?? null) : source === "photos" ? (rootPath || null) : null;
+  const viewCams = source === "detections" ? (kp?.number_camera ?? 0) : scanned;
   useEffect(() => {
-    if (!lensPath || !scanned || !rootPath) { setHealth({}); return; }
+    if (!lensPath || !viewCams || !viewsFrom) { setHealth({}); return; }
     let live = true;
-    const cams = (lens?.cameras ?? []).map((c) => c.index).filter((c) => c < scanned);
+    const cams = (lens?.cameras ?? []).map((c) => c.index).filter((c) => c < viewCams);
     setHealth(Object.fromEntries(cams.map((c) => [c, "busy" as const])));
     (async () => {
       for (const c of cams) {
         try {
-          const h = await api.lensHealth(payloadRef.current, c);
+          const h = await api.lensHealth(viewValues(payloadRef.current, source), c);
           if (live) setHealth((old) => ({ ...old, [c]: h }));
         } catch {
           if (live) setHealth((old) => { const next = { ...old }; delete next[c]; return next; });
@@ -260,7 +271,7 @@ export function NewRunPage({ from }: { from?: string }) {
     })();
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lensPath, scanned, rootPath, values.number_x_square, values.number_y_square, values.number_board]);
+  }, [lensPath, viewCams, viewsFrom, values.number_x_square, values.number_y_square, values.number_board]);
 
   // What was already calibrated from these photos, and whether its detections fit these settings.
   useEffect(() => {
@@ -693,12 +704,16 @@ export function NewRunPage({ from }: { from?: string }) {
                   </table>
                 </div>
                 {problemOf("camera_models") && <div className="text-xs text-s-bad" role="alert">{problemOf("camera_models")}</div>}
-                {source === "photos" && scanned > 0 && (
+                {viewsFrom && viewCams > 0 && (
                   <div className="flex flex-wrap items-center gap-3">
                     <Button onClick={() => void runAdvice(payload, nCam)} busy={Object.values(advice).some((a) => a === "busy")}>
-                      Check the lens types against my photos
+                      {source === "detections" ? "Check the lens types against these detections" : "Check the lens types against my photos"}
                     </Button>
-                    <span className="text-xs text-s-muted">Measures each lens on a few photos and says when the chosen type cannot fit it. About a second per camera.</span>
+                    <span className="text-xs text-s-muted">
+                      {source === "detections"
+                        ? "Measures each lens on a few of the saved board views and says when the chosen type cannot fit it. The photos are not needed."
+                        : "Measures each lens on a few photos and says when the chosen type cannot fit it. About a second per camera."}
+                    </span>
                   </div>
                 )}
                 <div className="rounded-lg border border-s-line p-3 grid gap-3">
@@ -720,7 +735,7 @@ export function NewRunPage({ from }: { from?: string }) {
                           return (
                             <li key={c.index}>
                               <Mono>camera {c.index}</Mono>: {c.model ?? "lens type not stated"}, focal {num(c.fx, 1)} px, centre {num(c.cx, 1)}, {num(c.cy, 1)}
-                              {h === "busy" && <span className="text-s-faint"> · checking against the photos…</span>}
+                              {h === "busy" && <span className="text-s-faint"> · checking against the {source === "detections" ? "saved detections" : "photos"}…</span>}
                               {h && h !== "busy" && (
                                 <span className={h.verdict === "ok" ? "text-s-ok" : h.verdict === "misfit" ? "text-s-bad font-medium" : "text-s-faint"}>
                                   {" "}· {h.verdict === "ok" ? "✓ " : h.verdict === "misfit" ? "✗ " : ""}{h.message}

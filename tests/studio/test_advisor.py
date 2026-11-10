@@ -78,12 +78,46 @@ def test_a_lens_file_is_checked_against_the_views(tmp_path, monkeypatch):
                    object_poses={}, objects={}, img_size={0: (W, H), 1: (W, H)})
     path = tmp_path / "lenses.yml"
     save_mccalib_cameras(rig, str(path))
-    good = advisor.lens_file_health("unused", 0, {}, str(path))
+    good = advisor.lens_file_health({"root_path": "unused"}, 0, str(path))
     assert good["verdict"] == "ok" and good["given_px"] < 0.2, good
-    wrong = advisor.lens_file_health("unused", 1, {}, str(path))       # camera order mixed up
+    wrong = advisor.lens_file_health({"root_path": "unused"}, 1, str(path))       # camera order mixed up
     assert wrong["verdict"] == "misfit" and wrong["given_px"] > 3 * wrong["reference_px"]
     assert "same camera order" in wrong["message"]
-    assert advisor.lens_file_health("unused", 5, {}, str(path))["verdict"] == "unknown"
+    assert advisor.lens_file_health({"root_path": "unused"}, 5, str(path))["verdict"] == "unknown"
     monkeypatch.setattr(advisor, "sample_views", lambda *a, **k: (points, pixels, (640, 480), len(points)))
-    size = advisor.lens_file_health("unused", 0, {}, str(path))
+    size = advisor.lens_file_health({"root_path": "unused"}, 0, str(path))
     assert size["verdict"] == "misfit" and "640 x 480" in size["message"]
+
+
+def test_lens_checks_run_on_saved_detections_without_photos(tmp_path, monkeypatch):
+    """With a detections file and no photo folder, the same checks read the saved board views;
+    a board description the detections do not fit is named instead of judged."""
+    from ds_msp.data.observations import BoardObs, RigState
+    from ds_msp.io.mccalib import save_mccalib_cameras
+
+    _points, pixels = _views(STANDARD, n=14, spread=0.3)
+    obs = [BoardObs(cam_id=0, frame_id=k, board_id=0, corner_ids=np.arange(30), pts_2d=uv)
+           for k, uv in enumerate(pixels)]
+    obs.append(BoardObs(cam_id=1, frame_id=0, board_id=0, corner_ids=np.arange(30), pts_2d=pixels[0]))
+    monkeypatch.setattr(advisor, "_keypoints", lambda *a: (obs, {0: (W, H), 1: (W, H)}))
+    kp = tmp_path / "detected_keypoints_data.yml"
+    kp.write_text("stands in for a detections file")
+    values = {"keypoints_path": str(kp), "number_x_square": 7, "number_y_square": 6,
+              "square_size": 0.08, "camera_models": ["radtan"]}
+    out = advisor.lens_advice(values, 0)
+    assert out["verdict"] == "ok" and out["source"] == "saved detections", out
+    assert out["views"] == 12 and 60 < out["fov_h_deg"] < 85
+    few = advisor.lens_advice(values, 1)
+    assert few["verdict"] == "unknown" and "1 of the saved detections" in few["message"]
+    wrong = advisor.lens_advice({**values, "number_x_square": 5, "number_y_square": 5}, 0)
+    assert wrong["verdict"] == "unknown" and "board description" in wrong["message"]
+
+    other = RadTanModel(600.0, 600.0, 640.0, 480.0, -0.3, 0.1, 0.0, 0.0, 0.0)
+    rig = RigState(cameras={0: STANDARD, 1: other}, T_c_g={0: np.eye(4), 1: np.eye(4)}, ref_cam_id=0,
+                   object_poses={}, objects={}, img_size={0: (W, H), 1: (W, H)})
+    lenses = tmp_path / "lenses.yml"
+    save_mccalib_cameras(rig, str(lenses))
+    good = advisor.lens_file_health(values, 0, str(lenses))
+    assert good["verdict"] == "ok" and "saved detections" in good["message"]
+    with pytest.raises(ValueError):
+        advisor.lens_advice({"number_x_square": 7}, 0)

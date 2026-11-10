@@ -168,7 +168,9 @@ Checks before a run (FR-UI-011):
 - `POST /api/photos/lens-advice` `{values, cam}`: one camera's measured field of view and
   whether its chosen lens type fits (`verdict`: `ok`, `misfit`, `caution`, `unknown`).
 - `POST /api/photos/lens-health` `{values, cam}`: whether the lens file's values for that
-  camera explain its photos.
+  camera explain its photos. Both lens routes read up to 12 board views of the camera from
+  `keypoints_path` when `values` has no `root_path`; `source` says which was used
+  (`sample photos` or `saved detections`).
 - `POST /api/capture/history` `{values}`: earlier results made from the same photo folder and
   `reusable`, the newest whose detections fit. `POST /api/jobs` takes `reuse` (that id).
 

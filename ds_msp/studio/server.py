@@ -407,27 +407,40 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         values["root_path"] = str(_inside(str(values.get("root_path") or "")))
         return values
 
+    def _values_with_views(body: Dict[str, Any]) -> Dict[str, Any]:
+        """Form values whose photo folder, or else detections file, lies under a root."""
+        values, _problems = configio.check_values(dict(body.get("values") or {}))
+        if values.get("root_path"):
+            values["root_path"] = str(_inside(str(values["root_path"])))
+            return values
+        path = _inside(str(values.get("keypoints_path") or ""))
+        if not path.is_file():
+            raise HTTPException(404, "no such detections file")
+        values["keypoints_path"] = str(path)
+        return values
+
     @app.post("/api/photos/lens-advice")
     def photos_lens_advice(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-        """Measure one camera's field of view on a few photos and say whether the lens type
-        chosen for it fits them."""
+        """Measure one camera's field of view on a few photos, or on saved detections when no
+        photo folder is set, and say whether the lens type chosen for it fits them."""
         from .advisor import lens_advice
         _manager()
-        values = _values_with_photos(body)
+        values = _values_with_views(body)
         try:
-            return lens_advice(values["root_path"], int(body.get("cam", 0)), values)
+            return lens_advice(values, int(body.get("cam", 0)))
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, f"could not check this lens: {exc}") from None
 
     @app.post("/api/photos/lens-health")
     def photos_lens_health(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-        """Whether the lens values in the chosen lens file explain one camera's photos."""
+        """Whether the lens values in the chosen lens file explain one camera's photos, or its
+        saved detections when no photo folder is set."""
         from .advisor import lens_file_health
         _manager()
-        values = _values_with_photos(body)
+        values = _values_with_views(body)
         lens = _inside(str(values.get("cam_params_path") or ""))
         try:
-            return lens_file_health(values["root_path"], int(body.get("cam", 0)), values, str(lens))
+            return lens_file_health(values, int(body.get("cam", 0)), str(lens))
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, f"could not check these lens values: {exc}") from None
 

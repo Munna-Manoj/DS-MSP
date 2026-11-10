@@ -75,6 +75,10 @@ Studio checks what you entered against the photos before anything runs:
   the photos and the board layout are unchanged, Studio offers to reuse the corners already
   found. The earlier result is copied from and never changed.
 
+When you start from **Saved detections**, the lens type and lens file checks use up to 12 of
+the saved board views per camera, so the photos are not needed. If the board you entered is not
+the one the detections were made with, the row says so.
+
 /// note | What the lens check cannot see
 It compares pixel errors. A lens type can fit the pixels and still bias the rig; the one known
 case, UCM on an ordinary lens, is flagged by rule.

@@ -1,4 +1,5 @@
-"""Checking the lens type of each camera against its photos before a calibration is started.
+"""Checking the lens type of each camera against its photos, or against corner detections
+saved by an earlier run, before a calibration is started.
 
 A lens type that cannot bend enough for the lens still calibrates with a normal-looking error
 and gives a wrong rig. This module catches that early, on a few photos: it fits a flexible
@@ -8,6 +9,7 @@ of view from it, fits the lens type the user chose to the same views, and compar
 """
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -34,9 +36,10 @@ def _field_angle(model, uv: np.ndarray) -> np.ndarray:
 
 
 def advise_from_views(object_points: Sequence[np.ndarray], pixels: Sequence[np.ndarray],
-                      width: int, height: int, chosen: str) -> Dict[str, Any]:
+                      width: int, height: int, chosen: str, *, where: str = "sample photos"
+                      ) -> Dict[str, Any]:
     """Judge lens type ``chosen`` for one camera from board views (3-D board points and their
-    pixels, one entry per board per photo).
+    pixels, one entry per board per photo). ``where`` names the views in the messages.
 
     Returns ``verdict`` (``"ok"``, ``"misfit"``, ``"caution"`` or ``"unknown"``), a ``message``,
     the measured field of view (``fov_h_deg`` across the image width, ``measured_to_deg`` the
@@ -50,12 +53,13 @@ def advise_from_views(object_points: Sequence[np.ndarray], pixels: Sequence[np.n
                            "suggested": None, "fov_h_deg": None, "measured_to_deg": None,
                            "reference_px": None, "chosen_px": None}
     if len(object_points) < MIN_VIEWS:
-        out["message"] = (f"The board was found in {len(object_points)} of the sample photos; "
+        out["message"] = (f"The board was found in {len(object_points)} of the {where}; "
                           f"{MIN_VIEWS} are needed to judge the lens.")
         return out
     ref = calibrate_from_views(model_class("kb"), object_points, pixels, width, height)
     if ref is None or not np.isfinite(ref["median_px"]):
-        out["message"] = "The sample photos do not pin the lens down; take photos with the board tilted."
+        out["message"] = (f"The {where} do not pin the lens down; it needs views with the "
+                          f"board tilted.")
         return out
     lens = ref["model"]
     # Field of view across the image width: the largest angle the fitted lens reaches on each
@@ -84,8 +88,8 @@ def advise_from_views(object_points: Sequence[np.ndarray], pixels: Sequence[np.n
     if chosen_px is None or chosen_px > limit:
         out["verdict"] = "misfit"
         shown = "could not be fitted at all" if chosen_px is None else f"leaves {chosen_px:.2f} px"
-        out["message"] = (f"This lens is {fov_text}. The chosen lens type {shown} on the sample "
-                          f"photos, where a fisheye lens type leaves {out['reference_px']:.2f} px.")
+        out["message"] = (f"This lens is {fov_text}. The chosen lens type {shown} on the {where}, "
+                          f"where a fisheye lens type leaves {out['reference_px']:.2f} px.")
         out["suggested"] = "kb"
     else:
         out["verdict"] = "ok"
@@ -96,7 +100,7 @@ def advise_from_views(object_points: Sequence[np.ndarray], pixels: Sequence[np.n
             # (docs/RIG_REAL_DATA_EVALUATION.md, result 4). The pixel fit cannot show that.
             out["verdict"] = "caution"
             out["suggested"] = "radtan"
-            out["message"] = (f"This lens is {fov_text}. UCM fits these photos ({chosen_px:.2f} px), "
+            out["message"] = (f"This lens is {fov_text}. UCM fits the {where} ({chosen_px:.2f} px), "
                               f"but it cannot represent an ordinary lens's distortion and has "
                               f"moved camera angles by about 1° on real rigs.")
         elif not wide and chosen != "radtan":
@@ -137,24 +141,74 @@ def sample_views(root_path: str, cam: int, values: Dict[str, Any], *, per_camera
     return points, pixels, size, len(picks)
 
 
-def lens_advice(root_path: str, cam: int, values: Dict[str, Any]) -> Dict[str, Any]:
-    """:func:`advise_from_views` for camera ``cam`` of a photo folder, with the lens type the
-    form holds for it."""
+@functools.lru_cache(maxsize=2)
+def _keypoints(path: str, _mtime_ns: int, _size: int, convention: Optional[str]):
+    from ..rig.reconstruct import detect_board_obs_keypoints
+
+    return detect_board_obs_keypoints(path, convention)
+
+
+def keypoint_views(keypoints_path: str, cam: int, values: Dict[str, Any], *, per_camera: int = 12
+                   ) -> Tuple[List[np.ndarray], List[np.ndarray], Optional[Tuple[int, int]], int]:
+    """Board views of camera ``cam`` from up to ``per_camera`` of its saved detections, spread
+    over the file: ``(object_points, pixels, (width, height), views_tried)``. A detection that
+    names a board or a corner the board description in ``values`` does not have is left out,
+    so a wrong description gives fewer views than were tried."""
+    from ..detect.charuco import board_object_points
+    from .photos import board_specs
+
+    st = os.stat(keypoints_path)
+    obs, sizes = _keypoints(os.fspath(keypoints_path), st.st_mtime_ns, st.st_size,
+                            values.get("keypoints_pixel_convention") or None)
+    boards = [np.asarray(board_object_points(s), float) for s in board_specs(values)]
+    mine = [o for o in obs if o.cam_id == cam and len(o.corner_ids) >= 8]
+    step = max(1, len(mine) // per_camera)
+    picks = mine[step // 2::step][:per_camera]
+    points: List[np.ndarray] = []
+    pixels: List[np.ndarray] = []
+    for o in picks:
+        ids = np.asarray(o.corner_ids, int)
+        if not 0 <= o.board_id < len(boards) or ids.min() < 0 or ids.max() >= len(boards[o.board_id]):
+            continue
+        points.append(boards[o.board_id][ids])
+        pixels.append(np.asarray(o.pts_2d, float))
+    size = sizes.get(cam)
+    return points, pixels, (size if size and size[0] > 0 and size[1] > 0 else None), len(picks)
+
+
+def _views(values: Dict[str, Any], cam: int):
+    """The views to judge camera ``cam`` on, and what to call them: its photos when the form
+    names a photo folder, else the saved detections it names."""
+    if values.get("root_path"):
+        return (*sample_views(str(values["root_path"]), cam, values), "sample photos")
+    if values.get("keypoints_path"):
+        return (*keypoint_views(str(values["keypoints_path"]), cam, values), "saved detections")
+    raise ValueError("neither a photo folder nor a detections file is set")
+
+
+def lens_advice(values: Dict[str, Any], cam: int) -> Dict[str, Any]:
+    """:func:`advise_from_views` for camera ``cam`` of the photo folder (``root_path``) or the
+    detections file (``keypoints_path``) in ``values``, with the lens type the form holds."""
     models = list(values.get("camera_models") or [])
     chosen = str(models[cam] if cam < len(models) else (models[-1] if models else "radtan"))
-    points, pixels, size, tried = sample_views(root_path, cam, values)
+    points, pixels, size, tried, where = _views(values, cam)
     if size is None:
         return {"cam": cam, "views": 0, "chosen": chosen, "verdict": "unknown", "suggested": None,
                 "fov_h_deg": None, "measured_to_deg": None, "reference_px": None, "chosen_px": None,
-                "photos_tried": tried, "message": "This camera has no readable photos."}
-    out = advise_from_views(points, pixels, size[0], size[1], chosen)
-    out.update(cam=cam, photos_tried=tried)
+                "photos_tried": tried, "source": where,
+                "message": ("This camera has no readable photos." if where == "sample photos"
+                            else "The detections file has no image size for this camera.")}
+    out = advise_from_views(points, pixels, size[0], size[1], chosen, where=where)
+    if tried and not points and where == "saved detections":
+        out["message"] = ("The saved detections name corners this board description does not "
+                          "have. Set the board exactly as it was when they were found.")
+    out.update(cam=cam, photos_tried=tried, source=where)
     return out
 
 
-def lens_file_health(root_path: str, cam: int, values: Dict[str, Any], lens_path: str
-                     ) -> Dict[str, Any]:
-    """Whether the lens values a file gives for camera ``cam`` explain that camera's photos.
+def lens_file_health(values: Dict[str, Any], cam: int, lens_path: str) -> Dict[str, Any]:
+    """Whether the lens values a file gives for camera ``cam`` explain that camera's photos, or
+    its saved detections when ``values`` names no photo folder.
 
     With the lens held as given, each sample board view is posed on its own (robust PnP) and
     the remaining pixel error is measured. It is compared with the error of a lens fitted to
@@ -182,16 +236,18 @@ def lens_file_health(root_path: str, cam: int, values: Dict[str, Any], lens_path
     except (KeyError, ValueError) as exc:
         out["message"] = f"The lens file's entry for this camera cannot be used: {exc}."
         return out
-    points, pixels, size, _tried = sample_views(root_path, cam, values)
+    points, pixels, size, _tried, where = _views(values, cam)
     out["views"] = len(points)
+    out["source"] = where
     if size is None or not points:
-        out["message"] = "The board was not found in this camera's sample photos, so the lens values cannot be checked."
+        out["message"] = (f"The board was not found in this camera's {where}, so the lens values "
+                          f"cannot be checked.")
         return out
     fw, fh = listed[cam].get("width"), listed[cam].get("height")
     if fw and fh and (fw, fh) != size:
         out["verdict"] = "misfit"
-        out["message"] = (f"The lens file is for {fw} x {fh} images; these photos are "
-                          f"{size[0]} x {size[1]}.")
+        out["message"] = (f"The lens file is for {fw} x {fh} images; the {where} are from "
+                          f"{size[0]} x {size[1]} images.")
         return out
     errors: List[np.ndarray] = []
     for X, uv in zip(points, pixels):
@@ -214,10 +270,10 @@ def lens_file_health(root_path: str, cam: int, values: Dict[str, Any], lens_path
     if not np.isfinite(given) or given > limit:
         out["verdict"] = "misfit"
         shown = "cannot place the board at all" if not np.isfinite(given) else f"leave {given:.2f} px"
-        base = "" if ref_px is None else f", where a lens fitted to the photos leaves {ref_px:.2f} px"
-        out["message"] = (f"These lens values {shown} on the sample photos{base}. Check that the "
+        base = "" if ref_px is None else f", where a lens fitted to them leaves {ref_px:.2f} px"
+        out["message"] = (f"These lens values {shown} on the {where}{base}. Check that the "
                           f"file belongs to this camera (same camera order) and this image size.")
     else:
         out["verdict"] = "ok"
-        out["message"] = f"These lens values fit the sample photos ({given:.2f} px)."
+        out["message"] = f"These lens values fit the {where} ({given:.2f} px)."
     return out
