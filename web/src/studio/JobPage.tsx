@@ -128,6 +128,13 @@ export function JobPage({ id }: { id: string }) {
           {job.exit_code !== 0 && <> The fit to the photos is poor (exit code {job.exit_code}); the result page says why.</>}
         </Callout>
       )}
+      {job.reused_from && (
+        <Callout tone="info" title="Corner detections reused">
+          The corners found by{" "}
+          <a href={href({ page: "run", id: job.reused_from })} className="text-s-accent hover:underline">{job.reused_from.split("/").pop()?.replace(/^\d+:/, "")}</a>{" "}
+          are used again: same photos, same board. That result was copied from, not changed.
+        </Callout>
+      )}
       {job.repeat_of && (
         <Callout tone={job.repeat?.ok ? (job.repeat.same ? "ok" : "warn") : "info"}
           title={!job.repeat ? "This is a repeat of an earlier result"

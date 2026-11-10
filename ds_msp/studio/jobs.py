@@ -77,6 +77,7 @@ class Job:
     error: Optional[str] = None
     pid: Optional[int] = None
     repeat_of: Optional[str] = None      # id of the result this job repeats, if it is a repeat
+    reused_from: Optional[str] = None    # id of the result whose detections this job reuses
     folder: Path = field(default=Path("."), repr=False, compare=False)
 
     def record(self) -> Dict[str, Any]:
@@ -245,7 +246,11 @@ class JobManager:
         return {"ok": not problems, "problems": problems, "warnings": [],
                 "yaml": configio.render_config(clean), "values": clean}
 
-    def submit(self, root: int, name: str, values: Dict[str, Any], parent: str = "") -> Job:
+    def submit(self, root: int, name: str, values: Dict[str, Any], parent: str = "",
+               reuse: Optional[str] = None) -> Job:
+        """Create and queue a calibration. ``reuse`` names an earlier result made from the
+        same photos: its corner detections are copied into the new folder and used, after
+        checking again that they still fit (:mod:`ds_msp.studio.capture`)."""
         folder_name(name)                                # a bad name is reported first
         checked = self.prepare(values)
         if not checked["ok"]:
@@ -253,15 +258,29 @@ class JobManager:
         folder = self._target(root, name, parent)
         clean = dict(checked["values"])
         clean["save_path"] = str(folder) + os.sep
+        source = None
+        if reuse:
+            from . import capture
+            hist = capture.history(str(clean.get("root_path") or ""), self.roots, clean)
+            row = next((r for r in hist["runs"] if r["id"] == reuse), None)
+            if row is None or not (row.get("reuse") or {}).get("ok"):
+                why = (row or {}).get("reuse", {}).get("why", "it was not made from these photos")
+                raise JobError(f"The detections of that result cannot be reused: {why}.",
+                               [{"key": "reuse", "message": why}])
+            k_str, _sep, rel = reuse.partition(":")
+            source = (self.roots[int(k_str)] / rel).resolve()
         folder.mkdir(parents=True)
+        if source is not None:
+            from . import capture
+            clean["keypoints_path"] = str(capture.copy_detections(source, folder))
         config = folder / configio.CONFIG_NAME
         configio.write_config(config, clean)
         loaded = configio.load_check(config)
         if not loaded["ok"]:
-            config.unlink()
-            folder.rmdir()
+            import shutil
+            shutil.rmtree(folder)
             raise JobError(loaded["error"], [{"key": "", "message": loaded["error"]}])
-        return self._enqueue(folder, ["--config", str(config)])
+        return self._enqueue(folder, ["--config", str(config)], reused_from=reuse or None)
 
     def _target(self, root: int, name: str, parent: str = "") -> Path:
         """The new result folder for a job: under a served root, named ``name``, not there yet."""
@@ -295,11 +314,12 @@ class JobManager:
         folder.mkdir(parents=True)
         return self._enqueue(folder, args, repeat_of=original_id)
 
-    def _enqueue(self, folder: Path, cli_args: List[str], repeat_of: Optional[str] = None) -> Job:
+    def _enqueue(self, folder: Path, cli_args: List[str], repeat_of: Optional[str] = None,
+                 reused_from: Optional[str] = None) -> Job:
         command = [self.python, "-m", "ds_msp.rig.cli", *cli_args,
                    "--no-webviewer", "--progress-file", str(folder / PROGRESS_FILE)]
         job = Job(id=self._id(folder), name=folder.name, state="queued", created_utc=_now(),
-                  command=command, repeat_of=repeat_of, folder=folder)
+                  command=command, repeat_of=repeat_of, reused_from=reused_from, folder=folder)
         job.save()
         with self._lock:
             self._jobs[job.id] = job

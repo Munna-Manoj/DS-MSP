@@ -90,8 +90,11 @@ def photo_index(folder: os.PathLike | str) -> Dict[str, Any]:
 
     folder = Path(folder)
     index: Dict[Tuple[int, int], str] = {}
-    kp = folder / KEYPOINTS_FILE
-    if kp.is_file():
+    # the run's own detections, else the detections file it was given (it kept their frames)
+    given = ((_json(folder / MANIFEST_FILE).get("configuration") or {}).get("resolved") or {}).get("keypoints_path")
+    for kp in (folder / KEYPOINTS_FILE, Path(str(given)) if given else None):
+        if index or kp is None or not kp.is_file():
+            continue
         fs = cv2.FileStorage(str(kp), cv2.FILE_STORAGE_READ)
         nb_node = fs.getNode("nb_camera")
         nb = int(nb_node.real()) if not nb_node.empty() else 0

@@ -41,6 +41,11 @@ showed up only after a run, the second as `IndexError: list index out of range`.
    finished repeat is compared with the original by the digests and file checksums both
    manifests hold.
 
+10. **A photo folder is a capture with a history.** Results are matched to it through the
+    photo folder their manifest records. Corner detection depends only on the photos, the board
+    layout and the detector, so its result is offered for reuse when those are unchanged; the
+    file is copied into the new result, and no earlier result is written to.
+
 ## Consequences
 
 - A rendered three-camera capture (90 photos, 800 x 600) goes from an empty form to a result

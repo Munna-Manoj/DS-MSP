@@ -396,6 +396,43 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, f"this board cannot be built: {exc}") from None
 
+    def _values_with_photos(body: Dict[str, Any]) -> Dict[str, Any]:
+        values, _problems = configio.check_values(dict(body.get("values") or {}))
+        values["root_path"] = str(_inside(str(values.get("root_path") or "")))
+        return values
+
+    @app.post("/api/photos/lens-advice")
+    def photos_lens_advice(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Measure one camera's field of view on a few photos and say whether the lens type
+        chosen for it fits them."""
+        from .advisor import lens_advice
+        _manager()
+        values = _values_with_photos(body)
+        try:
+            return lens_advice(values["root_path"], int(body.get("cam", 0)), values)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, f"could not check this lens: {exc}") from None
+
+    @app.post("/api/photos/lens-health")
+    def photos_lens_health(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Whether the lens values in the chosen lens file explain one camera's photos."""
+        from .advisor import lens_file_health
+        _manager()
+        values = _values_with_photos(body)
+        lens = _inside(str(values.get("cam_params_path") or ""))
+        try:
+            return lens_file_health(values["root_path"], int(body.get("cam", 0)), values, str(lens))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, f"could not check these lens values: {exc}") from None
+
+    @app.post("/api/capture/history")
+    def capture_history(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """The calibrations already made from a photo folder, and whether the detections of
+        one of them fit the settings in ``values``."""
+        from .capture import history
+        values = _values_with_photos(body)
+        return history(values["root_path"], rs.paths, values, run_id=rs.run_id, max_depth=max_depth)
+
     @app.post("/api/config/check")
     def config_check(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         """Check form values the way a run would: the schema, the paths, then the CLI's own
@@ -452,7 +489,8 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         try:
             job = _manager().submit(int(body.get("root", 0)), str(body.get("name") or ""),
                                     dict(body.get("values") or {}),
-                                    parent=str(body.get("parent") or ""))
+                                    parent=str(body.get("parent") or ""),
+                                    reuse=str(body["reuse"]) if body.get("reuse") else None)
         except JobError as exc:
             return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
         except (TypeError, ValueError):

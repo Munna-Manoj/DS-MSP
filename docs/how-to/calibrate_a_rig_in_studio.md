@@ -62,6 +62,24 @@ The steps below describe starting from photos.
 4. **How strict should the checks be?** *Standard* always writes a result and lists its
    warnings. *Production* refuses a result that fails a check and needs two uncertainty limits.
 
+Studio checks what you entered against the photos before anything runs:
+
+- **The lens type.** After the board is found, each camera's lens is measured on up to 12
+  photos and the chosen type is fitted to them. The row then reads, for example, `This lens is
+  about 68° wide, measured out to 34° from its centre. The chosen lens type fits (0.05 px).`
+  A type that cannot fit is marked, with a button that switches to one that can.
+- **A lens file.** Each camera's given values are tried on its photos with the lens held
+  fixed. Values for another camera, another image size or another lens setting show up as a
+  large error, named per camera.
+- **Earlier calibrations of the same photos.** They are listed under the photo folder. When
+  the photos and the board layout are unchanged, Studio offers to reuse the corners already
+  found. The earlier result is copied from and never changed.
+
+/// note | What the lens check cannot see
+It compares pixel errors. A lens type can fit the pixels and still bias the rig; the one known
+case, UCM on an ordinary lens, is flagged by rule.
+///
+
 **More settings** lists every other `calib_param.yml` key with its default. A setting you do
 not touch is left out of the config file, so the default applies.
 

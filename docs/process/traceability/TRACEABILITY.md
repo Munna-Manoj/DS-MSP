@@ -81,6 +81,7 @@ CI fails if this file is out of sync with the registry and the test suite.
 | FR-UI-008 | FR | UI | ARC-UI | `ds_msp/studio/jobs.py;ds_msp/studio/server.py;ds_msp/studio/cli.py` | `tests/studio/test_jobs.py;tests/studio/test_setup.py` | implemented | no | tests/studio/test_jobs.py (module) |
 | FR-UI-009 | FR | UI | ARC-UI | `ds_msp/studio/scene.py;ds_msp/studio/server.py;ds_msp/io/mccalib.py` | `tests/studio/test_scene.py` | implemented | no | tests/studio/test_scene.py (module) |
 | FR-UI-010 | FR | UI | ARC-UI | `ds_msp/studio/sources.py;ds_msp/studio/replay.py;ds_msp/studio/jobs.py;ds_msp/studio/server.py` | `tests/studio/test_sources.py;tests/studio/test_jobs.py` | implemented | no | tests/studio/test_jobs.py::test_a_result_is_repeated_from_its_fingerprint<br>tests/studio/test_sources.py (module) |
+| FR-UI-011 | FR | UI | ARC-UI | `ds_msp/studio/advisor.py;ds_msp/studio/capture.py;ds_msp/studio/jobs.py;ds_msp/studio/server.py` | `tests/studio/test_advisor.py;tests/studio/test_capture.py` | implemented | no | tests/studio/test_advisor.py (module)<br>tests/studio/test_capture.py (module) |
 | FR-VO-001 | FR | VO | ARC-VO | `ds_msp/vo/odometry.py` | `tests/vo/test_odometry.py` | implemented | no | tests/vo/test_odometry.py (module) |
 | FR-VO-002 | FR | VO | ARC-VO | `ds_msp/vo/metrics.py` | `tests/vo/test_metrics.py` | implemented | no | tests/vo/test_metrics.py (module) |
 | NFR-ARCH-001 | NFR | ARCH | ARC-CORE | `ds_msp` | `tests/contract/test_independence.py` | implemented | no | tests/contract/test_independence.py (module) |

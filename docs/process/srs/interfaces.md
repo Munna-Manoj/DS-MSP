@@ -158,6 +158,15 @@ Other starting points and repeats (FR-UI-010):
   folder. The job's document then carries `repeat_of` and, once done, `repeat` (`same` and one
   row per compared digest or file).
 
+Checks before a run (FR-UI-011):
+
+- `POST /api/photos/lens-advice` `{values, cam}`: one camera's measured field of view and
+  whether its chosen lens type fits (`verdict`: `ok`, `misfit`, `caution`, `unknown`).
+- `POST /api/photos/lens-health` `{values, cam}`: whether the lens file's values for that
+  camera explain its photos.
+- `POST /api/capture/history` `{values}`: earlier results made from the same photo folder and
+  `reusable`, the newest whose detections fit. `POST /api/jobs` takes `reuse` (that id).
+
 Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
 
 - `GET /api/browse?ref=`: one folder under the roots, with its subfolders (image count, whether

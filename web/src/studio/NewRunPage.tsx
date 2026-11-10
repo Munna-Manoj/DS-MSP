@@ -5,8 +5,9 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { href } from "../router";
 import {
-  api, ApiError, type BoardCheck, type ConfigCheck, type ConfigSchema, type IntrinsicsScan,
-  type KeypointsScan, type Problem, type RunSummary, type ScanDoc, type SchemaProp, type Values,
+  api, ApiError, type BoardCheck, type CaptureHistory, type ConfigCheck, type ConfigSchema,
+  type IntrinsicsScan, type KeypointsScan, type LensAdvice, type LensHealth, type Problem,
+  type RunSummary, type ScanDoc, type SchemaProp, type Values,
 } from "./api";
 import { FolderPicker } from "./FolderPicker";
 import { int, num, when } from "./format";
@@ -71,6 +72,10 @@ export function NewRunPage({ from }: { from?: string }) {
   const [fileError, setFileError] = useState<string | null>(null);
   const [results, setResults] = useState<RunSummary[] | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [advice, setAdvice] = useState<Record<number, LensAdvice | "busy">>({});
+  const [health, setHealth] = useState<Record<number, LensHealth | "busy">>({});
+  const [hist, setHist] = useState<CaptureHistory | null>(null);
+  const [reuse, setReuse] = useState(true);
   const [name, setName] = useState(defaultName);
   const [root, setRoot] = useState(0);
   const [roots, setRoots] = useState<{ name: string; path: string }[]>([]);
@@ -198,14 +203,62 @@ export function NewRunPage({ from }: { from?: string }) {
     );
   }, [from, adopt]);
 
+  const payloadRef = useRef<Values>({});
   const payload = useMemo<Values>(() => {
     const out: Values = { ...values };
     if (nCam) out.number_camera = nCam;
     if (models.length) out.camera_models = models.slice(0, nCam || models.length);
     return out;
   }, [values, models, nCam]);
+  payloadRef.current = payload;
 
   const problemOf = (key: string) => problems.find((p) => p.key === key)?.message ?? null;
+
+  // Check each camera's lens type on a few of its photos, one camera at a time.
+  const runAdvice = useCallback(async (vals: Values, n: number) => {
+    setAdvice(Object.fromEntries(Array.from({ length: n }, (_, k) => [k, "busy" as const])));
+    for (let k = 0; k < n; k++) {
+      try {
+        const a = await api.lensAdvice(vals, k);
+        setAdvice((old) => ({ ...old, [k]: a }));
+      } catch {
+        setAdvice((old) => { const next = { ...old }; delete next[k]; return next; });
+      }
+    }
+  }, []);
+
+  // A lens file is checked against the photos as soon as both are known.
+  const lensPath = lens?.path ?? null;
+  const scanned = scan?.number_camera ?? 0;
+  useEffect(() => {
+    if (!lensPath || !scanned || !rootPath) { setHealth({}); return; }
+    let live = true;
+    const cams = (lens?.cameras ?? []).map((c) => c.index).filter((c) => c < scanned);
+    setHealth(Object.fromEntries(cams.map((c) => [c, "busy" as const])));
+    (async () => {
+      for (const c of cams) {
+        try {
+          const h = await api.lensHealth(payloadRef.current, c);
+          if (live) setHealth((old) => ({ ...old, [c]: h }));
+        } catch {
+          if (live) setHealth((old) => { const next = { ...old }; delete next[c]; return next; });
+        }
+      }
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lensPath, scanned, rootPath, values.number_x_square, values.number_y_square, values.number_board]);
+
+  // What was already calibrated from these photos, and whether its detections fit these settings.
+  useEffect(() => {
+    if (!scanned || !rootPath || source !== "photos") { setHist(null); return; }
+    let live = true;
+    const t = window.setTimeout(() => {
+      api.captureHistory(payloadRef.current).then((h) => live && setHist(h), () => live && setHist(null));
+    }, 250);
+    return () => { live = false; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanned, rootPath, source, values.number_x_square, values.number_y_square, values.number_board, values.cam_prefix]);
 
   function pickFolder(path: string, ref: string) {
     const key = picker?.key ?? "root_path";
@@ -253,7 +306,7 @@ export function NewRunPage({ from }: { from?: string }) {
     setBoardBusy(true);
     setBoardError(null);
     api.checkBoard(payload).then(
-      (doc) => { setBoard(doc); setBoardBusy(false); },
+      (doc) => { setBoard(doc); setBoardBusy(false); if (doc.found > 0) void runAdvice(payload, nCam); },
       (e: Error) => { setBoardError(e.message); setBoardBusy(false); },
     );
   }
@@ -279,7 +332,8 @@ export function NewRunPage({ from }: { from?: string }) {
     }
     setStarting(true);
     setStartError(null);
-    api.startJob(root, name, payload).then(
+    const reused = reuse && source === "photos" ? hist?.reusable ?? null : null;
+    api.startJob(root, name, payload, reused).then(
       (job) => { window.location.hash = href({ page: "job", id: job.id }); },
       (e: Error) => {
         setStarting(false);
@@ -472,6 +526,41 @@ export function NewRunPage({ from }: { from?: string }) {
           </Card>
           )}
 
+          {source === "photos" && hist && hist.runs.length > 0 && (
+            <Card title="These photos were calibrated before" aside={`${hist.runs.length} earlier result${hist.runs.length === 1 ? "" : "s"}`}>
+              <div className="grid gap-3">
+                <ul className="grid divide-y divide-s-line">
+                  {hist.runs.slice(0, 6).map((h) => (
+                    <li key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+                      <a href={href({ page: "run", id: h.id })} className="font-medium text-sm text-s-accent hover:underline break-all">{h.name}</a>
+                      <span className="text-xs text-s-muted mr-auto">
+                        {when(h.created_utc)} · {h.models.join(", ") || "—"}{h.median_px != null && ` · ${num(h.median_px)} px`}
+                      </span>
+                      {h.has_config && <a href={href({ page: "new", from: h.id })} className="text-xs text-s-accent hover:underline">Use its settings</a>}
+                    </li>
+                  ))}
+                </ul>
+                {hist.reusable ? (
+                  <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-s-line p-3">
+                    <input type="checkbox" checked={reuse} onChange={(e) => setReuse(e.target.checked)} className="mt-1" />
+                    <span className="text-sm">
+                      Reuse the corners already found by <b>{hist.runs.find((h) => h.id === hist.reusable)?.name}</b>
+                      <span className="block text-xs text-s-muted mt-0.5 leading-relaxed">
+                        Same photos ({hist.runs.find((h) => h.id === hist.reusable)?.reuse?.why}) and same board layout, so finding the
+                        corners again would give the same result. The earlier result is copied from, never changed.
+                        Lens types, square size and every other setting can still differ.
+                      </span>
+                    </span>
+                  </label>
+                ) : (
+                  <Note>
+                    The corners will be found again: for {hist.runs[0].name}, {hist.runs[0].reuse?.why ?? "its detections do not fit"}.
+                  </Note>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* 2 ---------------------------------------------------------------------------- */}
           <Card title="2. Calibration board" aside="ChArUco, 6×6 markers">
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
@@ -560,6 +649,8 @@ export function NewRunPage({ from }: { from?: string }) {
                                 })}>
                                 {LENSES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
                               </select>
+                              <LensNote a={advice[k]} current={models[k] ?? "radtan"}
+                                onUse={(m) => { setModels((old) => { const next = Array.from({ length: nCam }, (_, i) => old[i] ?? "radtan"); next[k] = m; return next; }); setAdvice((old) => { const next = { ...old }; delete next[k]; return next; }); }} />
                             </td>
                           </tr>
                         );
@@ -568,6 +659,14 @@ export function NewRunPage({ from }: { from?: string }) {
                   </table>
                 </div>
                 {problemOf("camera_models") && <div className="text-xs text-s-bad" role="alert">{problemOf("camera_models")}</div>}
+                {source === "photos" && scanned > 0 && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button onClick={() => void runAdvice(payload, nCam)} busy={Object.values(advice).some((a) => a === "busy")}>
+                      Check the lens types against my photos
+                    </Button>
+                    <span className="text-xs text-s-muted">Measures each lens on a few photos and says when the chosen type cannot fit it. About a second per camera.</span>
+                  </div>
+                )}
                 <div className="rounded-lg border border-s-line p-3 grid gap-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="mr-auto min-w-0">
@@ -582,11 +681,27 @@ export function NewRunPage({ from }: { from?: string }) {
                   {lens && (
                     <>
                       <ul className="grid gap-0.5 text-xs text-s-muted tnum">
-                        {lens.cameras.slice(0, 12).map((c) => (
-                          <li key={c.index}><Mono>camera {c.index}</Mono>: {c.model ?? "lens type not stated"}, focal {num(c.fx, 1)} px, centre {num(c.cx, 1)}, {num(c.cy, 1)}</li>
-                        ))}
+                        {lens.cameras.slice(0, 12).map((c) => {
+                          const h = health[c.index];
+                          return (
+                            <li key={c.index}>
+                              <Mono>camera {c.index}</Mono>: {c.model ?? "lens type not stated"}, focal {num(c.fx, 1)} px, centre {num(c.cx, 1)}, {num(c.cy, 1)}
+                              {h === "busy" && <span className="text-s-faint"> · checking against the photos…</span>}
+                              {h && h !== "busy" && (
+                                <span className={h.verdict === "ok" ? "text-s-ok" : h.verdict === "misfit" ? "text-s-bad font-medium" : "text-s-faint"}>
+                                  {" "}· {h.verdict === "ok" ? "✓ " : h.verdict === "misfit" ? "✗ " : ""}{h.message}
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
                         {lens.cameras.length > 12 && <li>and {lens.cameras.length - 12} more</li>}
                       </ul>
+                      {Object.values(health).some((h) => h !== "busy" && h.verdict === "misfit") && (
+                        <Callout tone="bad" title="Some lens values do not fit these photos">
+                          Keeping them fixed would give a wrong rig. Check the file, or choose “Start from them and refine”.
+                        </Callout>
+                      )}
                       {lens.cameras.length < nCam && <Callout tone="warn">The file has {lens.cameras.length} of {nCam} cameras. The others are worked out from the photos.</Callout>}
                       <div className="grid gap-2 sm:grid-cols-2">
                         {[
@@ -681,6 +796,10 @@ export function NewRunPage({ from }: { from?: string }) {
                 <Check ok>{`Board ${nx} × ${ny}, squares of ${sq}`}</Check>
                 <Check ok={nCam > 0}>{nCam > 0 ? lensSummary(models, nCam) : "Lens types"}</Check>
                 <Check ok>{production ? "Production checks" : "Standard checks"}</Check>
+                {source === "photos" && hist?.reusable && reuse && <Check ok>Reusing the corners already found</Check>}
+                {Object.values(advice).some((a) => a !== "busy" && a.verdict === "misfit") && (
+                  <Check ok={false}><span className="text-s-bad font-medium">A lens type does not fit its photos (see step 3)</span></Check>
+                )}
               </ul>
               {startError && <Callout tone="bad" title="Not started">{startError}</Callout>}
               {problems.filter((p) => p.key !== "").length > 0 && (
@@ -738,6 +857,23 @@ function Page({ children, ...drop }: { children: ReactNode } & Pick<React.HTMLAt
 
 function Mono({ children }: { children: ReactNode }) {
   return <code className="font-studio-mono text-[0.92em]">{children}</code>;
+}
+
+function LensNote({ a, current, onUse }: { a: LensAdvice | "busy" | undefined; current: string; onUse: (model: string) => void }) {
+  if (!a) return null;
+  if (a === "busy") return <div className="text-xs text-s-faint mt-1">Measuring this lens…</div>;
+  if (a.chosen !== current) return null;                 // the choice changed since the check
+  const tone = a.verdict === "ok" ? "text-s-ok" : a.verdict === "misfit" ? "text-s-bad font-medium"
+    : a.verdict === "caution" ? "text-s-warn font-medium" : "text-s-muted";
+  const better = a.suggested && a.suggested !== current ? LENSES.find((l) => l.id === a.suggested) : null;
+  return (
+    <div className={`text-xs mt-1 leading-relaxed max-w-md ${tone}`}>
+      {a.verdict === "ok" ? "✓ " : a.verdict === "misfit" ? "✗ " : a.verdict === "caution" ? "! " : ""}{a.message}
+      {better && (a.verdict === "misfit" || a.verdict === "caution") && (
+        <button type="button" onClick={() => onUse(better.id)} className="ml-1 underline text-s-accent font-medium">Use {better.label}</button>
+      )}
+    </div>
+  );
 }
 
 function lensSummary(models: string[], n: number): string {

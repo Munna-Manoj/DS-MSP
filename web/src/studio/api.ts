@@ -286,6 +286,8 @@ export interface JobBrief {
   error: string | null;
   has_result: boolean;
   queue_position: number | null;
+  /** The earlier result whose corner detections this calibration reuses. */
+  reused_from?: string | null;
 }
 
 export interface JobProgress {
@@ -327,6 +329,27 @@ export interface IntrinsicsScan {
   path: string;
   cameras: { index: number; model: string | null; fx: number; fy: number; cx: number; cy: number;
     width: number | null; height: number | null }[];
+}
+
+export interface LensAdvice {
+  cam: number; views: number; chosen: string;
+  verdict: "ok" | "misfit" | "caution" | "unknown"; message: string; suggested: string | null;
+  fov_h_deg: number | null; measured_to_deg: number | null;
+  reference_px: number | null; chosen_px: number | null;
+}
+
+export interface LensHealth {
+  cam: number; verdict: "ok" | "misfit" | "unknown"; message: string;
+  given_px: number | null; reference_px: number | null; views: number;
+}
+
+export interface CaptureHistory {
+  root_path: string;
+  runs: { id: string; name: string; created_utc: string | null; n_cameras: number | null;
+    models: string[]; median_px: number | null; has_config: boolean;
+    reuse?: { ok: boolean; why: string } }[];
+  /** The newest earlier result whose corner detections fit the current settings. */
+  reusable: string | null;
 }
 
 export interface Fingerprint {
@@ -410,8 +433,11 @@ export const api = {
   repeatJob: (id: string, root: number, name: string) => postJSON<JobDoc>("api/jobs/repeat", { id, root, name }),
   jobs: () => getJSON<JobBrief[]>("api/jobs"),
   job: (id: string) => getJSON<JobDoc>(`api/job?id=${encodeURIComponent(id)}`),
-  startJob: (root: number, name: string, values: Values) =>
-    postJSON<JobDoc>("api/jobs", { root, name, values }),
+  startJob: (root: number, name: string, values: Values, reuse?: string | null) =>
+    postJSON<JobDoc>("api/jobs", { root, name, values, reuse: reuse ?? undefined }),
+  lensAdvice: (values: Values, cam: number) => postJSON<LensAdvice>("api/photos/lens-advice", { values, cam }),
+  lensHealth: (values: Values, cam: number) => postJSON<LensHealth>("api/photos/lens-health", { values, cam }),
+  captureHistory: (values: Values) => postJSON<CaptureHistory>("api/capture/history", { values }),
   cancelJob: (id: string) => postJSON<{ id: string; state: JobState }>("api/job/cancel", { id }),
   runs: () => getJSON<RunSummary[]>("api/runs"),
   run: (id: string) => getJSON<RunDoc>(`api/run?id=${encodeURIComponent(id)}`),
