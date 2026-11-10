@@ -114,6 +114,9 @@ error. Click a bar, drag along the strip, or press play; every view follows.
   how precisely your own detector finds it; the panel gives the uncertainty sideways and in
   depth, and how far out the pair stays within 1 mm.
 
+When the calibration was set up with a board that may be bowed, a line above the panel states
+the bow Studio measured, from the lowest to the highest point of the board.
+
 A photo that is blurred, has glare, or shows long lines all pointing one way can be left out of
 the next run. Select it and choose **Leave this photo out next time**; its bar turns amber and a
 bar under the timeline lists what you marked. **Run again without them** opens the setup with the

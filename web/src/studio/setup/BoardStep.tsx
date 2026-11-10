@@ -6,6 +6,7 @@ import type { BoardCheck, BoardGuess, Values } from "../api";
 import { api } from "../api";
 import type { Unit } from "../stage/units";
 import { Button, Callout, INPUT } from "../ui";
+import { TargetShape } from "../Teach";
 import { Explain, KeyTag, NumberBox, Range, Stepper, Toggle } from "./kit";
 
 type Set = (key: string, v: unknown) => void;
@@ -79,7 +80,7 @@ function BoardDrawing({ nx, ny, size, unit, fill }: { nx: number; ny: number; si
 
 export function BoardStep({ values, set, defaults, photos, payload, check, onCheck, checkBusy, checkError, problemOf, unit, setUnit }: {
   unit: Unit; setUnit: (u: Unit) => void;
-  values: Values; set: Set; defaults: { nx: number; ny: number; size: number; ls: number; lm: number };
+  values: Values; set: Set; defaults: { nx: number; ny: number; size: number; ls: number; lm: number; shape: string };
   /** The photo folder, when the calibration starts from photos. */
   photos: { root: string; prefix: string | null } | null;
   payload: Values; check: BoardCheck | null; onCheck: (v?: Values) => void; checkBusy: boolean; checkError: string | null;
@@ -217,6 +218,36 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
             )}
           </>
         )}
+      </div>
+
+      {/* flat or not ---------------------------------------------------------------------- */}
+      <div className="border-t border-s-line pt-5 grid gap-3">
+        <div className="grid gap-1">
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <span className="text-base font-semibold">{nb > 1 ? "How flat and stiff is your target?" : "Is your board really flat?"}</span>
+            <KeyTag name="structure_mode" />
+            {values.structure_mode != null && <button type="button" onClick={() => { set("structure_mode", ""); set("structure_prior_sigma", ""); }} className="text-[15px] text-s-accent underline cursor-pointer">Back to the usual choice</button>}
+          </div>
+          <Explain>
+            {nb > 1
+              ? "Studio works out how the boards are mounted relative to one another. How much else it may change depends on how stiff and flat the target really is."
+              : "A board that bows by even a millimetre, treated as flat, pushes that error into the lens values and camera positions."}
+          </Explain>
+        </div>
+        <TargetShape value={typeof values.structure_mode === "string" ? values.structure_mode : undefined} fallback={defaults.shape}
+          boards={nb} onChange={(v) => set("structure_mode", v === defaults.shape ? "" : v)} />
+        {values.structure_mode === "bend" && (
+          <Explain><b className="font-semibold text-s-text">Good to know: </b>this needs photos with the board tilted and at different distances. The result page shows the bow it found; a bow near zero means the board was flat after all.</Explain>
+        )}
+        {nb > 1 && values.structure_mode === "free" && (
+          <label className="grid gap-1.5 text-base font-semibold">
+            How far may a corner move from its printed place?
+            <span className="text-[15px] font-normal text-s-muted">Without a limit the target can absorb errors that belong to the lens. In the unit of your square size.</span>
+            <NumberBox id="structure_prior_sigma" value={values.structure_prior_sigma} fallback={null} unit={unit === "?" ? undefined : unit} onChange={(v) => set("structure_prior_sigma", v)} />
+            {problemOf("structure_prior_sigma") && <span className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("structure_prior_sigma")}</span>}
+          </label>
+        )}
+        {problemOf("structure_mode") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("structure_mode")}</div>}
       </div>
 
       {/* check ---------------------------------------------------------------------------- */}

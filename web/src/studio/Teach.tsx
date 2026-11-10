@@ -37,11 +37,24 @@ const SHAPES: { id: ShapeMode; title: string; text: string }[] = [
     text: "The boards stay where the first rough estimate put them. For comparing with older results." },
 ];
 
+// With one board there is no pose between boards to work out: it is flat, or it bows.
+const ONE_BOARD: { id: ShapeMode; title: string; text: string }[] = [
+  { id: "rigid", title: "It is flat and stiff",
+    text: "A board on glass, metal or a thick rigid plate. Studio trusts the printed shape." },
+  { id: "bend", title: "It may be slightly bowed",
+    text: "A board on paper, foam or thin plastic. Studio also measures how much it bows and twists, and the result shows it." },
+];
+
 const US = [-1, -0.5, 0, 0.5, 1];
 const VS = [-1, 0, 1];
 
 /** Where corner (u, v) of board `b` is drawn at time `t`: the printed shape plus what `mode` lets move. */
-function corner(mode: ShapeMode | "printed", b: number, u: number, v: number, t: number): [number, number] {
+function corner(mode: ShapeMode | "printed", b: number, u: number, v: number, t: number, single = false): [number, number] {
+  if (single) {
+    // one board, drawn larger and seen more from the side, so a bow is plain to see
+    const w = mode === "bend" ? 13 * Math.sin(t * 1.6) * (u * u - 1 / 3) + 4 * Math.sin(t * 0.9) * u * v : 0;
+    return [84 + 44 * u + 12 * v, 41 + 15 * v - w];
+  }
   const cx = b === 0 ? 44 : 124;
   let w = 0;
   let dx = 0;
@@ -59,19 +72,19 @@ function corner(mode: ShapeMode | "printed", b: number, u: number, v: number, t:
   return [cx + 25 * u + 8 * v + dx, 41 + 13 * v - w];
 }
 
-function BoardPicture({ mode, t }: { mode: ShapeMode; t: number }) {
+function BoardPicture({ mode, t, single = false }: { mode: ShapeMode; t: number; single?: boolean }) {
   const fine = mode === "free" ? US : [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1];
   const line = (m: ShapeMode | "printed", b: number, pts: [number, number][]) =>
-    pts.map(([u, v]) => corner(m, b, u, v, t).map((x) => x.toFixed(1)).join(",")).join(" ");
+    pts.map(([u, v]) => corner(m, b, u, v, t, single).map((x) => x.toFixed(1)).join(",")).join(" ");
   const outline: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]];
   return (
     <svg viewBox="0 0 168 82" className="w-full h-auto text-s-text" role="img" aria-hidden="true">
-      {[0, 1].map((b) => (
+      {(single ? [0] : [0, 1]).map((b) => (
         <g key={b}>
           {/* the printed shape, for comparison */}
           <polyline points={line("printed", b, outline)} fill="none" stroke="currentColor" strokeOpacity="0.28" strokeDasharray="3 3" strokeWidth="1" />
           <polygon points={[...VS.map((v) => fine.map((u) => [u, v] as [number, number]))[0],
-            ...fine.map((u) => [u, 1] as [number, number]).reverse()].map(([u, v]) => corner(mode, b, u, v, t).map((x) => x.toFixed(1)).join(",")).join(" ")}
+            ...fine.map((u) => [u, 1] as [number, number]).reverse()].map(([u, v]) => corner(mode, b, u, v, t, single).map((x) => x.toFixed(1)).join(",")).join(" ")}
             fill="currentColor" fillOpacity="0.06" />
           {VS.map((v) => (
             <polyline key={`r${v}`} points={line(mode, b, fine.map((u) => [u, v] as [number, number]))}
@@ -82,7 +95,7 @@ function BoardPicture({ mode, t }: { mode: ShapeMode; t: number }) {
               fill="none" stroke="currentColor" strokeOpacity="0.75" strokeWidth="1.1" />
           ))}
           {mode === "free" && US.flatMap((u) => VS.map((v) => {
-            const [x, y] = corner(mode, b, u, v, t);
+            const [x, y] = corner(mode, b, u, v, t, single);
             return <circle key={`${u}${v}`} cx={x} cy={y} r="1.9" fill="#0ea5e9" />;
           }))}
         </g>
@@ -92,22 +105,24 @@ function BoardPicture({ mode, t }: { mode: ShapeMode; t: number }) {
 }
 
 /** `structure_mode`: what may move in the target while the cameras are solved. */
-export function TargetShape({ value, fallback, onChange }: {
-  value: string | undefined; fallback: string; onChange: (v: string) => void;
+export function TargetShape({ value, fallback, boards, onChange }: {
+  value: string | undefined; fallback: string; boards: number; onChange: (v: string) => void;
 }) {
   const t = usePhase();
   const [hover, setHover] = useState<string | null>(null);
-  const current = (value ?? fallback) as ShapeMode;
+  const single = boards <= 1;
+  // for one board only "bend" changes anything; every other value means flat
+  const current = (single ? (value === "bend" ? "bend" : "rigid") : value ?? fallback) as ShapeMode;
   return (
     <div className="grid gap-3">
       <div role="radiogroup" aria-label="What may move in the target" className="grid gap-3 sm:grid-cols-2">
-        {SHAPES.map((s) => {
+        {(single ? ONE_BOARD : SHAPES).map((s) => {
           const on = current === s.id;
           return (
             <button key={s.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(s.id)}
               onPointerEnter={() => setHover(s.id)} onPointerLeave={() => setHover(null)}
               className={`text-left rounded-xl border-2 p-4 grid grid-cols-[150px_minmax(0,1fr)] gap-4 items-center cursor-pointer transition ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:border-s-field-line"}`}>
-              <BoardPicture mode={s.id} t={on || hover === s.id ? t : 1.1} />
+              <BoardPicture mode={s.id} single={single} t={on || hover === s.id ? t : 1.1} />
               <span className="grid gap-1">
                 <span className="text-base font-semibold flex flex-wrap items-baseline gap-x-2">
                   {s.title}
@@ -119,7 +134,7 @@ export function TargetShape({ value, fallback, onChange }: {
           );
         })}
       </div>
-      <p className="text-[15px] text-s-muted leading-relaxed">The dashed outline is a board as printed. The solid one shows, enlarged, what this choice allows to move.</p>
+      <p className="text-[15px] text-s-muted leading-relaxed">The dashed outline is {single ? "the" : "a"} board as printed. The solid one shows, enlarged, what this choice allows to move.</p>
     </div>
   );
 }

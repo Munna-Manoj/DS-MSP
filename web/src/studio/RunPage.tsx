@@ -7,7 +7,7 @@ import { LinksTable } from "./LinksTable";
 import { cameraStatus, camIds, STATE_TONE, type CamStatus } from "./status";
 import { Actions } from "./Actions";
 import { Evidence } from "./Evidence";
-import { BoardFlatness } from "./BoardFlatness";
+import { BoardFlatness, BowFinding } from "./BoardFlatness";
 import { TechDetails } from "./TechDetails";
 import { Stage } from "./stage/Stage";
 import { Card, ErrorBox, Loading, Note } from "./ui";
@@ -44,6 +44,7 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
       <TitleRow doc={doc} runId={id} />
       <Banner doc={doc} statuses={statuses} />
       <Actions doc={doc} runId={id} />
+      <BowFinding doc={doc} />
       <Stage doc={doc} runId={id} cam={selected} statuses={statuses} />
       <CameraDetail doc={doc} cam={selected} status={statuses.find((s) => s.id === selected)} />
       <details className="rounded-lg border border-s-line bg-s-surface group">

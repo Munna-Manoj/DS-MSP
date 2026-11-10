@@ -602,7 +602,7 @@ export function NewRunPage({ from }: { from?: string }) {
           <Step n={2} title="Your calibration board" state={sized && (board ? board.found > 0 : true) ? "done" : "todo"} aside="ChArUco board">
             <BoardStep values={values} set={set} payload={payload} photos={photoSource} unit={unit} setUnit={setUnit}
               defaults={{ nx: Number(props.number_x_square.default), ny: Number(props.number_y_square.default), size: Number(props.square_size.default),
-                ls: Number(props.length_square.default), lm: Number(props.length_marker.default) }}
+                ls: Number(props.length_square.default), lm: Number(props.length_marker.default), shape: String(props.structure_mode.default) }}
               check={board} onCheck={runBoardCheck} checkBusy={boardBusy} checkError={boardError} problemOf={problemOf} />
           </Step>
 
@@ -659,7 +659,7 @@ export function NewRunPage({ from }: { from?: string }) {
           </Step>
 
           {/* 5 ---------------------------------------------------------------------------- */}
-          <Settings schema={schema} values={values} problems={problems} set={set} boards={nb} source={source} strict={production}
+          <Settings schema={schema} values={values} problems={problems} set={set} source={source} strict={production}
             refRun={from && fromName ? { id: from, name: fromName }
               : source === "photos" && hist?.runs.length ? { id: hist.runs[0].id, name: hist.runs[0].name } : null}
             onBrowse={(key) => setPicker({ mode: "file", key, title: "Choose the file" })} />

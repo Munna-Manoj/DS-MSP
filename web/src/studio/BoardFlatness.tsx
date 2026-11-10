@@ -2,7 +2,28 @@
 
 import type { RunDoc } from "./api";
 import { int, num } from "./format";
-import { Card, Note } from "./ui";
+import { length, useUnit } from "./stage/units";
+import { Callout, Card, Note } from "./ui";
+
+/** When the calibration was asked to measure the board's bow, say what it found, up front. */
+export function BowFinding({ doc }: { doc: RunDoc }) {
+  const [unit] = useUnit();
+  const bf = doc.acceptance?.diagnostics?.board_flatness;
+  const mode = (doc.acceptance as { structure_mode?: string } | null)?.structure_mode;
+  if (!bf || mode !== "bend") return null;
+  const bows = Object.values(bf).flatMap((per) => Object.values(per)).map((v) => v.sag_ptp ?? 0);
+  if (!bows.length) return null;
+  const worst = Math.max(...bows);
+  // without a known unit, a fixed number of decimals would show a small bow as zero
+  const shown = unit === "?" ? `${Number(worst.toPrecision(2))} (in the unit of your square size)` : length(worst, unit);
+  return (
+    <Callout tone="info" title={bows.length === 1
+      ? `Your board bows by ${shown} from its lowest to its highest point`
+      : `Your ${bows.length} boards bow by up to ${shown} from lowest to highest point`}>
+      You asked Studio to measure this, and the calibration takes the bow into account. A bow of a small fraction of a millimetre can also come from corner noise on a board that is flat.
+    </Callout>
+  );
+}
 
 export function BoardFlatness({ doc }: { doc: RunDoc }) {
   const bf = doc.acceptance?.diagnostics?.board_flatness;
@@ -16,7 +37,7 @@ export function BoardFlatness({ doc }: { doc: RunDoc }) {
       {!bent ? (
         <Note>
           Each board was held flat in this calibration ({rows.length} board{rows.length === 1 ? "" : "s"}).
-          To measure a bent board, calibrate with structure_mode: bend.
+          To measure whether a board bows, choose "may be slightly bowed" for it when you set up the calibration.
         </Note>
       ) : (
         <div className="grid gap-2">

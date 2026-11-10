@@ -4,7 +4,7 @@
 import type { ReactNode } from "react";
 
 import type { ConfigSchema, Problem, Values } from "../api";
-import { OutlierBand, TargetShape } from "../Teach";
+import { OutlierBand } from "../Teach";
 import { Button, INPUT } from "../ui";
 import { Explain, KeyTag, Mono, NumberBox, Range, Segmented, Toggle } from "./kit";
 
@@ -16,10 +16,10 @@ const ELSEWHERE = new Set([
   "square_size", "number_board", "profile", "max_rotation_sigma_deg", "max_centre_sigma", "save_path",
   "webviewer", "keypoints_path", "cam_params_path", "fix_intrinsic", "exclude_views", "length_square",
   "length_marker", "boards_index", "number_x_square_per_board", "number_y_square_per_board",
-  "square_size_per_board",
+  "square_size_per_board", "structure_mode", "structure_prior_sigma",
 ]);
 const HERE = new Set([
-  "noise_bound", "reject_outliers", "ransac_threshold", "structure_mode", "structure_prior_sigma",
+  "noise_bound", "reject_outliers", "ransac_threshold",
   "number_iterations", "he_approach", "audit_gate", "uncertainty_gate", "convergence_gate", "coverage_gate",
   "min_camera_coverage", "lens_gate", "max_lens_sigma_px", "crossval_gate", "accuracy_gate",
   "accuracy_profile_path", "save_detection", "save_reprojection", "report_covariance", "certify", "verbose",
@@ -72,9 +72,9 @@ const GATE_MEANS: Record<string, string> = {
   refuse: "No result is written if this check fails.",
 };
 
-export function Settings({ schema, values, problems, set, onBrowse, refRun, boards, source, strict }: {
+export function Settings({ schema, values, problems, set, onBrowse, refRun, source, strict }: {
   schema: ConfigSchema; values: Values; problems: Problem[]; set: Set; onBrowse: (key: string) => void;
-  refRun: { id: string; name: string } | null; boards: number; source: string;
+  refRun: { id: string; name: string } | null; source: string;
   /** Step 4 is set to refuse a doubtful result: untouched checks then take the strict defaults. */
   strict: boolean;
 }) {
@@ -143,23 +143,6 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, boar
             )}
           </Setting>
         </Group>
-
-        {boards > 1 && (
-          <Group title={`Your target of ${boards} boards`}>
-            <Setting wide title="How well do you know the shape of the target?" k="structure_mode" changed={has("structure_mode")} onReset={reset("structure_mode")} problem={problem("structure_mode")}
-              why={<>Studio first estimates how the boards are mounted relative to one another, then can improve that together with the cameras. How much it may change depends on how stiff and flat your target really is.</>}
-              when={<>your boards are not rigid (choose bowed), or a result reports that the boards do not fit their printed shape.</>}>
-              <TargetShape value={has("structure_mode") ? String(values.structure_mode) : undefined} fallback={String(P.structure_mode.default)} onChange={(v) => set("structure_mode", v)} />
-            </Setting>
-            {val<string>("structure_mode") === "free" && (
-              <Setting title="How far may a corner move from its printed place?" k="structure_prior_sigma" changed={has("structure_prior_sigma")} onReset={reset("structure_prior_sigma")} problem={problem("structure_prior_sigma")}
-                why={<>With every corner free, this keeps each one near where the print says it is. Without a limit the target can absorb errors that belong to the lens.</>}>
-                <NumberBox id="structure_prior_sigma" value={values.structure_prior_sigma} fallback={null} unit="units" onChange={(v) => set("structure_prior_sigma", v)} />
-                <span className="text-[15px] text-s-muted">In the unit of your square size. A typical print is flat to about a thousandth of the board width.</span>
-              </Setting>
-            )}
-          </Group>
-        )}
 
         <Group title="Checks before you get a result" intro={<>Each check can be skipped, give a warning, or stop the result from being written. {strict ? "You chose in step 4 to refuse a doubtful result, so most of them refuse." : "You chose in step 4 to get a doubtful result with warnings, so they warn."} Change single ones here.</>}>
           {gate("convergence_gate", "Did the calibration finish properly?", <>The last stage improves the result round by round. It should stop because nothing improves any more, not because it ran out of rounds.</>)}

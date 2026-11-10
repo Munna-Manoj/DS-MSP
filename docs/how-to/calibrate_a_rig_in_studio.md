@@ -62,6 +62,12 @@ The steps below describe starting from photos.
    in a few photos of each camera and draws every corner it finds on them.
    For a target of several boards, set how many are fixed together. If they differ, switch off
    **All boards are printed the same** and each board gets its own row.
+   **Is your board really flat?** Choose *It may be slightly bowed* for a board on paper, foam
+   or thin plastic. Studio then also measures how much the board bows, and the result page
+   states it at the top. A board that bows by 2.6 mm and is treated as flat gave a focal length
+   4.7 % off in simulation; with this choice, 0.3 %. On a flat board it reports a bow of about
+   0.1 mm from corner noise alone. For several boards the same place offers four choices, from
+   stiff boards to every corner free.
 3. **Your cameras and their lenses.** Each camera has a card with one of its photos.
    **Measure my lenses** measures how wide each lens sees and sets its type: a standard lens
    under 100° across, a fisheye above. You can change any card afterwards. If you already have
@@ -102,8 +108,6 @@ type. A setting you do not touch is left out of the config file, so the default 
   which a corner is ignored. When the photos already have a result, the picture shows that
   result's corners, and the page says how far off its worst corner was and how many corners the
   setting would ignore. Without a result it shows an example and says so.
-- **How well do you know the shape of the target?** (`structure_mode`). Shown for a target of
-  several boards, where it applies. Four drawings show what each choice allows to move.
 - **Checks before you get a result** (the `*_gate` keys). Each check is a question with **Skip**,
   **Warn me** or **Refuse the result**. With *Refuse it* chosen in step 4 they show the stricter
   values that choice applies.
