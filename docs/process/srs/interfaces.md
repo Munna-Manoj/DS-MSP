@@ -139,6 +139,10 @@ A result on its own capture (FR-UI-009):
 
 - `GET /api/run/scene?id=`: the target's boards (points, outline) and its 4x4 pose in every
   frame, in the reference camera's frame; `photos` says how photos are matched to frames.
+- `GET /api/run/errors?id=`: how far the corners of a result lie from where its calibration
+  expects them: `n`, `median_px`, `max_px`, `grid_px` (161 distances from 0.01 px to 100 px),
+  `above` (corners further than each), and at most 400 error vectors `dx`, `dy` that include
+  the 60 largest.
 - `GET /api/run/frames?id=&cam=` and `GET /api/run/frame?id=&cam=&frame=`: per-photo error
   summaries, and one photo's corners with the step to their predicted position.
 - `GET /api/run/photo?id=&cam=&frame=&w=`: that photo as a JPEG no wider than `w`; 404 unless

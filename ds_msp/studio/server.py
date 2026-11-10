@@ -231,6 +231,11 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         from .scene import frame_list
         return frame_list(_folder(id), cam)
 
+    @app.get("/api/run/errors")
+    def get_run_errors(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        from .scene import error_spread
+        return error_spread(_folder(id))
+
     @app.get("/api/run/frame")
     def get_run_frame(id: str = Query(...), cam: int = Query(..., ge=0),  # noqa: A002
                       frame: int = Query(..., ge=0)) -> Dict[str, Any]:

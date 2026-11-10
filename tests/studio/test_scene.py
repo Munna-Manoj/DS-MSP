@@ -172,3 +172,27 @@ def test_routes(results_root):
     assert task["ok"] and len(task["curve"]) > 5
     assert all(a["depth"] < b["depth"] for a, b in zip(task["curve"], task["curve"][1:]))
     assert c.get("/api/run/scene", params={"id": "0:../x"}).status_code == 404
+
+
+@pytest.mark.req("FR-UI-013")
+def test_error_spread_counts_the_corners_beyond_each_distance(results_root):
+    import numpy as np
+
+    from ds_msp.studio.scene import _residuals, error_spread
+
+    folder = results_root / RUN
+    z = _residuals(folder)
+    r = np.hypot(z["dx"], z["dy"])[z["valid"]]
+    doc = error_spread(folder, max_points=100)
+    assert doc["n"] == len(r) and doc["max_px"] == pytest.approx(r.max())
+    grid, above = np.array(doc["grid_px"]), np.array(doc["above"])
+    assert grid[0] == pytest.approx(0.01) and grid[-1] == pytest.approx(100.0)
+    for k in (0, 40, 80, 120):
+        assert above[k] == int((r > grid[k]).sum())
+    assert (np.diff(above) <= 0).all() and above[-1] == 0
+    # the sample is bounded and never loses the worst corners
+    assert len(doc["dx"]) == len(doc["dy"]) == min(len(r), 100)
+    assert np.hypot(doc["dx"], doc["dy"]).max() == pytest.approx(r.max(), abs=1e-4)
+    assert error_spread(results_root / "nowhere")["n"] == 0
+    c = TestClient(create_app([str(results_root)]))
+    assert c.get("/api/run/errors", params={"id": f"0:{RUN}"}).json()["n"] == len(r)

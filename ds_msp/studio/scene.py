@@ -69,6 +69,36 @@ def frame_corners(folder: os.PathLike | str, cam: int, frame: int) -> Dict[str, 
             "within": z["within_band"][m].tolist()}
 
 
+#: Distances, in pixels, at which :func:`error_spread` counts the corners further out: 0.01 px
+#: to 100 px in 40 steps per decade.
+SPREAD_GRID_PX = np.round(0.01 * 10.0 ** (np.arange(161) / 40.0), 5)
+
+
+def error_spread(folder: os.PathLike | str, max_points: int = 400) -> Dict[str, Any]:
+    """How far the corners of a result lie from where its calibration expects them, for a
+    setup page that shows what an outlier band would keep: the corner count ``n``, the median
+    and largest distance, ``above[k]`` = corners further than ``grid_px[k]``, and a sample of
+    at most ``max_points`` error vectors (``dx``, ``dy``) that always holds the largest 60.
+    ``n`` is 0 when the result recorded no residuals."""
+    z = _residuals(Path(folder))
+    if z is None or not int(z["valid"].sum()):
+        return {"n": 0, "grid_px": [], "above": [], "dx": [], "dy": []}
+    m = z["valid"]
+    dx, dy = z["dx"][m].astype(float), z["dy"][m].astype(float)
+    r = np.hypot(dx, dy)
+    order = np.argsort(-r, kind="stable")
+    top, rest = order[:60], order[60:]
+    room = max(0, max_points - len(top))
+    if len(rest) > room:
+        rest = rest[np.linspace(0, len(rest) - 1, room).astype(int)] if room else rest[:0]
+    pick = np.concatenate([top, rest])
+    srt = np.sort(r)
+    above = len(r) - np.searchsorted(srt, SPREAD_GRID_PX, side="right")
+    return {"n": int(len(r)), "median_px": float(np.median(r)), "max_px": float(r.max()),
+            "grid_px": SPREAD_GRID_PX.tolist(), "above": above.astype(int).tolist(),
+            "dx": np.round(dx[pick], 4).tolist(), "dy": np.round(dy[pick], 4).tolist()}
+
+
 # -- photos ----------------------------------------------------------------------------------
 def _flat_ints(node) -> List[int]:
     if node.empty():

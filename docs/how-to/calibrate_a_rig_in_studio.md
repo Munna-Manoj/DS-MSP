@@ -81,7 +81,18 @@ case, UCM on an ordinary lens, is flagged by rule.
 ///
 
 **More settings** lists every other `calib_param.yml` key with its default. A setting you do
-not touch is left out of the config file, so the default applies.
+not touch is left out of the config file, so the default applies. Some settings show what they
+do:
+
+- **What may move in the target** (`structure_mode`). Four drawings move the way each choice
+  lets the target move: stiff boards, bowed boards, every corner free, or nothing. These choices
+  act only on a target of several boards fixed together; the page says so when yours is one board.
+- **When is a corner a mistake?** (`noise_bound`). A corner further from the fit than 3.03 times
+  this value is ignored. When the photos already have a result, the picture shows that result's
+  corners and the page counts how many lie outside the band as you move the slider. Without one
+  it shows an example and says so.
+- **Checks** (the `*_gate` keys). **Skip** does not check, **Warn** writes the result with a
+  warning, **Refuse** writes no result when the check fails.
 
 /// tip | Start from an existing config
 **Load a calib_param.yml** fills the form from a file, including MC-Calib's own. On a result

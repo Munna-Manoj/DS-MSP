@@ -345,6 +345,14 @@ export interface LensHealth {
   given_px: number | null; reference_px: number | null; views: number;
 }
 
+/** How far a result's corners lie from where its calibration expects them. */
+export interface ErrorSpread {
+  n: number; median_px?: number; max_px?: number;
+  /** above[k] = corners further than grid_px[k] pixels. */
+  grid_px: number[]; above: number[];
+  dx: number[]; dy: number[];
+}
+
 export interface CaptureHistory {
   root_path: string;
   runs: { id: string; name: string; created_utc: string | null; n_cameras: number | null;
@@ -428,6 +436,7 @@ export const api = {
   sourceConfig: (path: string) =>
     getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string }>(
       `api/source/config?path=${encodeURIComponent(path)}`),
+  runErrors: (id: string) => getJSON<ErrorSpread>(`api/run/errors?id=${encodeURIComponent(id)}`),
   sourceKeypoints: (path: string) => getJSON<KeypointsScan>(`api/source/keypoints?path=${encodeURIComponent(path)}`),
   sourceIntrinsics: (path: string) => getJSON<IntrinsicsScan>(`api/source/intrinsics?path=${encodeURIComponent(path)}`),
   fingerprint: (id: string) => getJSON<Fingerprint>(`api/run/fingerprint?id=${encodeURIComponent(id)}`),

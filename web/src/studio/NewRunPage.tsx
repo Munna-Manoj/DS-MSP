@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { FolderPicker } from "./FolderPicker";
 import { readMarked, viewWords, writeMarked } from "./marks";
+import { GateChoice, NoiseBand, ShareSlider, TargetShape } from "./Teach";
 import { int, num, when } from "./format";
 import { Badge, Button, Callout, Card, ErrorBox, Field, INPUT, Loading, Note } from "./ui";
 
@@ -77,6 +78,7 @@ export function NewRunPage({ from }: { from?: string }) {
   const [advice, setAdvice] = useState<Record<number, LensAdvice | "busy">>({});
   const [health, setHealth] = useState<Record<number, LensHealth | "busy">>({});
   const [hist, setHist] = useState<CaptureHistory | null>(null);
+  const [fromName, setFromName] = useState<string | null>(null);
   const [reuse, setReuse] = useState(true);
   const [name, setName] = useState(defaultName);
   const [root, setRoot] = useState(0);
@@ -205,6 +207,7 @@ export function NewRunPage({ from }: { from?: string }) {
           doc.unknown);
         setName(`${doc.name}_${marks.length ? "cleaned" : "again"}`);
         writeMarked(from, []);
+        setFromName(doc.name);
         const k = Number(from.split(":", 1)[0]);
         if (Number.isInteger(k)) setRoot(k);
       },
@@ -803,6 +806,8 @@ export function NewRunPage({ from }: { from?: string }) {
 
           {/* 5 ---------------------------------------------------------------------------- */}
           <Advanced schema={schema} values={values} problems={problems} set={set}
+            refRun={from && fromName ? { id: from, name: fromName }
+              : source === "photos" && hist?.runs.length ? { id: hist.runs[0].id, name: hist.runs[0].name } : null}
             onBrowse={(key) => setPicker({ mode: "file", key, title: `File for ${key}` })} />
         </div>
 
@@ -977,9 +982,18 @@ function BoardDrawing({ nx, ny, sq }: { nx: number; ny: number; sq: number }) {
   );
 }
 
-function Advanced({ schema, values, problems, set, onBrowse }: {
+// Settings shown with a picture of what they do, across the full width of their section.
+const PICTURED = ["structure_mode", "noise_bound"];
+const PICTURE_TITLE: Record<string, string> = {
+  structure_mode: "What may move in the target",
+  noise_bound: "When is a corner a mistake?",
+};
+
+function Advanced({ schema, values, problems, set, onBrowse, refRun }: {
   schema: ConfigSchema; values: Values; problems: Problem[];
   set: (key: string, v: unknown) => void; onBrowse: (key: string) => void;
+  /** An earlier result on these photos, whose corners illustrate the outlier band. */
+  refRun: { id: string; name: string } | null;
 }) {
   const keys = Object.keys(schema.properties).filter((k) => !PLACED.has(k));
   const changed = keys.filter((k) => k in values);
@@ -994,11 +1008,35 @@ function Advanced({ schema, values, problems, set, onBrowse }: {
       </summary>
       <div className="px-4 pb-4 grid gap-6">
         {schema["x-groups"].map((g) => {
-          const inGroup = keys.filter((k) => schema.properties[k]["x-group"] === g.id);
-          if (!inGroup.length) return null;
+          const all = keys.filter((k) => schema.properties[k]["x-group"] === g.id);
+          if (!all.length) return null;
+          const pictured = PICTURED.filter((k) => all.includes(k));
+          const inGroup = all.filter((k) => !pictured.includes(k));
           return (
             <section key={g.id} className="grid gap-3">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-s-faint">{g.title}</h3>
+              {pictured.map((k) => {
+                const prop = schema.properties[k];
+                const isSet = values[k] !== undefined;
+                return (
+                  <div key={k} className={`rounded-lg border p-3.5 grid gap-3 ${isSet ? "border-s-accent" : "border-s-line"}`}>
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h4 className="text-sm font-semibold">{PICTURE_TITLE[k]}</h4>
+                      <span className="font-studio-mono text-xs text-s-muted">{k}</span>
+                      {isSet && <button type="button" className="text-xs text-s-accent hover:underline" onClick={() => set(k, "")}>Reset to default</button>}
+                    </div>
+                    {k === "structure_mode" && (
+                      <TargetShape value={values[k] as string | undefined} fallback={String(prop.default)}
+                        boards={Number(values.number_board ?? 1) || 1} onChange={(v) => set(k, v)} />
+                    )}
+                    {k === "noise_bound" && (
+                      <NoiseBand value={values[k] === undefined || values[k] === "" ? undefined : Number(values[k])}
+                        fallback={Number(prop.default)} refRun={refRun} onChange={(v) => set(k, v)} />
+                    )}
+                    {problems.find((p) => p.key === k) && <div className="text-xs text-s-bad" role="alert">{problems.find((p) => p.key === k)?.message}</div>}
+                  </div>
+                );
+              })}
               <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
                 {inGroup.map((k) => (
                   <AdvancedField key={k} id={k} prop={schema.properties[k]} value={values[k]}
@@ -1023,14 +1061,21 @@ function AdvancedField({ id, prop, value, problem, set, onBrowse }: {
   const isSet = value !== undefined;
   const label = (
     <span className="flex flex-wrap items-baseline gap-x-2">
-      <span className="font-studio-mono text-[13px]">{id}</span>
+      <span id={`${id}-label`} className="font-studio-mono text-[13px]">{id}</span>
       {isSet && <button type="button" className="text-xs text-s-accent hover:underline font-normal" onClick={() => set(id, "")}>Reset</button>}
     </span>
   );
   const help = <>{prop.description} <span className="text-s-faint">Default: {shown(prop.default)}.</span></>;
   const cls = `${INPUT} ${isSet ? "border-s-accent" : ""}`;
   let control;
-  if (kind === "boolean" || prop.enum) {
+  const gate = prop.enum && prop.enum.every((o) => ["off", "warn", "refuse"].includes(String(o)));
+  if (gate) {
+    control = <GateChoice id={id} value={value as string | undefined} fallback={String(prop.default)}
+      options={(prop.enum ?? []).map(String)} onChange={(v) => set(id, v)} />;
+  } else if (id === "min_camera_coverage") {
+    control = <ShareSlider id={id} value={value === undefined || value === "" ? undefined : Number(value)} fallback={Number(prop.default)}
+      words={(pct) => `At least ${pct}% of each camera's corners must lie inside the band.`} onChange={(v) => set(id, v)} />;
+  } else if (kind === "boolean" || prop.enum) {
     const options = kind === "boolean" ? ["true", "false"] : (prop.enum ?? []).map(String);
     const current = value === undefined ? "" : String(value);
     control = (
