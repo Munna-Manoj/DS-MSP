@@ -64,6 +64,7 @@ def render_dataset(root, kind):
     models, names = RIGS[kind]
     tex = _render.board_textures(SPECS)
     rng = np.random.default_rng(7)
+    rays = {c: _render.pixel_rays(model, SIZE) for c, model in models.items()}
     for fr in range(18):
         T_g_o = _T(rng.normal(0, 0.2, 3), [rng.uniform(-380, -180), rng.uniform(-150, 30),
                                            rng.uniform(900, 1200)])
@@ -72,7 +73,8 @@ def render_dataset(root, kind):
             d = root / f"Cam_{c + 1:03d}"
             d.mkdir(exist_ok=True)
             cv2.imwrite(str(d / f"{fr:06d}.png"),
-                        _render.render(model, SIZE, T_c_b, SPECS, tex, noise=1.0, rng=rng))
+                        _render.render(model, SIZE, T_c_b, SPECS, tex, noise=1.0, rng=rng,
+                                       rays=rays[c]))
     rig = RigState(cameras=models, T_c_g=T_C_G, ref_cam_id=0, object_poses={}, objects={},
                    img_size={0: SIZE, 1: SIZE})
     save_mccalib_cameras(rig, str(root / "init_cameras.yml"))

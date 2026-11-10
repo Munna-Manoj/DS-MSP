@@ -8,7 +8,7 @@ coordinates are pixel centres; a supersampled pixel centre ``X`` maps to ``(X + 
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -46,16 +46,26 @@ def _bilinear(tex: np.ndarray, uv: np.ndarray) -> np.ndarray:
             + (1 - fx) * fy * t[y0 + 1, x0] + fx * fy * t[y0 + 1, x0 + 1])
 
 
-def render(model, size, T_c_b: Dict[int, np.ndarray], specs: List[BoardSpec],
-           textures: List[np.ndarray], *, ss: int = 2, background: int = 150,
-           noise: float = 0.0, rng=None) -> np.ndarray:
-    """Render boards (board->camera poses ``T_c_b``) seen by ``model`` into a ``size`` image."""
+def pixel_rays(model, size, ss: int = 2) -> Tuple[np.ndarray, np.ndarray]:
+    """Rays and validity mask for every supersampled pixel of a ``size`` image. They depend
+    only on the camera, so a caller rendering many frames can compute them once."""
     w, h = size
     X, Y = np.meshgrid(np.arange(w * ss, dtype=float), np.arange(h * ss, dtype=float))
     uv = np.stack([(X + 0.5) / ss - 0.5, (Y + 0.5) / ss - 0.5], -1).reshape(-1, 2)
     rays, valid = model.unproject(uv)
     rays = np.asarray(rays, float).reshape(-1, 3)
     valid = np.asarray(valid, bool).ravel() if valid is not None else np.ones(len(rays), bool)
+    return rays, valid
+
+
+def render(model, size, T_c_b: Dict[int, np.ndarray], specs: List[BoardSpec],
+           textures: List[np.ndarray], *, ss: int = 2, background: int = 150,
+           noise: float = 0.0, rng=None,
+           rays: Optional[Tuple[np.ndarray, np.ndarray]] = None) -> np.ndarray:
+    """Render boards (board->camera poses ``T_c_b``) seen by ``model`` into a ``size`` image.
+    ``rays`` is ``pixel_rays(model, size, ss)``, passed in to reuse it across frames."""
+    w, h = size
+    rays, valid = rays if rays is not None else pixel_rays(model, size, ss)
     img = np.full(len(rays), float(background))
     depth = np.full(len(rays), np.inf)
     for b, T in T_c_b.items():
