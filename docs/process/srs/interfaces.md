@@ -133,7 +133,8 @@ The API is versioned by `api_version` in `GET /api/health`, which also reports `
   `pattern` (answer, error by distance from the centre, 6 x 4 region means), `lens` (the 24 x 18
   grid and its `zones`), `outliers`. Files outside the result folder are ignored.
 - `GET /api/run/file?id=&name=`: one of the known result files, by name only.
-- `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).
+- `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002). `x-profiles`
+  gives, per `profile` value, the defaults that profile uses in place of each property's own.
 \n
 A result on its own capture (FR-UI-009):
 
@@ -180,8 +181,14 @@ Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read
   it is a result) and its `.yml`/`.yaml`/`.json` files; without `ref`, the roots.
 - `POST /api/photos/scan` `{root_path, cam_prefix?, frame_pattern?}`: the cameras found in the
   layout the calibration reads, image sizes, shared frame count and `problems`.
+- `POST /api/photos/find-board` `{values}`: reads the board size from the ArUco markers in about
+  48 photos: `ok`, `number_x_square`, `number_y_square`, `boards_seen`, `markers`, `photos`,
+  `message`. `ok` is false when no whole board is seen at least twice; the size is not guessed.
+- `GET /api/photos/thumb?path=&cam=&photo=&prefix=`: one photo of one camera of a photo folder
+  under a root, as a JPEG at most 640 pixels wide.
 - `POST /api/photos/check-board` `{values}`: detects the configured board in up to 4 photos per
-  camera.
+  camera. Each camera's `sample` names the tried photo with the most corners and gives their
+  pixels, for drawing them on it.
 - `POST /api/config/check` `{values}`: checks form values against the schema, the roots and
   the CLI's own loader; returns `ok`, `problems`, `warnings` and the `yaml` that would be written.
 - `POST /api/config/import` `{text}` and `GET /api/config?id=`: the schema keys set in a

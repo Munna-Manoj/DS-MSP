@@ -7,21 +7,17 @@ import { href } from "../router";
 import {
   api, ApiError, type BoardCheck, type CaptureHistory, type ConfigCheck, type ConfigSchema,
   type IntrinsicsScan, type KeypointsScan, type LensAdvice, type LensHealth, type Problem,
-  type RunSummary, type ScanDoc, type SchemaProp, type Values,
+  type RunSummary, type ScanDoc, type Values,
 } from "./api";
 import { FolderPicker } from "./FolderPicker";
 import { readMarked, viewWords, writeMarked } from "./marks";
-import { GateChoice, NoiseBand, ShareSlider, TargetShape } from "./Teach";
 import { int, num, when } from "./format";
-import { Badge, Button, Callout, Card, ErrorBox, Field, INPUT, Loading, Note } from "./ui";
-
-const LENSES: { id: string; label: string; hint: string }[] = [
-  { id: "radtan", label: "Standard lens (RadTan)", hint: "ordinary lenses, up to about 120°" },
-  { id: "kb", label: "Fisheye (KB)", hint: "wide and fisheye lenses; a safe first choice for them" },
-  { id: "ds", label: "Fisheye (Double Sphere)", hint: "fisheye lenses, also past 180°" },
-  { id: "eucm", label: "Fisheye (EUCM)", hint: "fisheye lenses" },
-  { id: "ucm", label: "Fisheye (UCM)", hint: "simplest fisheye model; not for ordinary lenses" },
-];
+import { BoardStep, PhotoThumb } from "./setup/BoardStep";
+import { CameraStep, chosenFor, type CameraInfo } from "./setup/CameraStep";
+import { Explain, Mono, NumberBox, Step } from "./setup/kit";
+import { Settings } from "./setup/Settings";
+import { useUnit } from "./stage/units";
+import { Button, Callout, ErrorBox, INPUT, Loading } from "./ui";
 
 /** Form values for a lens check: with saved detections as the source, the photo folder is not sent. */
 function viewValues(values: Values, source: string): Values {
@@ -31,37 +27,26 @@ function viewValues(values: Values, source: string): Values {
   return out;
 }
 
-// Settings with their own place in the form, or set by Studio itself.
-const PLACED = new Set([
-  "root_path", "cam_prefix", "number_camera", "camera_models", "number_x_square",
-  "number_y_square", "square_size", "number_board", "profile", "max_rotation_sigma_deg",
-  "max_centre_sigma", "save_path", "webviewer", "keypoints_path", "cam_params_path", "fix_intrinsic",
-  "exclude_views",
-]);
-const FILE_KEYS = new Set(["object_path", "accuracy_profile_path"]);
-
 // A picker either fills one setting, or loads a whole starting point ("@config", ...).
 type Picker = { mode: "folder" | "file"; key: string; title: string } | null;
 type Source = "photos" | "config" | "detections" | "result";
 
-const SOURCES: { id: Source; title: string; text: string }[] = [
-  { id: "photos", title: "Photos", text: "A folder of calibration photos, one subfolder per camera." },
-  { id: "config", title: "A config file", text: "A calib_param.yml from DS-MSP or MC-Calib. It fills in everything it sets." },
-  { id: "detections", title: "Saved detections", text: "A detected_keypoints_data.yml from an earlier run. The photos are not read again." },
-  { id: "result", title: "A finished result", text: "Repeat a calibration exactly, or change one thing and run it again." },
+// Each icon is drawn on a 24 x 24 grid with the current text colour.
+const SOURCES: { id: Source; title: string; text: string; icon: string }[] = [
+  { id: "photos", title: "My photos", text: "A folder of photos of the board, one subfolder per camera.",
+    icon: "M3 7a2 2 0 0 1 2-2h3l1.5-2h5L16 5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 9a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" },
+  { id: "config", title: "A settings file", text: "A calib_param.yml you already have. It fills in this page.",
+    icon: "M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM14 2v5h5M8 12h8M8 16h6" },
+  { id: "detections", title: "Corners found earlier", text: "A saved corners file. The photos are not read again.",
+    icon: "M4 4h16v16H4zM4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16" },
+  { id: "result", title: "A finished result", text: "Repeat it exactly, or change one thing and run it again.",
+    icon: "M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4M8.5 12.5l2.5 2.5 4.5-5" },
 ];
 
 function defaultName(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   return `calibration_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
-}
-
-function shown(v: unknown): string {
-  if (v == null) return "not set";
-  if (Array.isArray(v)) return v.length ? v.join(", ") : "empty";
-  if (typeof v === "boolean") return v ? "yes" : "no";
-  return String(v);
 }
 
 export function NewRunPage({ from }: { from?: string }) {
@@ -97,6 +82,7 @@ export function NewRunPage({ from }: { from?: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [preview, setPreview] = useState<ConfigCheck | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [unit, setUnit] = useUnit();
   const fileInput = useRef<HTMLInputElement>(null);
   const summary = useRef<HTMLDivElement>(null);
 
@@ -177,8 +163,16 @@ export function NewRunPage({ from }: { from?: string }) {
     const next: Values = { ...incoming };
     delete next.save_path;
     delete next.webviewer;
-    const given = Array.isArray(next.camera_models) ? (next.camera_models as string[]) : [];
+    let given = Array.isArray(next.camera_models) ? (next.camera_models as string[]) : [];
     delete next.camera_models;
+    // MC-Calib's way of naming lens types (0 = standard, 1 = fisheye) becomes this page's choice
+    const old = Array.isArray(next.distortion_per_camera) && next.distortion_per_camera.length
+      ? (next.distortion_per_camera as number[]) : next.distortion_model != null ? [Number(next.distortion_model)] : [];
+    if (!given.length && old.length) given = old.map((v) => (Number(v) === 1 ? "kb" : "radtan"));
+    delete next.distortion_per_camera;
+    delete next.distortion_model;
+    if (next.refine_structure === true && next.structure_mode == null) next.structure_mode = "free";
+    delete next.refine_structure;
     setValues(next);
     setModels(given);
     setScan(null);
@@ -235,12 +229,20 @@ export function NewRunPage({ from }: { from?: string }) {
   const problemOf = (key: string) => problems.find((p) => p.key === key)?.message ?? null;
   const excluded = Array.isArray(values.exclude_views) ? (values.exclude_views as string[]) : [];
 
-  // Check each camera's lens type on a few of its photos, one camera at a time.
-  const runAdvice = useCallback(async (vals: Values, n: number) => {
+  // Measure each camera's lens on a few of its photos, one camera at a time. With `choose`, a
+  // camera whose type does not suit what was measured is switched and measured once more.
+  const runAdvice = useCallback(async (vals: Values, n: number, choose = false) => {
     setAdvice(Object.fromEntries(Array.from({ length: n }, (_, k) => [k, "busy" as const])));
+    const picked = Array.from({ length: n }, (_, k) => (vals.camera_models as string[] | undefined)?.[k] ?? "radtan");
     for (let k = 0; k < n; k++) {
       try {
-        const a = await api.lensAdvice(viewValues(vals, source), k);
+        let a = await api.lensAdvice(viewValues({ ...vals, camera_models: picked }, source), k);
+        const better = choose ? chosenFor(a) : null;
+        if (better && better !== picked[k]) {
+          picked[k] = better;
+          setModels((old) => { const next = Array.from({ length: n }, (_, i) => old[i] ?? "radtan"); next[k] = better; return next; });
+          a = await api.lensAdvice(viewValues({ ...vals, camera_models: picked }, source), k);
+        }
         setAdvice((old) => ({ ...old, [k]: a }));
       } catch {
         setAdvice((old) => { const next = { ...old }; delete next[k]; return next; });
@@ -326,11 +328,11 @@ export function NewRunPage({ from }: { from?: string }) {
     );
   }
 
-  function runBoardCheck() {
+  function runBoardCheck(vals?: Values) {
     setBoardBusy(true);
     setBoardError(null);
-    api.checkBoard(payload).then(
-      (doc) => { setBoard(doc); setBoardBusy(false); if (doc.found > 0) void runAdvice(payload, nCam); },
+    api.checkBoard(vals ?? payload).then(
+      (doc) => { setBoard(doc); setBoardBusy(false); },
       (e: Error) => { setBoardError(e.message); setBoardBusy(false); },
     );
   }
@@ -349,8 +351,8 @@ export function NewRunPage({ from }: { from?: string }) {
     if (payload.profile === "production") {
       const missing = ["max_rotation_sigma_deg", "max_centre_sigma"].filter((k) => payload[k] == null);
       if (missing.length) {
-        setProblems(missing.map((key) => ({ key, message: "Production checks need this limit." })));
-        setStartError("Production checks need both uncertainty limits. Fill them in under step 4, or choose Standard.");
+        setProblems(missing.map((key) => ({ key, message: "Strict checking needs this limit." })));
+        setStartError("Strict checking needs both limits. Fill them in under step 4, or choose the standard checking.");
         return;
       }
     }
@@ -375,8 +377,7 @@ export function NewRunPage({ from }: { from?: string }) {
     return (
       <Page>
         <Callout tone="info" title="This Studio only shows results">
-          It was started with <code className="font-studio-mono">--read-only</code>. Start it
-          without that option to set up and run calibrations here.
+          It was started with <Mono>--read-only</Mono>. Start it without that option to set up and run calibrations here.
         </Callout>
       </Page>
     );
@@ -384,12 +385,23 @@ export function NewRunPage({ from }: { from?: string }) {
   const props = schema.properties;
   const nx = Number(values.number_x_square ?? props.number_x_square.default);
   const ny = Number(values.number_y_square ?? props.number_y_square.default);
-  const sq = Number(values.square_size ?? props.square_size.default);
+  const nb = Number(values.number_board ?? 1) || 1;
   const production = values.profile === "production";
   const usesKeypoints = typeof values.keypoints_path === "string" && values.keypoints_path !== "";
   const photosReady = (!!scan && scan.number_camera > 0) || (usesKeypoints && nCam > 0);
+  const sized = values.square_size != null;
   const ready = photosReady && name.trim() !== "" && !scanning;
   const blocking = scan?.problems ?? [];
+  const photoSource = source === "photos" && rootPath && scan?.number_camera ? { root: rootPath, prefix: scan.cam_prefix } : null;
+  const cameras: CameraInfo[] = Array.from({ length: nCam }, (_, k) => {
+    const d = kp?.cameras.find((x) => x.index === k);
+    const c = scan?.cameras[k];
+    return { index: k, name: c?.folder ?? `camera ${k}`, photos: c?.images ?? d?.frames ?? null, width: c?.width ?? d?.width ?? null, height: c?.height ?? d?.height ?? null };
+  });
+  const samples = Object.fromEntries((board?.cameras ?? []).map((c) => [c.index, c.sample]));
+  const misfit = Object.values(advice).some((a) => a !== "busy" && a.verdict === "misfit");
+  const setModel = (k: number, m: string) => setModels((old) => { const next = Array.from({ length: nCam }, (_, i) => old[i] ?? "radtan"); next[k] = m; return next; });
+  const reusedName = hist?.runs.find((h) => h.id === hist.reusable)?.name;
 
   return (
     <Page
@@ -400,46 +412,39 @@ export function NewRunPage({ from }: { from?: string }) {
         setDragging(false);
         const f = e.dataTransfer.files?.[0];
         if (f && /\.(ya?ml|txt)$/i.test(f.name)) importFile(f);
-        else if (f) setFileError(`${f.name} is not a .yml file. Drop a calib_param.yml here; choose detections and lens files with Browse, so the calibration can read them from disk.`);
+        else if (f) setFileError(`${f.name} is not a settings file. Drop a calib_param.yml here. Corner files and lens files are chosen with their own buttons, because the calibration reads them from disk.`);
       }}
     >
       {dragging && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-s-accent/20 pointer-events-none" aria-hidden="true">
-          <div className="rounded-xl bg-s-surface border-2 border-dashed border-s-accent px-8 py-6 text-lg font-semibold">Drop the calib_param.yml to load it</div>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-s-accent/25 backdrop-blur-sm pointer-events-none" aria-hidden="true">
+          <div className="rounded-2xl bg-s-surface border-4 border-dashed border-s-accent px-10 py-8 text-2xl font-bold">Drop your settings file to fill in this page</div>
         </div>
       )}
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="grid gap-1 min-w-0">
-          <a href={href({ page: "runs" })} className="text-xs text-s-accent hover:underline">← All results</a>
-          <h1 className="text-2xl font-semibold">New calibration</h1>
-          <p className="text-s-muted text-sm max-w-prose">
-            Tell DS-MSP where the photos are, what the board looks like and which lenses the
-            cameras have. Everything else has a default.
-          </p>
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".yml,.yaml,.txt"
-          className="sr-only"
+      <header className="grid gap-2">
+        <a href={href({ page: "runs" })} className="text-[15px] font-medium text-s-accent hover:underline justify-self-start">← All results</a>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">New calibration</h1>
+        <p className="text-lg text-s-muted max-w-[60ch]">Three things are needed: your photos, your board, and the kind of lens on each camera. Studio can work out most of it from the photos.</p>
+        <input ref={fileInput} type="file" accept=".yml,.yaml,.txt" className="sr-only"
           aria-label="Load settings from a calib_param.yml file on your own computer"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }}
-        />
-      </div>
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
+      </header>
 
-      <fieldset className="grid gap-2">
-        <legend className="text-sm font-medium mb-2">What are you starting from?</legend>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <fieldset className="grid gap-3">
+        <legend className="text-lg font-semibold mb-3">What do you have?</legend>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {SOURCES.map((o) => {
             const on = source === o.id;
             return (
               <label key={o.id}
-                className={`rounded-lg border p-3 cursor-pointer grid gap-1 content-start ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:bg-s-sunken"}`}>
-                <span className="flex items-center gap-2 font-medium text-sm">
-                  <input type="radio" name="source" checked={on} onChange={() => chooseSource(o.id)} />
-                  {o.title}
+                className={`relative rounded-2xl border-2 p-4 cursor-pointer grid grid-cols-[auto_minmax(0,1fr)] gap-x-3.5 gap-y-1 items-start transition
+                  ${on ? "border-s-accent bg-s-surface shadow-[0_0_0_4px_rgb(3_105_161/0.12)]" : "border-transparent bg-s-surface shadow-sm hover:border-s-field-line"}`}>
+                <input type="radio" name="source" checked={on} onChange={() => chooseSource(o.id)} className="sr-only" />
+                <span className={`row-span-2 size-12 rounded-xl grid place-items-center ${on ? "bg-s-accent text-white" : "bg-s-accent-soft text-s-accent"}`} aria-hidden="true">
+                  <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={o.icon} /></svg>
                 </span>
-                <span className="text-xs text-s-muted leading-relaxed">{o.text}</span>
+                <span className="text-[17px] font-semibold leading-tight pt-0.5">{o.title}</span>
+                <span className="text-[15px] text-s-muted leading-snug">{o.text}</span>
+                {on && <span className="absolute top-2.5 right-3 text-s-accent font-bold" aria-hidden="true">✓</span>}
               </label>
             );
           })}
@@ -450,449 +455,271 @@ export function NewRunPage({ from }: { from?: string }) {
       {fileError && <ErrorBox title="Could not use that file" detail={fileError} />}
 
       {source === "config" && (
-        <Card title="Load a config file">
-          <div className="grid gap-3">
-            <Note>
-              Every setting in the file is filled in below, and you can change any of them before
-              starting. Paths written relative to the file are resolved against its own folder.
-            </Note>
-            <div className="flex flex-wrap gap-2">
-              <Button kind="primary" onClick={() => setPicker({ mode: "file", key: "@config", title: "Choose a calib_param.yml" })}>
-                Choose a file on this computer
-              </Button>
-              <Button onClick={() => fileInput.current?.click()}>Upload one from my device</Button>
-            </div>
-            <Note>You can also drop a <Mono>.yml</Mono> file anywhere on this page.</Note>
+        <Step n="→" title="Load your settings file">
+          <Explain>Everything the file sets is filled in below, and you can still change any of it before starting. You can also drop the file anywhere on this page.</Explain>
+          <div className="flex flex-wrap gap-3">
+            <Button kind="primary" onClick={() => setPicker({ mode: "file", key: "@config", title: "Choose a calib_param.yml" })}>Choose a file on this computer</Button>
+            <Button onClick={() => fileInput.current?.click()}>Upload one from my device</Button>
           </div>
-        </Card>
+        </Step>
       )}
 
       {source === "result" && (
-        <Card title="Start from a finished result" aside={results ? `${results.length} here` : undefined}>
+        <Step n="→" title="Choose the result to start from" aside={results ? `${results.length} here` : undefined}>
           {!results && <Loading what="results" />}
-          {results && results.length === 0 && <Note>No results under the folders Studio was started with.</Note>}
+          {results && results.length === 0 && <Explain>There are no results yet in the folders Studio was started with.</Explain>}
           {results && results.length > 0 && (
-            <ul className="grid divide-y divide-s-line">
+            <ul className="grid divide-y divide-s-line -my-2">
               {results.slice(0, 40).map((r) => (
-                <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
+                <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
                   <div className="min-w-0 mr-auto">
-                    <div className="font-medium text-sm break-all">{r.path || r.name}</div>
-                    <div className="text-xs text-s-muted">{when(r.created_utc)} · {int(r.n_cameras)} cameras · {(r.models ?? []).join(", ") || "—"}</div>
+                    <div className="text-base font-semibold break-all">{r.path || r.name}</div>
+                    <div className="text-[15px] text-s-muted">{when(r.created_utc)} · {int(r.n_cameras)} cameras · {(r.models ?? []).join(", ") || "—"}</div>
                   </div>
-                  <a href={href({ page: "repeat", id: r.id })} className="inline-flex items-center rounded-md px-3 min-h-9 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">Repeat exactly</a>
-                  <a href={href({ page: "new", from: r.id })} className="inline-flex items-center rounded-md px-3 min-h-9 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">Change settings</a>
+                  <a href={href({ page: "repeat", id: r.id })} className={LINK_BUTTON}>Repeat exactly</a>
+                  <a href={href({ page: "new", from: r.id })} className={LINK_BUTTON}>Change something first</a>
                 </li>
               ))}
             </ul>
           )}
-        </Card>
+        </Step>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
-        <div className="grid gap-5 min-w-0">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
+        <div className="grid gap-6 min-w-0">
           {/* 1 ---------------------------------------------------------------------------- */}
           {source === "detections" ? (
-            <Card title="1. Saved detections">
-              <div className="grid gap-3">
-                <Field htmlFor="keypoints_path" label="Detections file" problem={problemOf("keypoints_path")}
-                  help={<>The <Mono>detected_keypoints_data.yml</Mono> an earlier calibration wrote. The corners in it are used as they are, so the photos are not needed.</>}>
-                  <div className="flex gap-2">
-                    <input id="keypoints_path" className={`${INPUT} font-studio-mono text-xs`} readOnly placeholder="No file chosen"
-                      value={typeof values.keypoints_path === "string" ? values.keypoints_path : ""} />
-                    <Button kind={kp ? "secondary" : "primary"} onClick={() => setPicker({ mode: "file", key: "@detections", title: "Choose a detections file" })}>Browse</Button>
-                  </div>
-                </Field>
-                {kp && (
-                  <Callout tone={kp.problems.length ? "warn" : "ok"}
-                    title={`${kp.number_camera} camera${kp.number_camera === 1 ? "" : "s"}, ${int(kp.cameras.reduce((a, c) => a + c.sightings, 0))} board views`}>
-                    {kp.number_board > 1 ? `${kp.number_board} boards. ` : ""}Set the board below exactly as it was when these corners were found.
-                  </Callout>
-                )}
-                {kp?.problems.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
-                {kp?.reused_target && Number(values.number_board ?? 1) > 1 && (
-                  <Callout tone="warn" title="A saved target sits next to this file">
-                    A calibration with several boards will load <Mono>{kp.reused_target}</Mono> instead of
-                    rebuilding the target from these detections. Move the detections file to an empty
-                    folder if you want the target rebuilt.
-                  </Callout>
-                )}
+            <Step n={1} title="Your saved corners" state={kp ? "done" : "todo"}>
+              <Explain>The <Mono>detected_keypoints_data.yml</Mono> file an earlier calibration wrote. Its corners are used as they are, so the photos are not needed.</Explain>
+              <div className="flex flex-wrap gap-3">
+                <input id="keypoints_path" aria-label="Corners file" className={`${INPUT} font-studio-mono !text-sm flex-1 min-w-60`} readOnly placeholder="No file chosen yet"
+                  value={typeof values.keypoints_path === "string" ? values.keypoints_path : ""} />
+                <Button kind={kp ? "secondary" : "primary"} onClick={() => setPicker({ mode: "file", key: "@detections", title: "Choose a corners file" })}>{kp ? "Choose another file" : "Choose the file"}</Button>
               </div>
-            </Card>
+              {problemOf("keypoints_path") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("keypoints_path")}</div>}
+              {kp && (
+                <Callout tone={kp.problems.length ? "warn" : "ok"}
+                  title={`${kp.number_camera} camera${kp.number_camera === 1 ? "" : "s"}, ${int(kp.cameras.reduce((a, c) => a + c.sightings, 0))} board views`}>
+                  {kp.number_board > 1 ? `${kp.number_board} boards. ` : ""}In step 2, describe the board exactly as it was when these corners were found.
+                </Callout>
+              )}
+              {kp?.problems.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
+              {kp?.reused_target && nb > 1 && (
+                <Callout tone="warn" title="A saved target sits next to this file">
+                  With several boards, the calibration will load <Mono>{kp.reused_target}</Mono> instead of working the target out again from these corners. Move the corners file to an empty folder if you want it worked out again.
+                </Callout>
+              )}
+            </Step>
           ) : (
-          <Card title="1. Photos">
-            <div className="grid gap-3">
-              <Field
-                htmlFor="root_path"
-                label="Folder with the photos"
-                problem={problemOf("root_path")}
-                help={<>One subfolder per camera inside it: <Mono>Cam_001</Mono>, <Mono>Cam_002</Mono> and so on. Photos taken at the same moment carry the same number in their file name.</>}
-              >
-                <div className="flex gap-2">
-                  <input id="root_path" className={`${INPUT} font-studio-mono text-xs`} readOnly value={rootPath}
-                    placeholder="No folder chosen" />
-                  <Button kind={rootPath ? "secondary" : "primary"}
-                    onClick={() => setPicker({ mode: "folder", key: "root_path", title: "Folder with the photos" })}>
-                    Browse
-                  </Button>
+            <Step n={1} title="Your photos" state={scan && scan.number_camera > 0 ? "done" : "todo"}>
+              {!rootPath && !scanning && (
+                <div className="rounded-xl border-2 border-dashed border-s-field-line bg-s-sunken p-6 grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] items-center">
+                  <div className="grid gap-3">
+                    <Explain>Choose the folder that holds one subfolder per camera. Photos taken at the same moment have the same number in their file name.</Explain>
+                    <Button kind="primary" className="justify-self-start min-h-12 !text-base px-5" onClick={() => setPicker({ mode: "folder", key: "root_path", title: "Folder with the photos" })}>Choose the photo folder</Button>
+                  </div>
+                  <pre className="font-studio-mono text-sm leading-relaxed text-s-muted bg-s-surface rounded-lg border border-s-line px-4 py-3" aria-label="Example folder layout">{"my_rig/\n├─ Cam_001/\n│   ├─ 0001.png\n│   └─ 0002.png\n└─ Cam_002/\n    ├─ 0001.png\n    └─ 0002.png"}</pre>
                 </div>
-              </Field>
+              )}
+              {rootPath && (
+                <div className="flex flex-wrap gap-3">
+                  <input id="root_path" aria-label="Folder with the photos" className={`${INPUT} font-studio-mono !text-sm flex-1 min-w-60`} readOnly value={rootPath} />
+                  <Button onClick={() => setPicker({ mode: "folder", key: "root_path", title: "Folder with the photos" })}>Choose another folder</Button>
+                </div>
+              )}
+              {problemOf("root_path") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("root_path")}</div>}
               {scanning && <Loading what="the folder" />}
               {scanError && <ErrorBox title="Could not look at this folder" detail={scanError} />}
               {scan && scan.number_camera > 0 && (
-                <Callout tone={blocking.length ? "warn" : "ok"}
-                  title={`Found ${scan.number_camera} camera${scan.number_camera === 1 ? "" : "s"} and ${int(scan.cameras.reduce((a, c) => a + c.images, 0))} photos`}>
-                  {scan.number_camera > 1 && <>{int(scan.shared_frames)} moments were photographed by two or more cameras. </>}
-                  Folders start with <Mono>{scan.cam_prefix}</Mono>.
-                </Callout>
+                <>
+                  <Callout tone={blocking.length ? "warn" : "ok"}
+                    title={`Found ${scan.number_camera} camera${scan.number_camera === 1 ? "" : "s"} and ${int(scan.cameras.reduce((a, c) => a + c.images, 0))} photos`}>
+                    {scan.number_camera > 1 && <>{int(scan.shared_frames)} moments were photographed by two or more cameras at once.</>}
+                  </Callout>
+                  <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+                    {scan.cameras.slice(0, 24).map((c) => (
+                      <PhotoThumb key={c.index} src={api.thumbUrl(rootPath, c.index, 0, scan.cam_prefix)} width={c.width} height={c.height}
+                        caption={<><b className="font-semibold">{c.folder}</b><span className="block text-s-muted">{int(c.images)} photos</span></>} />
+                    ))}
+                  </div>
+                  {scan.cameras.length > 24 && <Explain>and {scan.cameras.length - 24} more cameras.</Explain>}
+                </>
               )}
               {blocking.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
-            </div>
-          </Card>
-          )}
 
-          {excluded.length > 0 && (
-            <Card title="Left out of this calibration" aside={`${excluded.length} view${excluded.length === 1 ? "" : "s"}`}>
-              <div className="grid gap-3">
-                <p className="text-sm text-s-muted leading-relaxed">
-                  These photos take no part: they are removed before the target is built and before any lens is fitted. The result records the list.
-                </p>
-                <ul className="flex flex-wrap gap-2">
-                  {excluded.map((k) => (
-                    <li key={k} className="inline-flex items-center gap-1 rounded-full border border-s-line bg-s-sunken pl-3 pr-1 min-h-9 text-sm">
-                      {viewWords(k)}
-                      <button type="button" aria-label={`Put ${viewWords(k)} back`} title="Put it back"
-                        onClick={() => set("exclude_views", excluded.filter((x) => x !== k))}
-                        className="size-7 grid place-items-center rounded-full hover:bg-s-line text-s-muted">×</button>
-                    </li>
-                  ))}
-                </ul>
-                {problemOf("exclude_views") && <div className="text-xs text-s-bad" role="alert">{problemOf("exclude_views")}</div>}
-              </div>
-            </Card>
-          )}
-
-          {source === "photos" && hist && hist.runs.length > 0 && (
-            <Card title="These photos were calibrated before" aside={`${hist.runs.length} earlier result${hist.runs.length === 1 ? "" : "s"}`}>
-              <div className="grid gap-3">
-                <ul className="grid divide-y divide-s-line">
-                  {hist.runs.slice(0, 6).map((h) => (
-                    <li key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
-                      <a href={href({ page: "run", id: h.id })} className="font-medium text-sm text-s-accent hover:underline break-all">{h.name}</a>
-                      <span className="text-xs text-s-muted mr-auto">
-                        {when(h.created_utc)} · {h.models.join(", ") || "—"}{h.median_px != null && ` · ${num(h.median_px)} px`}
-                      </span>
-                      {h.has_config && <a href={href({ page: "new", from: h.id })} className="text-xs text-s-accent hover:underline">Use its settings</a>}
-                    </li>
-                  ))}
-                </ul>
-                {hist.reusable ? (
-                  <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-s-line p-3">
-                    <input type="checkbox" checked={reuse} onChange={(e) => setReuse(e.target.checked)} className="mt-1" />
-                    <span className="text-sm">
-                      Reuse the corners already found by <b>{hist.runs.find((h) => h.id === hist.reusable)?.name}</b>
-                      <span className="block text-xs text-s-muted mt-0.5 leading-relaxed">
-                        Same photos ({hist.runs.find((h) => h.id === hist.reusable)?.reuse?.why}) and same board layout, so finding the
-                        corners again would give the same result. The earlier result is copied from, never changed.
-                        Lens types, square size and every other setting can still differ.
-                      </span>
-                    </span>
-                  </label>
-                ) : (
-                  <Note>
-                    The corners will be found again: for {hist.runs[0].name}, {hist.runs[0].reuse?.why ?? "its detections do not fit"}.
-                  </Note>
-                )}
-              </div>
-            </Card>
-          )}
-
-          {/* 2 ---------------------------------------------------------------------------- */}
-          <Card title="2. Calibration board" aside="ChArUco, 6×6 markers">
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
-              <div className="grid gap-3 sm:grid-cols-2 content-start">
-                <NumberField id="number_x_square" label="Squares across" value={values.number_x_square}
-                  prop={props.number_x_square} problem={problemOf("number_x_square")} onChange={set} />
-                <NumberField id="number_y_square" label="Squares down" value={values.number_y_square}
-                  prop={props.number_y_square} problem={problemOf("number_y_square")} onChange={set} />
-                <NumberField id="square_size" label="Size of one square" value={values.square_size}
-                  prop={props.square_size} problem={problemOf("square_size")} onChange={set} decimal
-                  help="Measure a printed square. Use any unit (m, cm or mm): every length in the result is in that unit." />
-                <NumberField id="number_board" label="Number of boards" value={values.number_board}
-                  prop={props.number_board} problem={problemOf("number_board")} onChange={set}
-                  help="More than one when several boards are fixed together as one target." />
-              </div>
-              <BoardDrawing nx={nx} ny={ny} sq={sq} />
-            </div>
-            <div className="mt-4 grid gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={runBoardCheck} busy={boardBusy} disabled={source === "detections" || !rootPath || !scan?.number_camera}>
-                  Look for this board in my photos
-                </Button>
-                <span className="text-xs text-s-muted">{source === "detections" ? "Needs photos: with saved detections the board is not looked for again." : "Tries a few photos per camera. Takes a few seconds."}</span>
-              </div>
-              {boardError && <ErrorBox title="Could not check the board" detail={boardError} />}
-              {board && (
-                <Callout tone={board.found === 0 ? "bad" : board.found < board.tried ? "info" : "ok"} title={board.message}>
-                  <ul className="grid gap-0.5 text-xs text-s-muted mt-1">
-                    {board.cameras.map((c) => (
-                      <li key={c.index} className="tnum">
-                        <Mono>{c.folder}</Mono>: found in {c.found} of {c.tried} photos
-                        {c.found > 0 && `, up to ${c.corners_max} of ${c.corners_of} corners`}
+              {excluded.length > 0 && (
+                <div className="border-t border-s-line pt-5 grid gap-3">
+                  <div className="text-base font-semibold">{excluded.length} photo{excluded.length === 1 ? " is" : "s are"} left out of this calibration</div>
+                  <Explain>They take no part at all. Click one to put it back.</Explain>
+                  <ul className="flex flex-wrap gap-2">
+                    {excluded.map((k) => (
+                      <li key={k}>
+                        <button type="button" aria-label={`Put ${viewWords(k)} back`} onClick={() => set("exclude_views", excluded.filter((x) => x !== k))}
+                          className="inline-flex items-center gap-2 rounded-full border-[1.5px] border-s-warn/50 bg-s-warn-soft pl-3.5 pr-3 min-h-10 text-[15px] font-medium cursor-pointer hover:border-s-warn">
+                          {viewWords(k)} <span aria-hidden="true" className="text-lg leading-none">×</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
-                </Callout>
+                  {problemOf("exclude_views") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("exclude_views")}</div>}
+                </div>
               )}
-            </div>
-          </Card>
+
+              {hist && hist.runs.length > 0 && (
+                <div className="border-t border-s-line pt-5 grid gap-3">
+                  <div className="text-base font-semibold">You calibrated these photos before</div>
+                  {hist.reusable ? (
+                    <label className={`flex items-start gap-3.5 cursor-pointer rounded-xl border-2 p-4 ${reuse ? "border-s-accent bg-s-accent-soft" : "border-s-line"}`}>
+                      <input type="checkbox" checked={reuse} onChange={(e) => setReuse(e.target.checked)} className="mt-1 size-5 accent-s-accent" />
+                      <span className="grid gap-1">
+                        <span className="text-base font-semibold">Skip finding the corners again</span>
+                        <span className="text-[15px] text-s-muted leading-relaxed">
+                          <b className="text-s-text">{reusedName}</b> already found them in these same photos with this board, so the new calibration starts in seconds. That result is copied from, never changed. Lens types and every other setting can still differ.
+                        </span>
+                      </span>
+                    </label>
+                  ) : (
+                    <Explain>The corners will be found again, because for {hist.runs[0].name} {hist.runs[0].reuse?.why ?? "the saved corners do not fit these settings"}.</Explain>
+                  )}
+                  <details>
+                    <summary className="cursor-pointer text-[15px] font-semibold text-s-accent hover:underline">Show the {hist.runs.length} earlier result{hist.runs.length === 1 ? "" : "s"}</summary>
+                    <ul className="grid divide-y divide-s-line mt-2">
+                      {hist.runs.slice(0, 8).map((h) => (
+                        <li key={h.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2.5 text-[15px]">
+                          <a href={href({ page: "run", id: h.id })} className="font-semibold text-s-accent hover:underline break-all">{h.name}</a>
+                          <span className="text-s-muted mr-auto">{when(h.created_utc)}{h.median_px != null && ` · typical error ${num(h.median_px)} px`}</span>
+                          {h.has_config && <a href={href({ page: "new", from: h.id })} className="text-s-accent underline">Use its settings</a>}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </div>
+              )}
+            </Step>
+          )}
+
+          {/* 2 ---------------------------------------------------------------------------- */}
+          <Step n={2} title="Your calibration board" state={sized && (board ? board.found > 0 : true) ? "done" : "todo"} aside="ChArUco board">
+            <BoardStep values={values} set={set} payload={payload} photos={photoSource} unit={unit} setUnit={setUnit}
+              defaults={{ nx: Number(props.number_x_square.default), ny: Number(props.number_y_square.default), size: Number(props.square_size.default),
+                ls: Number(props.length_square.default), lm: Number(props.length_marker.default) }}
+              check={board} onCheck={runBoardCheck} checkBusy={boardBusy} checkError={boardError} problemOf={problemOf} />
+          </Step>
 
           {/* 3 ---------------------------------------------------------------------------- */}
-          <Card title="3. Cameras" aside={nCam ? `${nCam} in the rig` : undefined}>
-            {nCam === 0 && (
-              <Note>{source === "detections" ? "Choose the detections file first: the cameras are read from it." : "Choose the photo folder first: the cameras are read from it."}</Note>
-            )}
-            {nCam > 0 && (
-              <div className="grid gap-3">
-                {nCam > 1 && (
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <label htmlFor="all-lenses" className="text-s-muted">Set every camera to</label>
-                    <select id="all-lenses" className={`${INPUT} w-auto`} value=""
-                      onChange={(e) => { if (e.target.value) setModels(Array.from({ length: nCam }, () => e.target.value)); }}>
-                      <option value="">Choose a lens type…</option>
-                      {LENSES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div className="overflow-x-auto rounded-lg border border-s-line">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-s-faint text-xs uppercase tracking-wide border-b border-s-line">
-                        <th className="px-3 py-2 font-medium">Camera</th>
-                        <th className="px-3 py-2 font-medium text-right">Photos</th>
-                        <th className="px-3 py-2 font-medium">Image size</th>
-                        <th className="px-3 py-2 font-medium">Lens type</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from({ length: nCam }, (_, k) => {
-                        const d = kp?.cameras.find((x) => x.index === k);
-                        const c = scan?.cameras[k] ?? (d ? { folder: `camera ${k}`, images: d.frames, width: d.width, height: d.height } : undefined);
-                        return (
-                          <tr key={k} className="border-b border-s-line last:border-0">
-                            <td className="px-3 py-2 font-studio-mono text-xs">{c?.folder ?? `camera ${k}`}</td>
-                            <td className="px-3 py-2 text-right tnum">{c ? int(c.images) : "—"}</td>
-                            <td className="px-3 py-2 tnum text-s-muted whitespace-nowrap">
-                              {c?.width ? `${c.width} × ${c.height}` : "—"}
-                            </td>
-                            <td className="px-3 py-1.5">
-                              <select className={`${INPUT} min-w-52`} aria-label={`Lens type of ${c?.folder ?? `camera ${k}`}`}
-                                value={models[k] ?? "radtan"}
-                                onChange={(e) => setModels((old) => {
-                                  const next = Array.from({ length: nCam }, (_, i) => old[i] ?? "radtan");
-                                  next[k] = e.target.value;
-                                  return next;
-                                })}>
-                                {LENSES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-                              </select>
-                              <LensNote a={advice[k]} current={models[k] ?? "radtan"}
-                                onUse={(m) => { setModels((old) => { const next = Array.from({ length: nCam }, (_, i) => old[i] ?? "radtan"); next[k] = m; return next; }); setAdvice((old) => { const next = { ...old }; delete next[k]; return next; }); }} />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {problemOf("camera_models") && <div className="text-xs text-s-bad" role="alert">{problemOf("camera_models")}</div>}
-                {viewsFrom && viewCams > 0 && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button onClick={() => void runAdvice(payload, nCam)} busy={Object.values(advice).some((a) => a === "busy")}>
-                      {source === "detections" ? "Check the lens types against these detections" : "Check the lens types against my photos"}
-                    </Button>
-                    <span className="text-xs text-s-muted">
-                      {source === "detections"
-                        ? "Measures each lens on a few of the saved board views and says when the chosen type cannot fit it. The photos are not needed."
-                        : "Measures each lens on a few photos and says when the chosen type cannot fit it. About a second per camera."}
-                    </span>
-                  </div>
-                )}
-                <div className="rounded-lg border border-s-line p-3 grid gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="mr-auto min-w-0">
-                      <div className="text-sm font-medium">Lens values I already have</div>
-                      <div className="text-xs text-s-muted leading-relaxed">
-                        A lens file from an earlier calibration or the factory (<Mono>calibrated_cameras_data.yml</Mono> format). Optional.
-                      </div>
-                    </div>
-                    {lens && <Button kind="quiet" onClick={() => { setLens(null); set("cam_params_path", ""); set("fix_intrinsic", ""); }}>Remove</Button>}
-                    <Button onClick={() => setPicker({ mode: "file", key: "@lens", title: "Choose a lens file" })}>{lens ? "Change" : "Browse"}</Button>
-                  </div>
-                  {lens && (
-                    <>
-                      <ul className="grid gap-0.5 text-xs text-s-muted tnum">
-                        {lens.cameras.slice(0, 12).map((c) => {
-                          const h = health[c.index];
-                          return (
-                            <li key={c.index}>
-                              <Mono>camera {c.index}</Mono>: {c.model ?? "lens type not stated"}, focal {num(c.fx, 1)} px, centre {num(c.cx, 1)}, {num(c.cy, 1)}
-                              {h === "busy" && <span className="text-s-faint"> · checking against the {source === "detections" ? "saved detections" : "photos"}…</span>}
-                              {h && h !== "busy" && (
-                                <span className={h.verdict === "ok" ? "text-s-ok" : h.verdict === "misfit" ? "text-s-bad font-medium" : "text-s-faint"}>
-                                  {" "}· {h.verdict === "ok" ? "✓ " : h.verdict === "misfit" ? "✗ " : ""}{h.message}
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                        {lens.cameras.length > 12 && <li>and {lens.cameras.length - 12} more</li>}
-                      </ul>
-                      {Object.values(health).some((h) => h !== "busy" && h.verdict === "misfit") && (
-                        <Callout tone="bad" title="Some lens values do not fit these photos">
-                          Keeping them fixed would give a wrong rig. Check the file, or choose “Start from them and refine”.
-                        </Callout>
-                      )}
-                      {lens.cameras.length < nCam && <Callout tone="warn">The file has {lens.cameras.length} of {nCam} cameras. The others are worked out from the photos.</Callout>}
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {[
-                          { v: false, title: "Start from them and refine", text: "The lenses are adjusted to fit these photos. The lens type of each camera can still be changed above." },
-                          { v: true, title: "Keep them fixed", text: "Only the camera positions are worked out. Needs every camera in the file, with the lens type the file states." },
-                        ].map((o) => {
-                          const on = (values.fix_intrinsic === true) === o.v;
-                          return (
-                            <label key={o.title} className={`rounded-lg border p-3 cursor-pointer grid gap-1 ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line hover:bg-s-sunken"}`}>
-                              <span className="flex items-center gap-2 font-medium text-sm">
-                                <input type="radio" name="fix_intrinsic" checked={on} onChange={() => set("fix_intrinsic", o.v ? true : "")} />
-                                {o.title}
-                              </span>
-                              <span className="text-xs text-s-muted leading-relaxed">{o.text}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                      {problemOf("fix_intrinsic") && <div className="text-xs text-s-bad" role="alert">{problemOf("fix_intrinsic")}</div>}
-                    </>
-                  )}
-                </div>
-                <details className="text-sm">
-                  <summary className="cursor-pointer text-s-accent">Which lens type should I pick?</summary>
-                  <ul className="mt-2 grid gap-1 text-s-muted">
-                    {LENSES.map((l) => <li key={l.id}><span className="text-s-text font-medium">{l.label}</span>: {l.hint}.</li>)}
-                    <li>A lens type that cannot bend enough for the lens gives a wrong rig with a normal-looking error. When unsure about a wide lens, use Fisheye (KB).</li>
-                  </ul>
-                </details>
-              </div>
-            )}
-          </Card>
+          <Step n={3} title="Your cameras and their lenses" state={nCam > 0 && !misfit ? "done" : "todo"} aside={nCam ? `${nCam} camera${nCam === 1 ? "" : "s"}` : undefined}>
+            {nCam === 0
+              ? <Explain>{source === "detections" ? "Choose the corners file in step 1. The cameras are read from it." : "Choose the photo folder in step 1. The cameras are read from it."}</Explain>
+              : <CameraStep cameras={cameras} models={models} setModel={setModel} setAll={(m) => setModels(Array.from({ length: nCam }, () => m))}
+                  advice={advice} onMeasure={() => void runAdvice(payload, nCam, true)} measuring={Object.values(advice).some((a) => a === "busy")}
+                  canMeasure={!!viewsFrom && viewCams > 0} measureWhat={source === "detections" ? "saved detections" : "photos"}
+                  photos={photoSource} samples={samples} lens={lens} health={health}
+                  onLensBrowse={() => setPicker({ mode: "file", key: "@lens", title: "Choose a lens file" })}
+                  onLensRemove={() => { setLens(null); set("cam_params_path", ""); set("fix_intrinsic", ""); }}
+                  fixed={values.fix_intrinsic === true} onFixed={(v) => set("fix_intrinsic", v ? true : "")}
+                  problem={problemOf("camera_models")} lensProblem={problemOf("fix_intrinsic")} />}
+          </Step>
 
           {/* 4 ---------------------------------------------------------------------------- */}
-          <Card title="4. How strict should the checks be?">
+          <Step n={4} title="What should happen with a doubtful result?" state="done">
             <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                { id: "", title: "Standard", text: "Calibrates and warns about weak cameras. The result is always written, with the warnings in it." },
-                { id: "production", title: "Production", text: "Refuses to write a result that fails a check: an unconverged solve, a weak lens, or a camera position less certain than the limits you set." },
-              ].map((o) => {
+              {[{ id: "", title: "Give it to me with warnings", tag: "standard", text: "You always get a result. If a camera is weak or a check fails, the result page says so clearly. Best while you are still improving your capture." },
+                { id: "production", title: "Refuse it", tag: "strict", text: "No result is written unless every check passes and the cameras are known as precisely as you ask below. Best when the result goes straight into a product." }].map((o) => {
                 const on = (values.profile ?? "") === o.id || (o.id === "" && values.profile === "default");
                 return (
-                  <label key={o.id || "standard"}
-                    className={`rounded-lg border p-3 cursor-pointer grid gap-1 ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line hover:bg-s-sunken"}`}>
-                    <span className="flex items-center gap-2 font-medium text-sm">
-                      <input type="radio" name="profile" checked={on} onChange={() => set("profile", o.id)} />
+                  <button key={o.id || "standard"} type="button" role="radio" aria-checked={on} onClick={() => set("profile", o.id)}
+                    className={`text-left rounded-xl border-2 p-4 grid gap-1.5 cursor-pointer transition ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:border-s-field-line"}`}>
+                    <span className="text-[17px] font-semibold flex items-center gap-2.5">
+                      <span className={`size-5 rounded-full border-2 grid place-items-center ${on ? "border-s-accent" : "border-s-field-line"}`} aria-hidden="true">{on && <span className="size-2.5 rounded-full bg-s-accent" />}</span>
                       {o.title}
+                      <span className="rounded-full bg-s-surface border border-s-line text-s-muted text-[13px] font-medium px-2 py-0.5">{o.tag}</span>
                     </span>
-                    <span className="text-xs text-s-muted leading-relaxed">{o.text}</span>
-                  </label>
+                    <span className="text-[15px] text-s-muted leading-relaxed">{o.text}</span>
+                  </button>
                 );
               })}
             </div>
-            {production && (
-              <div className="grid gap-3 sm:grid-cols-2 mt-4">
-                <NumberField id="max_rotation_sigma_deg" label="Largest rotation uncertainty, degrees" decimal
-                  value={values.max_rotation_sigma_deg} prop={props.max_rotation_sigma_deg}
-                  problem={problemOf("max_rotation_sigma_deg")} onChange={set}
-                  help="Between any two cameras, 1σ. Production needs this limit; 0.05 is a strict start." />
-                <NumberField id="max_centre_sigma" label="Largest position uncertainty" decimal
-                  value={values.max_centre_sigma} prop={props.max_centre_sigma}
-                  problem={problemOf("max_centre_sigma")} onChange={set}
-                  help="Of one camera seen from another, 1σ, in the unit of the square size." />
+            {problemOf("profile") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("profile")}</div>}
+            <div className="grid gap-3">
+              <div className="text-base font-semibold">How precisely must the cameras be known? {production ? <span className="text-s-bad">Needed for strict checking.</span> : <span className="font-normal text-s-muted">Optional.</span>}</div>
+              <Explain>Between any two cameras, Studio estimates how uncertain their angle and their distance are. {production ? "A result less certain than these limits is refused." : "With limits, the result warns when a pair is less certain than you need."}</Explain>
+              <div className="flex flex-wrap gap-x-8 gap-y-4">
+                <label className="grid gap-1.5 text-base font-semibold">Angle between two cameras, to within
+                  <NumberBox id="max_rotation_sigma_deg" value={values.max_rotation_sigma_deg} fallback={null} unit="°" onChange={(v) => set("max_rotation_sigma_deg", v)} />
+                  <span className="text-[15px] font-normal text-s-muted">0.05° is a strict start.</span>
+                  {problemOf("max_rotation_sigma_deg") && <span className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("max_rotation_sigma_deg")}</span>}
+                </label>
+                <label className="grid gap-1.5 text-base font-semibold">Position of one camera from another, to within
+                  <NumberBox id="max_centre_sigma" value={values.max_centre_sigma} fallback={null} unit={unit === "?" ? undefined : unit} onChange={(v) => set("max_centre_sigma", v)} />
+                  <span className="text-[15px] font-normal text-s-muted">{unit === "?" ? "In the unit of your square size." : `In ${unit}, like your square size.`}</span>
+                  {problemOf("max_centre_sigma") && <span className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("max_centre_sigma")}</span>}
+                </label>
               </div>
-            )}
-            {problemOf("profile") && <div className="text-xs text-s-bad mt-2" role="alert">{problemOf("profile")}</div>}
-          </Card>
+            </div>
+          </Step>
 
           {/* 5 ---------------------------------------------------------------------------- */}
-          <Advanced schema={schema} values={values} problems={problems} set={set}
+          <Settings schema={schema} values={values} problems={problems} set={set} boards={nb} source={source} strict={production}
             refRun={from && fromName ? { id: from, name: fromName }
               : source === "photos" && hist?.runs.length ? { id: hist.runs[0].id, name: hist.runs[0].name } : null}
-            onBrowse={(key) => setPicker({ mode: "file", key, title: `File for ${key}` })} />
+            onBrowse={(key) => setPicker({ mode: "file", key, title: "Choose the file" })} />
         </div>
 
         {/* start -------------------------------------------------------------------------- */}
-        <div ref={summary} className="grid gap-4 lg:sticky lg:top-4">
-          <Card title="Start">
-            <div className="grid gap-3">
-              <Field htmlFor="run-name" label="Name of this calibration" problem={problemOf("name")}
-                help="A folder with this name is created for the result.">
-                <input id="run-name" className={INPUT} value={name} onChange={(e) => { setName(e.target.value); setProblems((o) => o.filter((p) => p.key !== "name")); }} />
-              </Field>
-              {roots.length > 1 && (
-                <Field htmlFor="run-root" label="Save it in">
+        <aside ref={summary} className="grid gap-5 lg:sticky lg:top-4">
+          <section className="rounded-2xl bg-s-surface border border-s-line shadow-[0_1px_2px_rgb(15_23_42/0.06),0_8px_24px_rgb(15_23_42/0.08)] p-5 grid gap-4">
+            <h2 className="text-xl font-semibold tracking-tight">Ready to start?</h2>
+            <ul className="grid gap-2.5">
+              <Check ok={photosReady}>{photosReady ? `${nCam} camera${nCam === 1 ? "" : "s"}${usesKeypoints ? ", from saved corners" : ""}` : source === "detections" ? "Choose the corners file" : "Choose the photo folder"}</Check>
+              <Check ok={sized} warn={!sized}>{sized ? `Board ${nx} × ${ny}, squares of ${String(values.square_size)}` : `Board ${nx} × ${ny}: enter the size of one square`}</Check>
+              <Check ok={nCam > 0 && !misfit} warn={misfit}>{misfit ? "A lens type does not fit its photos (step 3)" : nCam > 0 ? lensSummary(models, nCam) : "Lens types"}</Check>
+              <Check ok>{production ? "A doubtful result is refused" : "A doubtful result comes with warnings"}</Check>
+              {source === "photos" && hist?.reusable && reuse && <Check ok>Corners reused from {reusedName}</Check>}
+              {excluded.length > 0 && <Check ok>{`${excluded.length} photo${excluded.length === 1 ? "" : "s"} left out`}</Check>}
+            </ul>
+            <div className="grid gap-1.5 border-t border-s-line pt-4">
+              <label htmlFor="run-name" className="text-base font-semibold">Name this calibration</label>
+              <input id="run-name" className={INPUT} value={name} onChange={(e) => { setName(e.target.value); setProblems((o) => o.filter((p) => p.key !== "name")); }} />
+              {problemOf("name") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("name")}</div>}
+              {roots.length > 1 ? (
+                <label className="grid gap-1.5 text-base font-semibold mt-2">Save the result in
                   <select id="run-root" className={INPUT} value={root} onChange={(e) => setRoot(Number(e.target.value))}>
                     {roots.map((r, k) => <option key={r.path} value={k}>{r.path}</option>)}
                   </select>
-                </Field>
-              )}
-              {roots.length === 1 && <div className="text-xs text-s-muted break-all">Saved in <Mono>{roots[0].path}</Mono></div>}
-              <ul className="grid gap-1.5 text-sm">
-                <Check ok={photosReady}>{photosReady ? `${nCam} camera${nCam === 1 ? "" : "s"}${usesKeypoints ? ", from saved detections" : ""}` : source === "detections" ? "Choose the detections file" : "Choose the photo folder"}</Check>
-                <Check ok>{`Board ${nx} × ${ny}, squares of ${sq}`}</Check>
-                <Check ok={nCam > 0}>{nCam > 0 ? lensSummary(models, nCam) : "Lens types"}</Check>
-                <Check ok>{production ? "Production checks" : "Standard checks"}</Check>
-                {source === "photos" && hist?.reusable && reuse && <Check ok>Reusing the corners already found</Check>}
-                {excluded.length > 0 && <Check ok>{`${excluded.length} photo${excluded.length === 1 ? "" : "s"} left out`}</Check>}
-                {Object.values(advice).some((a) => a !== "busy" && a.verdict === "misfit") && (
-                  <Check ok={false}><span className="text-s-bad font-medium">A lens type does not fit its photos (see step 3)</span></Check>
-                )}
-              </ul>
-              {startError && <Callout tone="bad" title="Not started">{startError}</Callout>}
-              {problems.filter((p) => p.key !== "").length > 0 && (
-                <Callout tone="bad" title="These settings need attention">
-                  <ul className="grid gap-0.5 mt-1 text-xs">
-                    {problems.filter((p) => p.key !== "").map((p) => <li key={p.key}><Mono>{p.key}</Mono> {p.message}</li>)}
-                  </ul>
-                </Callout>
-              )}
-              <Button kind="primary" onClick={start} busy={starting} disabled={!ready} className="min-h-11">
-                Start calibration
-              </Button>
-              {!ready && !scanning && <Note>{photosReady ? "Give the calibration a name." : source === "detections" ? "Choose the detections file to continue." : "Choose the folder with the photos to continue."}</Note>}
+                </label>
+              ) : roots.length === 1 && <div className="text-[14px] text-s-muted break-all">The result is saved in a new folder with this name, inside {roots[0].path}</div>}
             </div>
-          </Card>
+            {startError && <Callout tone="bad" title="Not started">{startError}</Callout>}
+            {problems.filter((p) => p.key !== "").length > 0 && (
+              <Callout tone="bad" title="Some settings need attention">
+                <ul className="grid gap-1 mt-1">
+                  {problems.filter((p) => p.key !== "").map((p) => <li key={p.key}><Mono>{p.key}</Mono> {p.message}</li>)}
+                </ul>
+              </Callout>
+            )}
+            <Button kind="primary" onClick={start} busy={starting} disabled={!ready} className="min-h-14 !text-lg">Start calibration</Button>
+            {!ready && !scanning && <Explain>{photosReady ? "Give the calibration a name." : source === "detections" ? "Choose the corners file to continue." : "Choose the folder with your photos to continue."}</Explain>}
+          </section>
 
-          <Card title="Config file">
-            <div className="grid gap-3">
-              <Note>
-                Starting writes these settings as <Mono>calib_param.yml</Mono> in the result folder.
-                The same file runs from a terminal with <Mono>ds-msp-calibrate-rig --config</Mono>.
-              </Note>
+          <details className="rounded-2xl bg-s-surface border border-s-line p-5 group">
+            <summary className="cursor-pointer text-base font-semibold text-s-accent hover:underline">Prefer a terminal? See the settings file</summary>
+            <div className="grid gap-3 mt-3">
+              <Explain>Starting writes your choices as <Mono>calib_param.yml</Mono> into the result folder. The same file runs with <Mono>ds-msp-calibrate-rig --config</Mono>.</Explain>
               <Button onClick={loadPreview} busy={previewBusy}>Check and show the file</Button>
               {preview && (
                 <>
                   {preview.ok
-                    ? <Badge tone="ok">The settings are valid</Badge>
-                    : <Callout tone="bad" title="The settings have problems">
-                        <ul className="grid gap-0.5 mt-1 text-xs">
-                          {preview.problems.map((p, k) => <li key={k}>{p.key && <Mono>{p.key}</Mono>} {p.message}</li>)}
-                        </ul>
+                    ? <Callout tone="ok" title="These settings are valid" />
+                    : <Callout tone="bad" title="These settings have problems">
+                        <ul className="grid gap-1 mt-1">{preview.problems.map((p, k) => <li key={k}>{p.key && <Mono>{p.key}</Mono>} {p.message}</li>)}</ul>
                       </Callout>}
                   {preview.warnings.map((w) => <Callout key={w} tone="warn">{w}</Callout>)}
-                  <pre className="font-studio-mono text-[11px] leading-relaxed bg-s-sunken border border-s-line rounded-lg p-3 overflow-x-auto max-h-80">
-                    {preview.yaml}
-                  </pre>
+                  <pre className="font-studio-mono text-[13px] leading-relaxed bg-s-sunken border border-s-line rounded-lg p-3 overflow-x-auto max-h-80">{preview.yaml}</pre>
                 </>
               )}
             </div>
-          </Card>
-        </div>
+          </details>
+        </aside>
       </div>
 
       {picker && (
@@ -903,214 +730,26 @@ export function NewRunPage({ from }: { from?: string }) {
   );
 }
 
+const LINK_BUTTON = "inline-flex items-center rounded-lg px-4 min-h-11 text-[15px] font-semibold border-[1.5px] border-s-field-line/70 bg-s-surface shadow-sm hover:bg-s-sunken hover:border-s-text/50";
+
 function Page({ children, ...drop }: { children: ReactNode } & Pick<React.HTMLAttributes<HTMLElement>, "onDragOver" | "onDragLeave" | "onDrop">) {
-  return <main {...drop} className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6 grid gap-5">{children}</main>;
-}
-
-function Mono({ children }: { children: ReactNode }) {
-  return <code className="font-studio-mono text-[0.92em]">{children}</code>;
-}
-
-function LensNote({ a, current, onUse }: { a: LensAdvice | "busy" | undefined; current: string; onUse: (model: string) => void }) {
-  if (!a) return null;
-  if (a === "busy") return <div className="text-xs text-s-faint mt-1">Measuring this lens…</div>;
-  if (a.chosen !== current) return null;                 // the choice changed since the check
-  const tone = a.verdict === "ok" ? "text-s-ok" : a.verdict === "misfit" ? "text-s-bad font-medium"
-    : a.verdict === "caution" ? "text-s-warn font-medium" : "text-s-muted";
-  const better = a.suggested && a.suggested !== current ? LENSES.find((l) => l.id === a.suggested) : null;
-  return (
-    <div className={`text-xs mt-1 leading-relaxed max-w-md ${tone}`}>
-      {a.verdict === "ok" ? "✓ " : a.verdict === "misfit" ? "✗ " : a.verdict === "caution" ? "! " : ""}{a.message}
-      {better && (a.verdict === "misfit" || a.verdict === "caution") && (
-        <button type="button" onClick={() => onUse(better.id)} className="ml-1 underline text-s-accent font-medium">Use {better.label}</button>
-      )}
-    </div>
-  );
+  return <main {...drop} className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 grid gap-7 text-base">{children}</main>;
 }
 
 function lensSummary(models: string[], n: number): string {
   const counts = new Map<string, number>();
   for (let k = 0; k < n; k++) counts.set(models[k] ?? "radtan", (counts.get(models[k] ?? "radtan") ?? 0) + 1);
-  return [...counts].map(([m, c]) => (counts.size === 1 ? `All ${m}` : `${c} ${m}`)).join(", ");
+  const word = (m: string) => (m === "radtan" ? "standard" : m === "kb" ? "fisheye" : m);
+  return [...counts].map(([m, c]) => (counts.size === 1 ? `All lenses ${word(m)}` : `${c} ${word(m)}`)).join(", ");
 }
 
-function Check({ ok, children }: { ok: boolean; children: ReactNode }) {
+function Check({ ok, warn, children }: { ok: boolean; warn?: boolean; children: ReactNode }) {
   return (
-    <li className="flex items-start gap-2">
-      <span className={`mt-0.5 size-4 shrink-0 rounded-full grid place-items-center text-[10px] font-bold ${ok ? "bg-s-ok-soft text-s-ok" : "bg-s-sunken text-s-faint"}`} aria-hidden="true">
-        {ok ? "✓" : "·"}
+    <li className="flex items-start gap-2.5 text-base">
+      <span className={`mt-0.5 size-5 shrink-0 rounded-full grid place-items-center text-xs font-bold ${warn ? "bg-s-warn text-white" : ok ? "bg-s-ok text-white" : "border-2 border-s-field-line"}`} aria-hidden="true">
+        {warn ? "!" : ok ? "✓" : ""}
       </span>
-      <span className={ok ? "" : "text-s-muted"}>{children}</span>
+      <span className={warn ? "text-s-warn font-medium" : ok ? "" : "text-s-muted"}>{children}</span>
     </li>
   );
-}
-
-function NumberField({ id, label, value, prop, problem, onChange, help, decimal }: {
-  id: string; label: string; value: unknown; prop: SchemaProp; problem: string | null;
-  onChange: (key: string, v: unknown) => void; help?: string; decimal?: boolean;
-}) {
-  // Text is kept while typing so that "0." or an empty box is not rewritten under the cursor.
-  const [text, setText] = useState(value == null ? "" : String(value));
-  const def = prop.default;
-  useEffect(() => {
-    setText((old) => {
-      if (value == null) return old.trim() === "" || Number(old) === def ? old : "";
-      return Number(old) === value || old === value ? old : String(value);
-    });
-  }, [value, def]);
-  return (
-    <Field htmlFor={id} label={label} problem={problem}
-      help={help ?? (def != null ? `Default ${String(def)}` : undefined)}>
-      <input id={id} className={`${INPUT} tnum`} inputMode={decimal ? "decimal" : "numeric"}
-        value={text} placeholder={def != null ? String(def) : ""}
-        onChange={(e) => {
-          const t = e.target.value.trim();
-          setText(e.target.value);
-          const n = Number(t);
-          onChange(id, t === "" ? "" : Number.isFinite(n) ? (n === def ? "" : n) : t);
-        }} />
-    </Field>
-  );
-}
-
-function BoardDrawing({ nx, ny, sq }: { nx: number; ny: number; sq: number }) {
-  const okShape = Number.isInteger(nx) && Number.isInteger(ny) && nx >= 2 && ny >= 2 && nx <= 40 && ny <= 40;
-  if (!okShape) return <div className="text-xs text-s-muted self-center">The drawing appears once the square counts are whole numbers from 2 to 40.</div>;
-  const cell = 160 / Math.max(nx, ny);
-  const cells = [];
-  for (let j = 0; j < ny; j++)
-    for (let i = 0; i < nx; i++)
-      if ((i + j) % 2 === 0) cells.push(<rect key={`${i}-${j}`} x={i * cell} y={j * cell} width={cell} height={cell} />);
-  const size = Number.isFinite(sq) && sq > 0;
-  const fmt = (v: number) => Number(v.toPrecision(4)).toString();
-  return (
-    <figure className="grid gap-2 justify-items-center content-start">
-      <svg viewBox={`-1 -1 ${nx * cell + 2} ${ny * cell + 2}`} className="w-40 max-h-40" role="img"
-        aria-label={`Board with ${nx} squares across and ${ny} down`}>
-        <rect x="0" y="0" width={nx * cell} height={ny * cell} fill="#fff" stroke="#111827" strokeWidth="1" />
-        <g fill="#111827">{cells}</g>
-      </svg>
-      <figcaption className="text-xs text-s-muted text-center leading-relaxed">
-        {nx} × {ny} squares{size && <>, {fmt(nx * sq)} × {fmt(ny * sq)} overall in your unit</>}
-      </figcaption>
-    </figure>
-  );
-}
-
-// Settings shown with a picture of what they do, across the full width of their section.
-const PICTURED = ["structure_mode", "noise_bound"];
-const PICTURE_TITLE: Record<string, string> = {
-  structure_mode: "What may move in the target",
-  noise_bound: "When is a corner a mistake?",
-};
-
-function Advanced({ schema, values, problems, set, onBrowse, refRun }: {
-  schema: ConfigSchema; values: Values; problems: Problem[];
-  set: (key: string, v: unknown) => void; onBrowse: (key: string) => void;
-  /** An earlier result on these photos, whose corners illustrate the outlier band. */
-  refRun: { id: string; name: string } | null;
-}) {
-  const keys = Object.keys(schema.properties).filter((k) => !PLACED.has(k));
-  const changed = keys.filter((k) => k in values);
-  const bad = problems.filter((p) => keys.includes(p.key)).length;
-  return (
-    <details className="rounded-lg border border-s-line bg-s-surface" open={bad > 0 || undefined}>
-      <summary className="cursor-pointer px-4 py-3.5 flex flex-wrap items-center gap-3">
-        <h2 className="text-[15px] font-semibold">5. More settings</h2>
-        <span className="text-xs text-s-muted">The defaults suit most rigs.</span>
-        {changed.length > 0 && <Badge tone="info">{changed.length} changed</Badge>}
-        {bad > 0 && <Badge tone="bad">{bad} to fix</Badge>}
-      </summary>
-      <div className="px-4 pb-4 grid gap-6">
-        {schema["x-groups"].map((g) => {
-          const all = keys.filter((k) => schema.properties[k]["x-group"] === g.id);
-          if (!all.length) return null;
-          const pictured = PICTURED.filter((k) => all.includes(k));
-          const inGroup = all.filter((k) => !pictured.includes(k));
-          return (
-            <section key={g.id} className="grid gap-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-s-faint">{g.title}</h3>
-              {pictured.map((k) => {
-                const prop = schema.properties[k];
-                const isSet = values[k] !== undefined;
-                return (
-                  <div key={k} className={`rounded-lg border p-3.5 grid gap-3 ${isSet ? "border-s-accent" : "border-s-line"}`}>
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <h4 className="text-sm font-semibold">{PICTURE_TITLE[k]}</h4>
-                      <span className="font-studio-mono text-xs text-s-muted">{k}</span>
-                      {isSet && <button type="button" className="text-xs text-s-accent hover:underline" onClick={() => set(k, "")}>Reset to default</button>}
-                    </div>
-                    {k === "structure_mode" && (
-                      <TargetShape value={values[k] as string | undefined} fallback={String(prop.default)}
-                        boards={Number(values.number_board ?? 1) || 1} onChange={(v) => set(k, v)} />
-                    )}
-                    {k === "noise_bound" && (
-                      <NoiseBand value={values[k] === undefined || values[k] === "" ? undefined : Number(values[k])}
-                        fallback={Number(prop.default)} refRun={refRun} onChange={(v) => set(k, v)} />
-                    )}
-                    {problems.find((p) => p.key === k) && <div className="text-xs text-s-bad" role="alert">{problems.find((p) => p.key === k)?.message}</div>}
-                  </div>
-                );
-              })}
-              <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                {inGroup.map((k) => (
-                  <AdvancedField key={k} id={k} prop={schema.properties[k]} value={values[k]}
-                    problem={problems.find((p) => p.key === k)?.message ?? null}
-                    set={set} onBrowse={FILE_KEYS.has(k) ? () => onBrowse(k) : undefined} />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </details>
-  );
-}
-
-function AdvancedField({ id, prop, value, problem, set, onBrowse }: {
-  id: string; prop: SchemaProp; value: unknown; problem: string | null;
-  set: (key: string, v: unknown) => void; onBrowse?: () => void;
-}) {
-  const types = Array.isArray(prop.type) ? prop.type : [prop.type];
-  const kind = types.find((t) => t !== "null") ?? "string";
-  const isSet = value !== undefined;
-  const label = (
-    <span className="flex flex-wrap items-baseline gap-x-2">
-      <span id={`${id}-label`} className="font-studio-mono text-[13px]">{id}</span>
-      {isSet && <button type="button" className="text-xs text-s-accent hover:underline font-normal" onClick={() => set(id, "")}>Reset</button>}
-    </span>
-  );
-  const help = <>{prop.description} <span className="text-s-faint">Default: {shown(prop.default)}.</span></>;
-  const cls = `${INPUT} ${isSet ? "border-s-accent" : ""}`;
-  let control;
-  const gate = prop.enum && prop.enum.every((o) => ["off", "warn", "refuse"].includes(String(o)));
-  if (gate) {
-    control = <GateChoice id={id} value={value as string | undefined} fallback={String(prop.default)}
-      options={(prop.enum ?? []).map(String)} onChange={(v) => set(id, v)} />;
-  } else if (id === "min_camera_coverage") {
-    control = <ShareSlider id={id} value={value === undefined || value === "" ? undefined : Number(value)} fallback={Number(prop.default)}
-      words={(pct) => `At least ${pct}% of each camera's corners must lie inside the band.`} onChange={(v) => set(id, v)} />;
-  } else if (kind === "boolean" || prop.enum) {
-    const options = kind === "boolean" ? ["true", "false"] : (prop.enum ?? []).map(String);
-    const current = value === undefined ? "" : String(value);
-    control = (
-      <select id={id} className={cls} value={current}
-        onChange={(e) => set(id, e.target.value === "" ? "" : kind === "boolean" ? e.target.value === "true" : e.target.value)}>
-        <option value="">Default ({shown(prop.default)})</option>
-        {options.map((o) => <option key={o} value={o}>{kind === "boolean" ? (o === "true" ? "yes" : "no") : o}</option>)}
-      </select>
-    );
-  } else {
-    const text = value === undefined ? "" : Array.isArray(value) ? value.join(", ") : String(value);
-    control = (
-      <div className="flex gap-2">
-        <input id={id} className={`${cls} ${kind === "string" ? "font-studio-mono text-xs" : "tnum"}`} value={text}
-          inputMode={kind === "integer" ? "numeric" : kind === "number" ? "decimal" : undefined}
-          placeholder={kind === "array" ? "values separated by commas" : shown(prop.default)}
-          onChange={(e) => set(id, e.target.value)} />
-        {onBrowse && <Button onClick={onBrowse}>Browse</Button>}
-      </div>
-    );
-  }
-  return <Field htmlFor={id} label={label} help={help} problem={problem}>{control}</Field>;
 }

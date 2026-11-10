@@ -46,7 +46,7 @@ export function Stat({ k, v, sub }: { k: ReactNode; v: ReactNode; sub?: ReactNod
 }
 
 export function Note({ children }: { children: ReactNode }) {
-  return <p className="text-xs leading-relaxed text-s-muted max-w-prose">{children}</p>;
+  return <p className="text-[15px] leading-relaxed text-s-muted max-w-prose">{children}</p>;
 }
 
 export function Loading({ what }: { what: string }) {
@@ -65,8 +65,8 @@ export function ErrorBox({ title, detail }: { title: string; detail: string }) {
 type ButtonKind = "primary" | "secondary" | "danger" | "quiet";
 
 const BUTTON: Record<ButtonKind, string> = {
-  primary: "bg-s-accent text-white hover:opacity-90 border border-transparent",
-  secondary: "bg-s-surface text-s-text border border-s-line hover:bg-s-sunken",
+  primary: "bg-s-accent text-white shadow-sm hover:brightness-110 border border-transparent",
+  secondary: "bg-s-surface text-s-text border-[1.5px] border-s-field-line/70 shadow-sm hover:bg-s-sunken hover:border-s-text/50",
   danger: "bg-s-surface text-s-bad border border-s-bad/40 hover:bg-s-bad-soft",
   quiet: "text-s-accent hover:underline border border-transparent",
 };
@@ -78,7 +78,7 @@ export function Button({ kind = "secondary", busy, className = "", children, ...
       type="button"
       {...rest}
       disabled={rest.disabled || busy}
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-3.5 min-h-10 text-sm font-medium transition
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 min-h-11 text-[15px] font-semibold transition cursor-pointer active:translate-y-px
         disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2
         focus-visible:outline-s-accent ${BUTTON[kind]} ${className}`}
     >
@@ -89,8 +89,10 @@ export function Button({ kind = "secondary", busy, className = "", children, ...
 }
 
 export const INPUT =
-  "w-full rounded-md border border-s-line bg-s-surface px-3 min-h-10 text-sm outline-none " +
-  "focus:border-s-accent disabled:bg-s-sunken disabled:text-s-faint";
+  "w-full rounded-lg border-[1.5px] border-s-field-line bg-s-field px-3.5 min-h-12 text-base text-s-text " +
+  "shadow-[inset_0_1px_2px_rgb(15_23_42/0.06)] outline-none transition placeholder:text-s-faint " +
+  "hover:border-s-text/60 focus:border-s-accent focus:ring-4 focus:ring-s-accent/20 " +
+  "disabled:bg-s-sunken disabled:text-s-faint disabled:border-s-line";
 
 /** A labelled form control with its help text and, when set, its problem. */
 export function Field({ label, help, problem, htmlFor, children, className = "" }: {
@@ -98,12 +100,11 @@ export function Field({ label, help, problem, htmlFor, children, className = "" 
   children: ReactNode; className?: string;
 }) {
   return (
-    <div className={`grid gap-1 content-start min-w-0 ${className}`}>
-      <label htmlFor={htmlFor} className="text-sm font-medium">{label}</label>
+    <div className={`grid gap-1.5 content-start min-w-0 ${className}`}>
+      <label htmlFor={htmlFor} className="text-base font-semibold">{label}</label>
+      {help && <div className="text-[15px] text-s-muted leading-relaxed -mt-0.5">{help}</div>}
       {children}
-      {problem
-        ? <div className="text-xs text-s-bad" role="alert">{problem}</div>
-        : help && <div className="text-xs text-s-muted leading-relaxed">{help}</div>}
+      {problem && <div className="text-[15px] font-medium text-s-bad" role="alert">{problem}</div>}
     </div>
   );
 }
@@ -112,12 +113,17 @@ export function Callout({ tone, title, children }: {
   tone: "ok" | "warn" | "bad" | "info"; title?: ReactNode; children?: ReactNode;
 }) {
   const box = { ok: "border-s-ok/40 bg-s-ok-soft", warn: "border-s-warn/40 bg-s-warn-soft",
-    bad: "border-s-bad/40 bg-s-bad-soft", info: "border-s-line bg-s-sunken" }[tone];
-  const head = { ok: "text-s-ok", warn: "text-s-warn", bad: "text-s-bad", info: "text-s-text" }[tone];
+    bad: "border-s-bad/40 bg-s-bad-soft", info: "border-s-info/30 bg-s-info-soft" }[tone];
+  const head = { ok: "text-s-ok", warn: "text-s-warn", bad: "text-s-bad", info: "text-s-info" }[tone];
+  const dot = { ok: "bg-s-ok", warn: "bg-s-warn", bad: "bg-s-bad", info: "bg-s-info" }[tone];
+  const mark = { ok: "✓", warn: "!", bad: "×", info: "i" }[tone];
   return (
-    <div className={`rounded-lg border p-3 text-sm ${box}`} role={tone === "bad" ? "alert" : "status"}>
-      {title && <div className={`font-semibold ${head}`}>{title}</div>}
-      {children && <div className={`text-s-text ${title ? "mt-1" : ""}`}>{children}</div>}
+    <div className={`rounded-lg border p-3.5 text-[15px] leading-relaxed flex gap-3 ${box}`} role={tone === "bad" ? "alert" : "status"}>
+      <span className={`mt-0.5 size-5 shrink-0 rounded-full grid place-items-center text-xs font-bold text-white ${dot}`} aria-hidden="true">{mark}</span>
+      <div className="min-w-0">
+        {title && <div className={`font-semibold ${head}`}>{title}</div>}
+        {children && <div className={`text-s-text ${title ? "mt-0.5" : ""}`}>{children}</div>}
+      </div>
     </div>
   );
 }

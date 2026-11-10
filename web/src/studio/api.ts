@@ -235,6 +235,8 @@ export interface SchemaProp {
 export interface ConfigSchema {
   properties: Record<string, SchemaProp>;
   "x-groups": { id: string; title: string }[];
+  /** Per profile, the defaults it uses in place of each property's own default. */
+  "x-profiles"?: Record<string, Values>;
 }
 
 export type Values = Record<string, unknown>;
@@ -261,10 +263,19 @@ export interface ScanDoc {
 
 export interface BoardCheck {
   cameras: { index: number; folder: string; tried: number; found: number;
-    corners_max: number; corners_of: number }[];
+    corners_max: number; corners_of: number;
+    /** The tried photo that showed the most corners, and where they were found in it. */
+    sample: { photo: number; file: string; width: number; height: number; corners: [number, number][] } | null }[];
   found: number;
   tried: number;
   message: string;
+}
+
+/** The board size Studio read from the markers in a few photos. */
+export interface BoardGuess {
+  ok: boolean; number_x_square: number | null; number_y_square: number | null;
+  /** How many different boards appeared in the photos that were read. */
+  boards_seen: number; markers: number; photos: number; message: string;
 }
 
 export interface ConfigCheck {
@@ -427,6 +438,10 @@ export const api = {
   scanPhotos: (root_path: string, cam_prefix?: string) =>
     postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix }),
   checkBoard: (values: Values) => postJSON<BoardCheck>("api/photos/check-board", { values }),
+  findBoard: (values: Values) => postJSON<BoardGuess>("api/photos/find-board", { values }),
+  /** A scaled-down photo of one camera in a photo folder that has no result yet. */
+  thumbUrl: (root: string, cam: number, photo = 0, prefix?: string | null) =>
+    `api/photos/thumb?path=${encodeURIComponent(root)}&cam=${cam}&photo=${photo}${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ""}`,
   checkConfig: (values: Values) => postJSON<ConfigCheck>("api/config/check", { values }),
   importConfig: (text: string) =>
     postJSON<{ values: Values; unknown: string[]; problems: Problem[] }>("api/config/import", { text }),

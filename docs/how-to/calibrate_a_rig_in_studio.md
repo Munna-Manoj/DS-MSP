@@ -36,67 +36,79 @@ too, each in its own folder.
 
 ## Set up the calibration
 
-Choose **New calibration**. The page first asks what you are starting from, then has four steps
-and a Start panel.
+Choose **New calibration**. The page first asks what you have, then has four steps and a
+**Ready to start?** panel that lists what is still missing.
 
-| Starting from | Use it when | What Studio does |
+| You have | Use it when | What Studio does |
 |---|---|---|
-| **Photos** | You have a new capture | Reads the cameras and frames from the folder |
-| **A config file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in every setting the file sets; drop the file on the page, upload it, or choose it on disk |
-| **Saved detections** | An earlier run wrote `detected_keypoints_data.yml` | Uses those corners; the photos are not read again |
-| **A finished result** | You want the same calibration again, or one change | Offers **Repeat exactly** and **Change settings** per result |
+| **My photos** | You have a new capture | Reads the cameras and frames from the folder |
+| **A settings file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in the page from it; drop the file on the page, upload it, or choose it on disk |
+| **Corners found earlier** | An earlier run wrote `detected_keypoints_data.yml` | Uses those corners; the photos are not read again |
+| **A finished result** | You want the same calibration again, or one change | Offers **Repeat exactly** and **Change something first** per result |
+
+On the page, a white box with a firm outline is something you fill in, grey text explains, and a
+tinted panel with a mark is something Studio worked out.
 
 The steps below describe starting from photos.
 
-1. **Photos.** Choose the folder that holds the camera folders (`Images` above). Studio reports
-   the cameras it found, the photo count, and the number of moments seen by two or more cameras.
-   A folder layout or file naming it cannot use is named here, before anything runs.
-2. **Calibration board.** Enter the squares across, the squares down and the size of one square.
-   The size sets the unit of the result: enter metres to get metres. **Look for this board in
-   my photos** tries a few photos per camera and says in how many it found the board.
-3. **Cameras.** Pick a lens type per camera. Use *Standard lens* for ordinary lenses and
-   *Fisheye (KB)* for wide ones. If you already have lens values, from the factory or an
-   earlier calibration, choose the file under **Lens values I already have**. Studio lists each
-   camera's lens type and focal length from it, and you choose whether to refine them or keep
-   them fixed and solve only the camera positions.
-4. **How strict should the checks be?** *Standard* always writes a result and lists its
-   warnings. *Production* refuses a result that fails a check and needs two uncertainty limits.
+1. **Your photos.** Choose the folder that holds the camera folders (`Images` above). Studio
+   shows one photo of each camera, the photo count, and the number of moments seen by two or
+   more cameras. A folder layout or file naming it cannot use is named here, before anything
+   runs.
+2. **Your calibration board.** Choose **Find the board in my photos**: Studio reads the markers
+   in about 48 photos and fills in the squares across and down. It does not guess: when no photo
+   shows a whole board, it says so and you count the squares yourself. Then enter the size of
+   one square and its unit; the drawing marks the square to measure. Studio looks for the board
+   in a few photos of each camera and draws every corner it finds on them.
+   For a target of several boards, set how many are fixed together. If they differ, switch off
+   **All boards are printed the same** and each board gets its own row.
+3. **Your cameras and their lenses.** Each camera has a card with one of its photos.
+   **Measure my lenses** measures how wide each lens sees and sets its type: a standard lens
+   under 100° across, a fisheye above. You can change any card afterwards. If you already have
+   lens values, from the maker or an earlier calibration, choose the file under **I already have
+   lens values for these cameras**, and say whether Studio should improve them or keep them
+   exactly as they are.
+4. **What should happen with a doubtful result?** *Give it to me with warnings* always writes a
+   result and lists its warnings. *Refuse it* writes no result unless every check passes, and
+   needs the two limits below it: how precisely the angle and the position between two cameras
+   must be known.
 
 Studio checks what you entered against the photos before anything runs:
 
-- **The lens type.** After the board is found, each camera's lens is measured on up to 12
-  photos and the chosen type is fitted to them. The row then reads, for example, `This lens is
-  about 68° wide, measured out to 34° from its centre. The chosen lens type fits (0.05 px).`
-  A type that cannot fit is marked, with a button that switches to one that can.
+- **The lens type.** Each camera's lens is measured on up to 12 photos and the chosen type is
+  fitted to them. The card then reads, for example, `68° wide · this type fits (0.05 px)`. A
+  type that cannot fit is marked, with a button that switches to one that can.
 - **A lens file.** Each camera's given values are tried on its photos with the lens held
   fixed. Values for another camera, another image size or another lens setting show up as a
   large error, named per camera.
-- **Earlier calibrations of the same photos.** They are listed under the photo folder. When
-  the photos and the board layout are unchanged, Studio offers to reuse the corners already
-  found. The earlier result is copied from and never changed.
+- **Earlier calibrations of the same photos.** When the photos and the board layout are
+  unchanged, Studio offers **Skip finding the corners again**. The earlier result is copied
+  from and never changed.
 
-When you start from **Saved detections**, the lens type and lens file checks use up to 12 of
-the saved board views per camera, so the photos are not needed. If the board you entered is not
-the one the detections were made with, the row says so.
+When you start from **Corners found earlier**, the lens checks use up to 12 of the saved board
+views per camera, so the photos are not needed. If the board you entered is not the one the
+corners were found with, the card says so.
 
 /// note | What the lens check cannot see
 It compares pixel errors. A lens type can fit the pixels and still bias the rig; the one known
 case, UCM on an ordinary lens, is flagged by rule.
 ///
 
-**More settings** lists every other `calib_param.yml` key with its default. A setting you do
-not touch is left out of the config file, so the default applies. Some settings show what they
-do:
+**More settings** holds everything else. A normal calibration needs none of it. Each setting is
+a question with the reason it exists, when to change it, and its `calib_param.yml` name in small
+type. A setting you do not touch is left out of the config file, so the default applies.
 
-- **What may move in the target** (`structure_mode`). Four drawings move the way each choice
-  lets the target move: stiff boards, bowed boards, every corner free, or nothing. These choices
-  act only on a target of several boards fixed together; the page says so when yours is one board.
-- **When is a corner a mistake?** (`noise_bound`). A corner further from the fit than 3.03 times
-  this value is ignored. When the photos already have a result, the picture shows that result's
-  corners and the page counts how many lie outside the band as you move the slider. Without one
-  it shows an example and says so.
-- **Checks** (the `*_gate` keys). **Skip** does not check, **Warn** writes the result with a
-  warning, **Refuse** writes no result when the check fails.
+- **When is a found corner a mistake?** (`noise_bound`). You set the distance in pixels beyond
+  which a corner is ignored. When the photos already have a result, the picture shows that
+  result's corners, and the page says how far off its worst corner was and how many corners the
+  setting would ignore. Without a result it shows an example and says so.
+- **How well do you know the shape of the target?** (`structure_mode`). Shown for a target of
+  several boards, where it applies. Four drawings show what each choice allows to move.
+- **Checks before you get a result** (the `*_gate` keys). Each check is a question with **Skip**,
+  **Warn me** or **Refuse the result**. With *Refuse it* chosen in step 4 they show the stricter
+  values that choice applies.
+- Keys of a loaded config that this page shows another way (MC-Calib's `distortion_per_camera`,
+  for example) are turned into the page's own choices.
 
 /// tip | Start from an existing config
 **Load a calib_param.yml** fills the form from a file, including MC-Calib's own. On a result

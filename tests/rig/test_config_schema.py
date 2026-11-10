@@ -94,3 +94,15 @@ def test_schema_is_plain_json():
     assert json.loads(json.dumps(doc)) == doc
     assert doc["required"] == ["number_camera"]
     assert doc["x-schema-version"] == cs.SCHEMA_VERSION
+
+
+@pytest.mark.req("FR-UI-014")
+def test_schema_states_what_the_production_profile_changes():
+    """A form shows what an untouched key does under ``profile: production``; the schema takes
+    those defaults from the loader, so the two cannot differ."""
+    from ds_msp.rig.calib_param import _PRODUCTION
+    from ds_msp.rig.config_schema import PROPERTIES, config_schema
+
+    prod = config_schema()["x-profiles"]["production"]
+    assert prod == _PRODUCTION and prod["convergence_gate"] == "refuse"
+    assert set(prod) <= set(PROPERTIES)

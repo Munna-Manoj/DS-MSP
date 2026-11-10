@@ -27,14 +27,14 @@ function usePhase(): number {
 export type ShapeMode = "rigid" | "bend" | "free" | "off";
 
 const SHAPES: { id: ShapeMode; title: string; text: string }[] = [
-  { id: "rigid", title: "Stiff boards",
-    text: "Each board keeps its printed shape. How the boards sit relative to one another is measured from all photos together." },
-  { id: "bend", title: "Boards may be bowed",
-    text: "As stiff boards, and each board may also bow or twist: 3 more numbers per board. For a board on paper, foam or thin plastic." },
-  { id: "free", title: "Every corner free",
-    text: "Each corner moves on its own. This can hide a lens or detection error inside the target, so set a limit (structure_prior_sigma)." },
-  { id: "off", title: "Leave as first estimated",
-    text: "The boards stay where the first estimate, averaged over single photos, put them." },
+  { id: "rigid", title: "The boards are flat and stiff",
+    text: "Each board keeps its printed shape. Studio measures how the boards sit relative to one another." },
+  { id: "bend", title: "The boards may be slightly bowed",
+    text: "For boards on paper, foam or thin plastic. Each board may also bow or twist a little." },
+  { id: "free", title: "Every corner may move",
+    text: "Only for a target you do not trust at all. It can hide a lens error inside the target, so set a limit below." },
+  { id: "off", title: "Do not adjust the target",
+    text: "The boards stay where the first rough estimate put them. For comparing with older results." },
 ];
 
 const US = [-1, -0.5, 0, 0.5, 1];
@@ -92,35 +92,34 @@ function BoardPicture({ mode, t }: { mode: ShapeMode; t: number }) {
 }
 
 /** `structure_mode`: what may move in the target while the cameras are solved. */
-export function TargetShape({ value, fallback, boards, onChange }: {
-  value: string | undefined; fallback: string; boards: number; onChange: (v: string) => void;
+export function TargetShape({ value, fallback, onChange }: {
+  value: string | undefined; fallback: string; onChange: (v: string) => void;
 }) {
   const t = usePhase();
+  const [hover, setHover] = useState<string | null>(null);
   const current = (value ?? fallback) as ShapeMode;
   return (
     <div className="grid gap-3">
-      <div role="radiogroup" aria-label="What may move in the target" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div role="radiogroup" aria-label="What may move in the target" className="grid gap-3 sm:grid-cols-2">
         {SHAPES.map((s) => {
           const on = current === s.id;
           return (
             <button key={s.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(s.id)}
-              className={`text-left rounded-lg border p-3 grid gap-2 content-start ${on ? "border-s-accent bg-s-accent/5 ring-1 ring-s-accent" : "border-s-line bg-s-surface hover:bg-s-sunken"}`}>
-              <BoardPicture mode={s.id} t={t} />
-              <span className="text-sm font-semibold flex flex-wrap items-baseline gap-x-2">
-                {s.title}
-                {s.id === fallback && <span className="text-xs font-normal text-s-faint">default</span>}
+              onPointerEnter={() => setHover(s.id)} onPointerLeave={() => setHover(null)}
+              className={`text-left rounded-xl border-2 p-4 grid grid-cols-[150px_minmax(0,1fr)] gap-4 items-center cursor-pointer transition ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:border-s-field-line"}`}>
+              <BoardPicture mode={s.id} t={on || hover === s.id ? t : 1.1} />
+              <span className="grid gap-1">
+                <span className="text-base font-semibold flex flex-wrap items-baseline gap-x-2">
+                  {s.title}
+                  {s.id === fallback && <span className="text-[13px] font-medium text-s-muted">usual choice</span>}
+                </span>
+                <span className="text-[15px] text-s-muted leading-relaxed">{s.text}</span>
               </span>
-              <span className="text-xs text-s-muted leading-relaxed">{s.text}</span>
             </button>
           );
         })}
       </div>
-      <p className="text-xs text-s-muted leading-relaxed">
-        The dashed outline is the board as printed; the solid one is what this choice lets the calibration move, enlarged.
-        {boards <= 1
-          ? <b className="text-s-text font-medium"> Your target is one board. These choices act only on a target of several boards fixed together, so nothing changes for this calibration.</b>
-          : ` Your target is ${boards} boards fixed together, so this choice takes effect.`}
-      </p>
+      <p className="text-[15px] text-s-muted leading-relaxed">The dashed outline is a board as printed. The solid one shows, enlarged, what this choice allows to move.</p>
     </div>
   );
 }
@@ -131,7 +130,7 @@ export function TargetShape({ value, fallback, boards, onChange }: {
 const BAND_SIGMAS = 3.03;
 const R_MIN = 0.01;
 const R_MAX = 30;
-const PLOT_R = 118;
+const PLOT_R = 136;
 
 /** Radius on the plot of an error of `px` pixels: logarithmic, 0.01 px at the centre. */
 const plotR = (px: number) => PLOT_R * Math.log10(Math.min(Math.max(px, R_MIN), R_MAX) / R_MIN) / Math.log10(R_MAX / R_MIN);
@@ -165,8 +164,8 @@ function countBeyond(s: ErrorSpread, px: number): number {
 
 const px = (v: number) => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2));
 
-/** `noise_bound`: how far a corner may lie from the fit before it is ignored. */
-export function NoiseBand({ value, fallback, refRun, onChange }: {
+/** `noise_bound`, shown as what it does: the distance beyond which a corner is ignored. */
+export function OutlierBand({ value, fallback, refRun, onChange }: {
   value: number | undefined; fallback: number; refRun: { id: string; name: string } | null;
   onChange: (v: number | "") => void;
 }) {
@@ -184,119 +183,71 @@ export function NoiseBand({ value, fallback, refRun, onChange }: {
   const off = !(nb > 0);
   const band = BAND_SIGMAS * nb;
   const pts = spread ?? example;
-  const beyond = spread && !off ? countBeyond(spread, band) : null;
-  const share = spread && beyond != null ? beyond / spread.n : null;
-  const exampleOut = off ? 0 : example.dx.filter((x, k) => Math.hypot(x, example.dy[k]) > band).length;
-  const C = 132;
+  const beyond = off ? 0 : spread ? countBeyond(spread, band) : example.dx.filter((x, k) => Math.hypot(x, example.dy[k]) > band).length;
+  const total = spread ? spread.n : example.dx.length;
+  const share = beyond / total;
+  const C = 150;
 
   return (
-    <div className="grid gap-4 md:grid-cols-[264px_minmax(0,1fr)] items-start">
-      <svg viewBox="0 0 264 264" className="w-full max-w-[264px] h-auto justify-self-center rounded-lg bg-s-sunken text-s-text" role="img"
-        aria-label={off ? "Every corner counts" : `Corners further than ${px(band)} pixels from the fit are ignored`}>
-        {[0.1, 1, 10].map((r) => (
-          <circle key={r} cx={C} cy={C} r={plotR(r)} fill="none" stroke="currentColor" strokeOpacity="0.16" strokeWidth="1" />
-        ))}
-        {!off && <circle cx={C} cy={C} r={plotR(band)} fill="#f59e0b" fillOpacity="0.10" stroke="#d97706" strokeWidth="2" />}
-        {pts.dx.map((x, k) => {
-          const y = pts.dy[k];
-          const r = Math.hypot(x, y);
-          const s = r > 0 ? plotR(r) / r : 0;
-          const out = !off && r > band;
-          return <circle key={k} cx={C + x * s} cy={C + y * s} r={out ? 3.2 : 2.1}
-            fill={out ? "none" : "#0ea5e9"} fillOpacity={out ? 1 : 0.7} stroke={out ? "#dc2626" : "none"} strokeWidth="1.6" />;
-        })}
-        <path d={`M${C - 5} ${C}H${C + 5}M${C} ${C - 5}V${C + 5}`} stroke="currentColor" strokeWidth="1.2" />
-        {[0.1, 1, 10].map((r) => (
-          <text key={r} x={C} y={C - plotR(r) - 3} fontSize="10" textAnchor="middle" fill="currentColor" fillOpacity="0.7"
-            stroke="var(--s-sunken)" strokeWidth="3" paintOrder="stroke">{r} px</text>
-        ))}
-        {!off && <text x={C} y={Math.min(256, C + plotR(band) + 13)} fontSize="11" fontWeight="600" textAnchor="middle" fill="#b45309">ignored beyond {px(band)} px</text>}
-      </svg>
+    <div className="grid gap-5 md:grid-cols-[300px_minmax(0,1fr)] items-start">
+      <figure className="grid gap-2 justify-self-center w-full max-w-[300px]">
+        <svg viewBox="0 0 300 300" className="w-full h-auto rounded-xl bg-s-sunken text-s-text" role="img"
+          aria-label={off ? "No corner is ignored" : `Corners further than ${px(band)} pixels from where they are expected are ignored`}>
+          {[0.1, 1, 10].map((r) => (
+            <circle key={r} cx={C} cy={C} r={plotR(r)} fill="none" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1" />
+          ))}
+          {!off && <circle cx={C} cy={C} r={plotR(band)} fill="#10b981" fillOpacity="0.10" stroke="#059669" strokeWidth="2.5" />}
+          {pts.dx.map((x, k) => {
+            const y = pts.dy[k];
+            const r = Math.hypot(x, y);
+            const s = r > 0 ? plotR(r) / r : 0;
+            const out = !off && r > band;
+            return out
+              ? <path key={k} d={`M${C + x * s - 4} ${C + y * s - 4}l8 8m0 -8l-8 8`} stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" />
+              : <circle key={k} cx={C + x * s} cy={C + y * s} r="2.4" fill="#0ea5e9" fillOpacity="0.75" />;
+          })}
+          <path d={`M${C - 6} ${C}H${C + 6}M${C} ${C - 6}V${C + 6}`} stroke="currentColor" strokeWidth="1.5" />
+          {!off && <text x={C} y={Math.min(292, C + plotR(band) + 15)} fontSize="13" fontWeight="700" textAnchor="middle" fill="#047857"
+            stroke="var(--s-sunken)" strokeWidth="3.5" paintOrder="stroke">your limit: {px(band)} px</text>}
+          {[0.1, 1, 10].map((r) => (
+            <text key={r} x={C} y={C - plotR(r) - 4} fontSize="12" textAnchor="middle" fill="currentColor" fillOpacity="0.75"
+              stroke="var(--s-sunken)" strokeWidth="3.5" paintOrder="stroke">{r} px</text>
+          ))}
+        </svg>
+        <figcaption className="text-[14px] text-s-muted leading-relaxed">
+          <span className="inline-flex items-center gap-1.5 mr-3"><span className="size-2.5 rounded-full bg-sky-500" />a corner that is used</span>
+          <span className="inline-flex items-center gap-1.5 mr-3"><span className="text-red-600 font-bold leading-none">×</span>a corner that is ignored</span>
+          <span className="block mt-1">The centre is where the calibration expects a corner. Each dot is one {spread ? `corner of ${refRun?.name}` : "corner of an example capture"}, drawn as far from the centre as it was found from that place.</span>
+        </figcaption>
+      </figure>
 
-      <div className="grid gap-3 text-sm">
-        <p className="leading-relaxed">
-          {off
-            ? <>Every corner counts. Corners far from where the calibration expects them get less weight but are never ignored.</>
-            : <>A corner more than <b>{px(band)} px</b> from where the calibration expects it is treated as a mistake and <b>ignored</b>.</>}
-          {" "}
-          {spread && beyond != null && share != null && (
-            <>In <b>{refRun?.name}</b> that is <b>{beyond === 0 ? "none" : `about ${beyond.toLocaleString()}`} of its {spread.n.toLocaleString()} corners</b>
-              {beyond > 0 ? ` (${share < 0.001 ? "under 0.1" : (100 * share).toFixed(share < 0.1 ? 1 : 0)}%)` : ""}.</>
-          )}
-          {!spread && !off && <>In this example capture that is {exampleOut} of {example.dx.length} corners.</>}
-        </p>
-        <div className="grid gap-1.5">
-          <label htmlFor="noise_bound" className="text-xs font-medium text-s-muted">
-            Expected corner noise: <b className="text-s-text tnum">{off ? "off" : `${px(nb)} px`}</b>
-            <span className="font-normal"> · the band is {BAND_SIGMAS} times this</span>
-          </label>
-          <input id="noise_bound" type="range" min={-1.3} max={0.7} step={0.01} disabled={off}
-            value={off ? Math.log10(fallback) : Math.log10(nb)} className="w-full accent-s-accent"
-            aria-valuetext={off ? "off" : `${px(nb)} pixels`}
-            onChange={(e) => onChange(Number((10 ** Number(e.target.value)).toPrecision(3)))} />
-          <div className="flex justify-between text-[11px] text-s-faint tnum"><span>0.05 px · strict</span><span>1 px</span><span>5 px · lenient</span></div>
+      <div className="grid gap-4">
+        <div className="grid gap-2">
+          <label htmlFor="noise_bound" className="text-base font-semibold">Ignore a corner when it is further off than</label>
+          <div className="flex items-baseline gap-2">
+            <output htmlFor="noise_bound" className="text-3xl font-bold tnum text-s-accent">{off ? "never" : px(band)}</output>
+            {!off && <span className="text-base text-s-muted">pixels</span>}
+          </div>
+          <input id="noise_bound" type="range" min={-0.7} max={1.2} step={0.01} disabled={off}
+            value={Math.log10(off ? BAND_SIGMAS * fallback : band)} className="w-full h-2 accent-s-accent cursor-pointer disabled:cursor-not-allowed"
+            aria-valuetext={off ? "never" : `${px(band)} pixels`}
+            onChange={(e) => onChange(Number((10 ** Number(e.target.value) / BAND_SIGMAS).toPrecision(3)))} />
+          <div className="flex justify-between text-[13px] text-s-faint"><span>0.2 px · strict</span><span>3 px · usual</span><span>16 px · lenient</span></div>
         </div>
-        <label className="flex items-start gap-2 text-sm cursor-pointer">
-          <input type="checkbox" className="mt-1 accent-s-accent" checked={off} onChange={(e) => onChange(e.target.checked ? 0 : "")} />
-          <span>Never ignore a corner<span className="block text-xs text-s-muted">Writes 0, which switches the band off.</span></span>
+
+        <div className={`rounded-lg p-3.5 text-[15px] leading-relaxed ${share > 0.25 ? "bg-s-warn-soft" : "bg-s-info-soft"}`} role="status">
+          {off ? <>No corner is ignored. Corners far off still count, only with less weight.</>
+            : spread
+              ? <>In your result <b>{refRun?.name}</b>, the corner furthest off was <b>{px(spread.max_px ?? 0)} px</b> away. With this setting <b>{beyond === 0 ? "no corner" : `about ${beyond.toLocaleString()} of its ${total.toLocaleString()} corners`}</b> would be ignored{beyond > 0 ? ` (${share < 0.001 ? "under 0.1" : (100 * share).toFixed(share < 0.1 ? 1 : 0)}%)` : ""}.</>
+              : <>In this example capture, {beyond} of {total} corners would be ignored. Once these photos have a result, this picture shows your own corners.</>}
+          {share > 0.25 && <b className="block mt-1 text-s-warn">That is too strict here: a camera that loses more than a quarter of its corners fails the coverage check.</b>}
+        </div>
+
+        <label className="flex items-start gap-2.5 text-base cursor-pointer">
+          <input type="checkbox" className="mt-1 size-4 accent-s-accent" checked={off} onChange={(e) => onChange(e.target.checked ? 0 : "")} />
+          <span>Never ignore a corner</span>
         </label>
-        {share != null && share > 0.25 && (
-          <p className="text-xs text-s-warn leading-relaxed" role="status">
-            This is strict for that capture. A camera with fewer than 75% of its corners inside the band fails the coverage check.
-          </p>
-        )}
-        <p className="text-xs text-s-muted leading-relaxed">
-          {spread
-            ? <>Each dot is one corner of {refRun?.name}: its distance from the centre is its error, on a scale that widens near the centre (rings at 0.1, 1 and 10 px). {spread.n > pts.dx.length ? `${pts.dx.length} corners are drawn, the worst always among them. ` : ""}The count is of that calibration; a different band changes the fit a little.</>
-            : <>Each dot is one corner of an example capture: its distance from the centre is its error, on a scale that widens near the centre (rings at 0.1, 1 and 10 px). Once these photos have a result, the dots are your own corners.</>}
-          {" "}This value is also the limit of the lens check unless you set <span className="font-studio-mono">max_lens_sigma_px</span>.
-        </p>
       </div>
-    </div>
-  );
-}
-
-// -- checks ------------------------------------------------------------------------------------
-
-const GATE: Record<string, [string, string]> = {
-  off: ["Skip", "Not checked."],
-  warn: ["Warn", "The result is written, with a warning when this check fails."],
-  refuse: ["Refuse", "No result is written when this check fails."],
-};
-
-/** A check that can be skipped, warn, or refuse the result. */
-export function GateChoice({ id, value, fallback, options, onChange }: {
-  id: string; value: string | undefined; fallback: string; options: string[]; onChange: (v: string) => void;
-}) {
-  const current = value ?? fallback;
-  return (
-    <div className="grid gap-1.5">
-      <div role="radiogroup" aria-labelledby={`${id}-label`} className="inline-grid grid-flow-col auto-cols-fr rounded-md border border-s-line overflow-hidden w-full max-w-xs">
-        {options.map((o) => {
-          const on = current === o;
-          return (
-            <button key={o} type="button" role="radio" aria-checked={on} onClick={() => onChange(o)}
-              className={`min-h-10 px-3 text-sm border-l first:border-l-0 border-s-line ${on ? `font-semibold shadow-[inset_0_0_0_2px_currentColor] ${o === "refuse" ? "bg-s-bad-soft text-s-bad" : o === "warn" ? "bg-s-warn-soft text-s-warn" : "bg-s-sunken text-s-text"}` : "bg-s-surface text-s-muted hover:bg-s-sunken"}`}>
-              {GATE[o]?.[0] ?? o}
-            </button>
-          );
-        })}
-      </div>
-      <span className="text-xs text-s-muted">{GATE[current]?.[1]}{value === undefined ? " This is the default." : ""}</span>
-    </div>
-  );
-}
-
-/** A share between 0 and 1, set as a percentage. */
-export function ShareSlider({ id, value, fallback, words, onChange }: {
-  id: string; value: number | undefined; fallback: number; words: (pct: number) => string; onChange: (v: number) => void;
-}) {
-  const v = value ?? fallback;
-  return (
-    <div className="grid gap-1">
-      <input id={id} type="range" min={0} max={1} step={0.01} value={v} className="w-full accent-s-accent"
-        aria-valuetext={`${Math.round(v * 100)} percent`} onChange={(e) => onChange(Number(e.target.value))} />
-      <span className="text-xs text-s-text">{words(Math.round(v * 100))}</span>
     </div>
   );
 }

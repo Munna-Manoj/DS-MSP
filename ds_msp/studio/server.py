@@ -402,6 +402,26 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, f"this board cannot be built: {exc}") from None
 
+    @app.post("/api/photos/find-board")
+    def photos_find_board(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Work out the number of squares of the board from the markers in a few photos."""
+        from .photos import find_board
+        values = _values_with_photos(body)
+        try:
+            return find_board(values["root_path"], values)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(400, f"could not look for the board: {exc}") from None
+
+    @app.get("/api/photos/thumb")
+    def photos_thumb(path: str = Query(...), cam: int = Query(..., ge=0),
+                     photo: int = Query(0, ge=0), prefix: Optional[str] = Query(None)) -> Response:
+        """One photo of one camera, scaled down, for the setup page."""
+        from .photos import thumbnail
+        data = thumbnail(str(_inside(path)), cam, photo, prefix)
+        if data is None:
+            raise HTTPException(404, "no such photo")
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=600"})
+
     def _values_with_photos(body: Dict[str, Any]) -> Dict[str, Any]:
         values, _problems = configio.check_values(dict(body.get("values") or {}))
         values["root_path"] = str(_inside(str(values.get("root_path") or "")))

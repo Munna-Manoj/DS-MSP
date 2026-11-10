@@ -194,3 +194,94 @@ def test_read_only_studio_has_no_setup_or_runs(tmp_path):
     assert c.get("/api/jobs").json() == []
     r = c.post("/api/jobs", json={"name": "x", "values": {}}, headers=SEND)
     assert r.status_code == 403 and "read-only" in r.json()["detail"]
+
+
+def _board_photo(n_x, n_y, *, offset=0, size=(960, 720), bend=0.0, seed=0):
+    """A photo of an ``n_x`` by ``n_y`` ChArUco board: tilted, and with ``bend`` > 0 pulled
+    through a strong barrel distortion like a fisheye lens."""
+    import cv2
+    import numpy as np
+
+    from ds_msp.detect.charuco import _DICT, BoardSpec, _make_board
+
+    board = _make_board(BoardSpec(n_x, n_y, 0.04, 0.03, 1.0), cv2.aruco.getPredefinedDictionary(_DICT),
+                        offset, True)
+    cell = 60
+    flat = board.generateImage((n_x * cell, n_y * cell), marginSize=0)
+    w, h = size
+    rng = np.random.default_rng(seed)
+    scale = 0.62 * min(w / flat.shape[1], h / flat.shape[0])
+    bw, bh = flat.shape[1] * scale, flat.shape[0] * scale
+    x0, y0 = (w - bw) / 2, (h - bh) / 2
+    dst = (np.array([[x0, y0], [x0 + bw, y0], [x0 + bw, y0 + bh], [x0, y0 + bh]])
+           + rng.uniform(-0.08, 0.08, (4, 2)) * [bw, bh]).astype(np.float32)
+    src = np.float32([[0, 0], [flat.shape[1], 0], [flat.shape[1], flat.shape[0]], [0, flat.shape[0]]])
+    img = cv2.warpPerspective(flat, cv2.getPerspectiveTransform(src, dst), (w, h), borderValue=255)
+    if bend:
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        u, v = (xx - w / 2) / (w / 2), (yy - h / 2) / (w / 2)
+        k = 1 + bend * (u * u + v * v)
+        img = cv2.remap(img, u * k * (w / 2) + w / 2, v * k * (w / 2) + h / 2, cv2.INTER_LINEAR, borderValue=255)
+    return img
+
+
+@pytest.mark.req("FR-UI-014")
+@pytest.mark.parametrize("n_x,n_y,bend", [(6, 5, 0.0), (5, 5, 0.0), (5, 7, 0.0), (9, 6, 0.0),
+                                          (4, 3, 0.0), (12, 8, 0.0), (7, 5, 0.45), (6, 9, 0.45)])
+def test_board_size_is_read_from_the_markers(tmp_path, n_x, n_y, bend):
+    import cv2
+
+    from ds_msp.studio.photos import find_board
+
+    cam = tmp_path / "Cam_001"
+    cam.mkdir()
+    for k in range(3):
+        cv2.imwrite(str(cam / f"{k:04d}.png"), _board_photo(n_x, n_y, bend=bend, seed=k))
+    out = find_board(str(tmp_path), {"number_camera": 1})
+    assert out["ok"] and (out["number_x_square"], out["number_y_square"]) == (n_x, n_y), out
+
+
+@pytest.mark.req("FR-UI-014")
+def test_board_size_is_not_guessed_without_enough_of_the_board(tmp_path):
+    import cv2
+    import numpy as np
+
+    from ds_msp.studio.photos import find_board
+
+    cam = tmp_path / "Cam_001"
+    cam.mkdir()
+    cv2.imwrite(str(cam / "0000.png"), np.full((480, 640), 200, np.uint8))
+    blank = find_board(str(tmp_path), {"number_camera": 1})
+    assert not blank["ok"] and "No board markers" in blank["message"]
+    # only the top rows in view: the last markers are never seen, so the size is not settled
+    img = _board_photo(6, 8)
+    img[330:] = 255
+    cv2.imwrite(str(cam / "0000.png"), img)
+    part = find_board(str(tmp_path), {"number_camera": 1})
+    assert not part["ok"] or (part["number_x_square"], part["number_y_square"]) == (6, 8), part
+
+
+@pytest.mark.req("FR-UI-014")
+def test_board_check_returns_the_corners_and_thumbnails_stay_inside(tmp_path):
+    import cv2
+
+    from ds_msp.studio.photos import check_board, thumbnail
+
+    cam = tmp_path / "Cam_001"
+    cam.mkdir()
+    for k in range(2):
+        cv2.imwrite(str(cam / f"{k:04d}.png"), _board_photo(6, 5, size=(1600, 1200), seed=k))
+    doc = check_board(str(tmp_path), {"number_camera": 1, "number_x_square": 6, "number_y_square": 5})
+    sample = doc["cameras"][0]["sample"]
+    assert sample["width"] == 1600 and len(sample["corners"]) == 20 and sample["photo"] in (0, 1)
+    assert all(0 <= u < 1600 and 0 <= v < 1200 for u, v in sample["corners"])
+    jpg = thumbnail(str(tmp_path), 0, sample["photo"])
+    small = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert small.shape == (480, 640)
+    assert thumbnail(str(tmp_path), 0, 9) is None and thumbnail(str(tmp_path), 4, 0) is None
+    c = TestClient(create_app([str(tmp_path)]))
+    assert c.get("/api/photos/thumb", params={"path": str(tmp_path), "cam": 0}).headers["content-type"] == "image/jpeg"
+    assert c.get("/api/photos/thumb", params={"path": "/etc", "cam": 0}).status_code == 400
+    found = c.post("/api/photos/find-board", json={"values": {"root_path": str(tmp_path), "number_camera": 1}},
+                   headers={"x-dsmsp-studio": "1"}).json()
+    assert found["ok"] and found["number_x_square"] == 6

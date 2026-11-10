@@ -165,7 +165,12 @@ GROUPS = [
 
 
 def config_schema() -> Dict[str, Any]:
-    """The JSON Schema (draft 2020-12) of ``calib_param.yml``, with form hints."""
+    """The JSON Schema (draft 2020-12) of ``calib_param.yml``, with form hints.
+
+    ``x-profiles`` gives, per ``profile`` value, the defaults that profile uses in place of the
+    ``default`` of each property, so a form can show what an untouched key will do."""
+    from .calib_param import _PRODUCTION
+
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": f"{SCHEMA_ID}/v{SCHEMA_VERSION}",
@@ -174,5 +179,6 @@ def config_schema() -> Dict[str, Any]:
         "required": ["number_camera"],
         "properties": {k: dict(v) for k, v in PROPERTIES.items()},
         "x-groups": [dict(g) for g in GROUPS],
+        "x-profiles": {"production": dict(_PRODUCTION)},
         "x-schema-version": SCHEMA_VERSION,
     }

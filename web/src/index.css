@@ -56,17 +56,21 @@
   --color-s-bad-soft: var(--s-bad-soft);
   --color-s-ok: var(--s-ok);
   --color-s-ok-soft: var(--s-ok-soft);
+  --color-s-field: var(--s-field);
+  --color-s-field-line: var(--s-field-line);
+  --color-s-info: var(--s-info);
+  --color-s-info-soft: var(--s-info-soft);
   --font-studio: "Figtree", "Inter", system-ui, sans-serif;
   --font-studio-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 :root {
-  --s-bg: #f8fafc;
+  --s-bg: #eef1f6;
   --s-surface: #ffffff;
   --s-sunken: #f1f3f5;
   --s-line: #e5e7eb;
   --s-text: #111827;
-  --s-muted: #4b5563;
+  --s-muted: #475467;
   --s-faint: #6b7280;
   --s-accent: #0369a1;
   --s-accent-soft: #e0f2fe;
@@ -77,6 +81,12 @@
   --s-ok: #047857;
   --s-ok-soft: #d1fae5;
   --s-viewport: #0b1120;
+  /* A box the user fills is white with a firm outline; nothing else on a page looks like it. */
+  --s-field: #ffffff;
+  --s-field-line: #8792a5;
+  /* What Studio worked out by itself, as opposed to what the user entered. */
+  --s-info: #4338ca;
+  --s-info-soft: #eef0ff;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -95,6 +105,10 @@
     --s-bad-soft: #3b1515;
     --s-ok: #34d399;
     --s-ok-soft: #0b2e24;
+    --s-field: #0b1220;
+    --s-field-line: #55627a;
+    --s-info: #a5b4fc;
+    --s-info-soft: #1b1f47;
   }
 }
 :root[data-theme="dark"] {
@@ -113,6 +127,10 @@
   --s-bad-soft: #3b1515;
   --s-ok: #34d399;
   --s-ok-soft: #0b2e24;
+  --s-field: #0b1220;
+  --s-field-line: #55627a;
+  --s-info: #a5b4fc;
+  --s-info-soft: #1b1f47;
 }
 .studio-root {
   background: var(--s-bg);
