@@ -99,6 +99,25 @@ Suggesting where to hold the board is not part of this; it is planned separately
 
 ## Update 2026-11-11: a tracked, one-step-at-a-time setup
 
-A colleague's review found the setup page had too much on it at the start and did not show progress. The page now asks only how to start, then shows one step at a time beside a tracker. Steps stay mounted while hidden, so what was typed in one is kept. A step left at its default, such as lens types nobody measured, is shown as the usual choice, not as done, because no one has confirmed it.
+The setup page had too much on it at the start and did not show progress. It now asks only how to start, then shows one step at a time beside a tracker.
 
-The review also found the left edge of every box darker than the others. Tailwind reads `border-s-line` both as a Studio colour and as the inline-start border in the Learn palette's `line`. Studio borders now use `border-s-rule` and `border-s-strong`, and a test rejects the clash.
+Steps stay mounted while hidden, so what was typed in one is kept. A step left at its default, such as lens types nobody measured, is shown as the usual choice, not as done.
+
+Every box now has the same border on all four sides. Tailwind also reads `border-s-<colour>` as the inline-start border, so Studio borders use `border-s-rule` and `border-s-strong`; a test guards the class names.
+
+## Update 2026-11-11: checked in a real browser before release
+
+The installed package was driven through the page in Chrome on the seven MC-Calib real sequences
+and six rendered 25-camera rigs. All 13 finished, and a second run and the terminal run of
+Studio's `calib_param.yml` were byte-identical to the first. That run found two faults, now fixed:
+
+- A single board could not be given its printed number. Three MC-Calib sequences use board 12
+  or 13, so no board was found.
+- Without WebGL, the 3D view failed and blanked the whole result page. A render guard now
+  contains a failing view, and one at the top of the app replaces a blank page with the error.
+
+One limitation remains. **Measure my lenses** picks *Fisheye* (Kannala-Brandt) for every lens at 100° or
+wider. On the rendered rigs that cost up to 10 mm against 0.43 mm with the true types, while the
+page reported every camera ready. The guides warn about it; changing the rule is left to a later
+change, because the threshold must hold for any field of view.
+

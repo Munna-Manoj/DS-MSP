@@ -150,6 +150,11 @@ A result on its own capture (FR-UI-009):
   it lies under a root.
 - `GET /api/run/pair?id=&a=&b=`: distance, position and yaw, pitch, roll of camera `b` seen
   from `a`, with the recorded 1-sigma.
+- `GET /api/run/precision?id=&rotation=&centre=`: the gap between the result's camera-pair
+  uncertainty and the limits (FR-UI-022): `ok`, `limits` and `from_run`, `n_pairs`, `n_over`,
+  `n_undetermined`, the worst pairs first in `rows` (at most 12), `worst_rotation`,
+  `worst_centre`, and `frames_needed` and `times`, the frames of the same kind needed. A limit
+  not given falls back to the run's own.
 - `GET /api/run/task?id=&a=&b=&distance=&pixel_noise=`: 1-sigma uncertainty, sideways and in
   depth, of a point the two cameras triangulate, and the same over a range of distances.
 
@@ -182,6 +187,8 @@ Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read
   folder and the whole computer. `anywhere` says whether folders outside the roots can be opened
   (`ref` `abs:<full path>`): true when Studio is bound to this computer, not read-only and not
   started with `--only-roots`. A generated token then guards every request.
+  A subfolder this account may not open is listed with `locked: true`. Any request for a path
+  this account may not read answers 403 with that path, not 500.
 - `POST /api/roots/add` `{path}`: serves one more folder for the session (only when `anywhere`):
   its results are listed and new results can be saved in it. Returns `index` and `path`.
 - `POST /api/photos/scan` `{root_path, cam_prefix?, frame_pattern?}`: the cameras found in the

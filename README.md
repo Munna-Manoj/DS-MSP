@@ -271,10 +271,45 @@ view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 - **Next steps:** at most three actions, worst first, each naming its cameras.
 - **Evidence per camera:** whether the errors follow a pattern, which parts of the image the lens
   can be trusted in, the worst photos, and the board flatness.
+- **Precision gap:** how far the weakest camera pair is from the angle and position you need, and
+  roughly how many more photos of the same kind would close it.
 
-Studio also sets up and runs a calibration: choose the photo folder, describe the board, pick
-the lens types and start. It writes the `calib_param.yml` it used, so the same run repeats from a
-terminal. → [Calibrate a rig in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/calibrate_a_rig_in_studio.md)
+### Calibrate a rig in DS-MSP Studio
+
+Studio also sets up and runs a calibration, with no config file to write. Start it with no
+arguments and it opens in your browser:
+
+```bash
+pip install "ds-msp[ui]"
+ds-msp studio
+```
+
+```text
+DS-MSP Studio: http://127.0.0.1:8765/?token=...
+Press Ctrl+C to stop.
+```
+
+Choose what you have (photos, a settings file, saved corners or an earlier result). A tracker then
+walks you through six steps and counts the required ones left:
+
+| Step | What you give | What Studio checks before anything runs |
+|---|---|---|
+| 1. Photos | The folder with one subfolder per camera | Folders named another way are matched to cameras on cards; nothing is renamed |
+| 2. Board | Squares across and down, size of one square | Reads the squares from the markers and marks every corner it finds |
+| 3. Lenses | Lens type per camera; values worked out, from a file, or typed in | Fits each type and each given lens to the photos |
+| 4. Doubtful results | Warn, or refuse unless every check passes | Strict checking needs your own lens values and precision limits |
+| 5. More settings | Optional | Each setting says why it exists and when to change it |
+| 6. Name and start | A name | Lists anything still missing, each item linked to its step |
+
+Studio writes the `calib_param.yml` it used next to the result. On the seven MC-Calib real
+sequences and six rendered 25-camera rigs, running that file with `ds-msp-calibrate-rig` gave a
+byte-identical result, and so did a second run from Studio.
+
+> **Warning:** **Measure my lenses** picks *Fisheye* for every lens it measures at 100° or wider.
+> On rendered rigs with standard, EUCM and UCM lenses, keeping those picks moved the worst camera
+> by up to 10 mm, against 0.43 mm with the true types. Set the type yourself when you know it.
+
+→ [Calibrate a rig in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/calibrate_a_rig_in_studio.md)
 
 Studio listens on `127.0.0.1` only; to view results on another computer, forward the port over SSH.
 → [View rig results in DS-MSP Studio](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/view_rig_results_in_studio.md)

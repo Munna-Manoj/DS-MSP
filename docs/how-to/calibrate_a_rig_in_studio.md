@@ -20,23 +20,25 @@ my_rig/
     Cam_002/0000.png 0001.png ...
 ```
 
-## Start Studio on the folder that holds the photos
+## Start Studio
 
 ```bash
-ds-msp studio --root path/to/my_rig
+ds-msp studio
 ```
 
 ```text
-DS-MSP Studio: http://127.0.0.1:8765/
+DS-MSP Studio: http://127.0.0.1:8765/?token=...
 Press Ctrl+C to stop.
 ```
 
-Studio can read any folder on the computer it runs on, so you can choose your photos wherever
-they are there. If you reach Studio from another device, its file choosers still show the computer
-running Studio, not that device.
-Use the link it prints, which holds an access key. With `--only-roots` it reads only inside the
-folders given with `--root`. Results are saved only inside those folders, or one you choose under
-**Save somewhere else**, each in its own folder.
+Studio opens the link in your browser. The link holds an access key, so use it as printed.
+
+- **Where it looks.** Studio can read any folder on the computer it runs on. If you reach it
+  from another device, its file choosers still show the computer running Studio.
+- **Where results go.** New results are saved in the folder you started Studio from, each in its
+  own folder. `--root DIR` changes that folder, and **Save somewhere else** on the last step picks
+  another one.
+- **Reading less.** With `--only-roots`, Studio reads only inside the folders given with `--root`.
 
 ## Set up the calibration
 
@@ -49,9 +51,14 @@ it.
 | You have | Use it when | What Studio does |
 |---|---|---|
 | **My photos** | You have a new capture | Reads the cameras and frames from the folder |
-| **A settings file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in the page from it. **Choose a file where Studio runs** is best: Studio can then find the photos and lens file the settings point to. **Upload a copy from this device**, or dropping the file on the page, is for a file only on the device you are using; Studio gets only its text, so you choose again any path it cannot find |
+| **A settings file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in the steps from it |
 | **Corners found earlier** | An earlier run wrote `detected_keypoints_data.yml` | Uses those corners; the photos are not read again |
 | **A finished result** | You want the same calibration again, or one change | Offers **Repeat exactly** and **Change something first** per result |
+
+For a settings file, **Choose a file where Studio runs** is best: Studio can then find the photos
+and lens file the settings point to. **Upload a copy from this device**, or dropping the file on
+the page, is for a file only on the device you are using. Studio then gets only its text, so you
+choose again any path it cannot find.
 
 On the page, a white box with a firm outline is something you fill in, grey text explains, and a
 tinted panel with a mark is something Studio worked out.
@@ -61,35 +68,48 @@ The steps below describe starting from photos.
 1. **Your photos.** Choose the folder that holds the camera folders (`Images` above). Studio
    shows one photo of each camera, the photo count, and the number of moments seen by two or
    more cameras. A folder layout or file naming it cannot use is named here, before anything
-   runs. If your folders are not named `Cam_001`, `Cam_002` and so on, each appears as a card
-   with one of its photos and the name it will go by. Set the order, because lens values go
-   with the camera numbers, mark any folder that is not a camera, and choose **Use these
-   cameras**. Your folders are not renamed: Studio links them under the new names. After you
-   choose this folder, every other file chooser on the page opens there, and you can still
+   runs.
+
+   If your folders are not named `Cam_001`, `Cam_002` and so on, each appears as a card with one
+   of its photos and the name it will go by. Set the order, because lens values go with the
+   camera numbers. Mark any folder that is not a camera, then choose **Use these N cameras** (N is your camera count).
+   Studio links your folders under the new names and does not rename them.
+
+   After you choose this folder, every other file chooser on the page opens there. You can still
    browse elsewhere.
-2. **Your calibration board.** Choose **Find the board in my photos**: Studio reads the markers
-   in about 48 photos and fills in the squares across and down. It does not guess: when no photo
-   shows a whole board, it says so and you count the squares yourself. Then enter the size of
-   one square and its unit; the drawing marks the square to measure. Studio looks for the board
-   in a few photos of each camera and draws every corner it finds on them.
-   The same button measures how wide a marker is against its square. Most boards are printed at
-   75 %. When your photos show another value, Studio says so under the button and offers to set
-   it; it changes nothing by itself. Under **My board was not printed with the usual settings**
-   a close-up drawing of one square shows both lengths: drag the slider until it looks like
-   your board, or type the width of one marker as measured with a ruler. A wrong value does not
-   stop the calibration: the corners are still found, but off their true place.
-   For a target of several boards, set how many are fixed together. If they differ, switch off
-   **All boards are printed the same** and each board gets its own row.
-   **Is your board really flat?** Choose *It may be slightly bowed* for a board on paper, foam
-   or thin plastic. Studio then also measures how much the board bows, and the result page
-   states it at the top. A board that bows by 2.6 mm and is treated as flat gave a focal length
-   4.7 % off in simulation; with this choice, 0.3 %. On a flat board it reports a bow of about
-   0.1 mm from corner noise alone. For several boards the same place offers four choices, from
-   stiff boards to every corner free.
+2. **Your calibration board.**
+   - **Squares.** Choose **Find the board in my photos**: Studio reads the markers in about 48
+     photos and fills in the squares across and down. When no photo shows a whole board, it says
+     so, and you count the squares yourself.
+   - **Size.** Enter the size of one square and its unit; the drawing marks the square to
+     measure. **Look for this board** then draws every corner it finds in a few photos per camera.
+   - **Marker size.** The same button measures a marker against its square; most boards are
+     printed at 75 %. Another value is offered, never set by itself. A wrong value still finds the
+     corners, but off their true place.
+   - **Set the marker size yourself** under **My board was not printed with the usual settings**:
+     drag the slider until the close-up looks like your board, or type one marker's width.
+   - **Several boards.** Set how many are fixed together. If they differ, switch off **All boards
+     are printed the same**, and each board gets its own row.
+   - **Board number.** Boards printed as one set are numbered 0, 1, 2 and so on. Give yours under
+     **My board was not printed with the usual settings**. Three of the seven MC-Calib sequences
+     use board 12 or 13; with the default number, no board is found.
+   - **Flatness.** Choose *It may be slightly bowed* for a board on paper, foam or thin plastic;
+     Studio then measures the bow. In simulation, a 2.6 mm bow treated as flat put the focal
+     length 4.7 % off; with this choice, 0.3 %. A flat board reports about 0.1 mm from corner
+     noise. Several boards get four choices, from stiff boards to every corner free.
 3. **Your cameras and their lenses.** Each camera has a card with one of its photos.
    **Measure my lenses** measures how wide each lens sees and sets its type: a standard lens
-   under 100° across, a fisheye above. You can change any card afterwards. Under **Where do the
-   lens values come from?** choose one of three:
+   under 100° across, *Fisheye* at 100° or wider. You can change any card afterwards.
+
+   /// warning | Set the lens type yourself when you know it
+   The measurement picks *Fisheye* for every lens at 100° or wider, including a standard lens
+   at exactly 100° and EUCM, UCM or Double Sphere lenses. On five rendered 25-camera rigs,
+   keeping those picks moved the worst camera by 1.3 to 10.0 mm, against 0.20 to 0.43 mm with
+   the true types. The result page still read 25 of 25 cameras ready, because the pixel error
+   stayed low.
+   ///
+
+   Under **Where do the lens values come from?** choose one of three:
    - **Work them out**: Studio computes them from these photos. Not available with strict
      checking, which keeps lens values exactly as you give them.
    - **From a lens file**: a file in the format of `calibrated_cameras_data.yml`, from MC-Calib
@@ -101,9 +121,11 @@ The steps below describe starting from photos.
    With a file or typed values, say whether Studio should improve them or keep them exactly as
    they are. Keeping them needs values for every camera.
 4. **What should happen with a doubtful result?** *Give it to me with warnings* always writes a
-   result and lists its warnings. *Refuse it* writes no result unless every check passes, and
-   needs the two limits below it: how precisely the angle and the position between two cameras
-   must be known.
+   result and lists its warnings. *Refuse it* writes no result unless every check passes.
+   It needs the two limits below it: how precisely the angle and the position between two
+   cameras must be known. The result page compares the result with those limits.
+5. **More settings.** Optional; see below.
+6. **Name and start.** Lists your choices, each linked to its step, and anything still missing.
 
 Studio checks what you entered against the photos before anything runs:
 
@@ -141,8 +163,9 @@ type. A setting you do not touch is left out of the config file, so the default 
   for example) are turned into the page's own choices.
 
 /// tip | Start from an existing config
-**Load a calib_param.yml** fills the form from a file, including MC-Calib's own. On a result
-page, **New calibration with these settings** starts from the settings of that run.
+**A settings file** on the first page fills every step from a `calib_param.yml`, including
+MC-Calib's own, and opens the first step that still needs something. On a result page,
+**Change settings and run again** starts from the settings of that run.
 ///
 
 ## Run it
@@ -181,7 +204,7 @@ Check the board description (number_x_square x number_y_square = 9 x 7 squares, 
 
 On the result page, select a photo that fits badly and choose **Leave this photo out next time**,
 then **Run again without them**. The setup opens with the settings of that result and the marked
-photos under **Left out of this calibration**; the × on an entry puts that photo back. When the
+photos under, for example, **2 photos are left out of this calibration**; the × on an entry puts that photo back. When the
 photos and the board are unchanged, Studio reuses the corners already found, so only the
 calibration itself runs again. The new result goes to its own folder.
 
@@ -225,7 +248,9 @@ The run page shows the command:
 ds-msp-calibrate-rig --config path/to/my_rig/my_first_run/calib_param.yml
 ```
 
-It reads the config Studio wrote and gives the same calibration.
+It reads the config Studio wrote and gives the same calibration. On the seven MC-Calib real
+sequences and six rendered 25-camera rigs, the terminal run wrote byte-identical camera, target
+and detection files.
 
 ## What Studio adds to a result folder
 
