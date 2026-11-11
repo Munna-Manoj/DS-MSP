@@ -159,6 +159,10 @@ type. A setting you do not touch is left out of the config file, so the default 
 - **Checks before you get a result** (the `*_gate` keys). Each check is a question with **Skip**,
   **Warn me** or **Refuse the result**. With *Refuse it* chosen in step 4 they show the stricter
   values that choice applies.
+- **Files for a device or a simulator** (`export_ldc`, `export_isaac_lut` and their settings).
+  Writes a TI LDC mesh and an Isaac Sim lens LUT for each camera into the result folder. The
+  result page then lists each mesh with its measured error, and marks one that must not be
+  used. See [Export LDC meshes and Isaac Sim LUTs](export_lens_files_in_studio.md).
 - Keys of a loaded config that this page shows another way (MC-Calib's `distortion_per_camera`,
   for example) are turned into the page's own choices.
 
@@ -262,6 +266,7 @@ and detection files.
 | `studio_progress.jsonl` | The progress log the run page follows |
 | `camera_lineup.json` | Which of your folders is which camera, if you set that on the page |
 | `entered_lens_values.yml` | The lens values you typed in, if you typed them |
+| `ldc/`, `isaac_lut/`, `exports.json` | The LDC meshes and Isaac LUTs, if you asked for them in **More settings** |
 
 ## View only
 

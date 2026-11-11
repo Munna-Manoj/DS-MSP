@@ -12,11 +12,11 @@
 | IFC-03 | Rig calibration | Python API | rig scenario → intrinsics + extrinsics + object poses | `ds_msp/rig` | FR-RIG-001 |
 | IFC-04 | Data containers | Python API | `Observation`, `BoardObs`, `Object3D`, `RigState`, `CalibDataset` | `ds_msp/data` | FR-CALIB-*, FR-RIG-001 |
 | IFC-05 | Model conversion / autoselect | Python API | convert params between any two models; pick best-fitting | `ds_msp/adapt` | FR-ADAPT-001..002 |
-| IFC-06 | Interop file formats | File I/O | Kalibr camchain YAML, COLMAP, nerfstudio `transforms.json`, MC-Calib | `ds_msp/io` | FR-IO-001..004 |
+| IFC-06 | Interop file formats | File I/O | Kalibr camchain YAML, COLMAP, nerfstudio `transforms.json`, MC-Calib; one reader that lists and loads the cameras of any of them | `ds_msp/io`, `ds_msp/io/camera_file.py` | FR-IO-001..005 |
 | IFC-07 | OpenCV-compatible API | Python API | drop-in `cv`-style calls for wide-FOV models | `ds_msp/cv.py` | FR-INTEROP-001 |
-| IFC-08 | TI Jacinto LDC export | File I/O | distortion-correction mesh for hardware rectification, from any `CameraModel` | `ds_msp/ldc.py` | FR-INTEROP-002 |
+| IFC-08 | TI Jacinto LDC export | File I/O + CLI | distortion-correction mesh for hardware rectification, from any `CameraModel`; mesh file and JSON record; `ds-msp ldc`, `ds-msp-ldc`, `ds-msp export` | `ds_msp/ldc.py`, `ds_msp/ldc_cli.py`, `ds_msp/exports.py`, `ds_msp/export_cli.py` | FR-INTEROP-002, FR-INTEROP-004, FR-INTEROP-005 |
 | IFC-09 | Model-agnostic pose operations | Python API | `solve_pnp`, recommended `solve_pnp_robust`, compatibility `solve_pnp_ransac` over any central `CameraModel` | `ds_msp/ops/pose.py`, `ds_msp/model.py` | FR-OPS-003 |
-| IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
+| IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut`, `ds-msp export` | FR-INTEROP-003, FR-INTEROP-005 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
 | IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
 | IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
@@ -99,6 +99,40 @@ remain in the rejection ledger. Final support describes the observations retaine
 at the end. Unresolved frames warn even if an earlier recovery succeeded; these
 fields are diagnostic and do not replace physical acceptance or uncertainty gates.
 
+## LDC mesh files and exports (IFC-08, IFC-10)
+
+`write_ldc_mesh(result, folder, stem)` writes two files; `read_ldc_mesh(record)` reads them back
+and refuses a mesh whose checksum or size does not match its record.
+
+- `<stem>_ldc_mesh.bin`: the Q3 mesh as `int16` little-endian, `(h, v)` interleaved per node,
+  nodes row by row from the top-left, no header and no row padding.
+- `<stem>_ldc.json`: `format` (`ds-msp ti-ldc mesh`), `format_version` (1), `mesh_file`,
+  `mesh_sha256`, `layout` (the sentence above), `checked_on_board` (false), `mesh_width`,
+  `mesh_height`, `output_width`, `output_height`, `downsample_factor`, `node_spacing_px`,
+  `balance`, `K_new`, `camera_model`, `n_invalid_nodes`, `q3_overflow`, `accuracy` and `source`.
+- `accuracy` comes from `mesh_accuracy`: `median_px`, `p99_px`, `max_px` (distance in input
+  pixels between where the stored mesh and the camera model send each output pixel),
+  `measured_fraction`, `in_view_fraction`, `stride` and `worst_output_px`.
+- `source` holds the input file's name (no path), its format, the camera and the input size.
+
+`ds-msp ldc` (also `ds-msp-ldc`) writes one mesh per camera; `ds-msp lut` one LUT bundle per
+camera. Both take `--input FILE` with `--camera NAME` (repeatable, or `all`, the default),
+`--list-cameras`, or one typed camera with `--model`, `--params` and `--resolution`.
+`ds-msp lut` used to export only `cam0` when `--camera` was not given.
+
+`ds-msp export --output-dir DIR` with `--ldc`, `--isaac-lut` or both writes the folder layout a
+rig run writes with `export_ldc` or `export_isaac_lut` (`ds_msp.exports.write_exports`):
+`ldc/`, `isaac_lut/` (files named after each camera) and `exports.json`. In `exports.json`,
+`ldc` and `isaac_lut` are `null` or hold `folder`, `settings` and one row per camera: the files
+written and the measured error, or `problem`. A camera that fails does not stop the others. The
+command exits 1 when any camera failed, and refuses a folder that already holds an export
+unless `--overwrite` is given.
+
+The rig keys are `export_ldc`, `ldc_output_size` (`[w, h]`, default each camera's size),
+`ldc_downsample_factor` (4), `ldc_balance` (0.5), `export_isaac_lut` and
+`isaac_lut_texture_size`. Exports need `save_path`. `ds-msp-calibrate` takes `--ldc`,
+`--ldc-output-dir` and an `ldc:` block in `calib_config.yml`.
+
 ## DS-MSP Studio (IFC-13)
 
 `ds-msp studio` needs the `ui` extra (`pip install "ds-msp[ui]"`). Options: `--root DIR`
@@ -179,6 +213,27 @@ Checks before a run (FR-UI-011):
   (`sample photos` or `saved detections`).
 - `POST /api/capture/history` `{values}`: earlier results made from the same photo folder and
   `reusable`, the newest whose detections fit. `POST /api/jobs` takes `reuse` (that id).
+
+Exporting LDC meshes and Isaac LUTs (FR-UI-025; absent under `--read-only`):
+
+- A source is `{"kind": "file", "path"}` (under a root), `{"kind": "result", "id"}` or
+  `{"kind": "typed", "cameras": [...]}` (the entries `POST /api/lens/values` takes).
+- `POST /api/export/cameras` `{source}`: `format`, `file` and one row per camera (`camera`,
+  `model`, `width`, `height`, `problem`).
+- `POST /api/export/check` `{spec}`: each chosen camera's LDC mesh measured every 4th pixel,
+  without writing anything. A spec is `{source, cameras, ldc, lut}`; `ldc` is `null` or
+  `{output_size, downsample_factor, balance}` and `lut` is `null` or `{texture_size}`.
+- `POST /api/jobs/export` `{root, name, parent?, spec}`: checks the spec, then runs `ds-msp export`
+  into a new folder. Typed values are written there first as `typed_cameras.yml`. The job
+  document has `kind: "export"`, the command, and `exports` once written.
+- `GET /api/run/exports?id=`: the `exports.json` of a result or an export folder, or `null`.
+- `GET /api/run/export-file?id=&path=`: one file under that folder's `ldc/` or `isaac_lut/`.
+- `POST /api/export/view` `{spec, camera, kind, photo?, frame?, overlay?, width?}` and
+  `GET /api/run/export-view?id=&camera=&kind=&photo=&frame=&overlay=&width=` (FR-UI-026):
+  pictures of one camera's mesh (`kind=ldc`: `images.camera` and `images.corrected`) or LUT
+  (`kind=lut`: `images.render`) as JPEG data URLs no wider than `width` (160 to 1600), with
+  `frames` (photos available), `frame`, `used_photo` and `from_files`. The second route draws
+  from the written files.
 
 Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
 

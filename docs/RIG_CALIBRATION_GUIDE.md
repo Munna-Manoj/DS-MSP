@@ -340,6 +340,8 @@ Behaviour (verified on real data, [§7](#7-worked-example-robustness-real-8-came
 | `he_approach` | `0` bootstrapped hand-eye / `1` traditional (extrinsics init strategy) |
 | `save_path` | output directory |
 | `save_detection` / `save_reprojection` | `true` to write overlay images (needs raw images present) |
+| `export_ldc`, `export_isaac_lut` | also write a TI LDC mesh and an Isaac Sim LUT per camera into `save_path` (`ldc/`, `isaac_lut/`, `exports.json`); see [Export LDC meshes and Isaac Sim LUTs](how-to/export_lens_files_in_studio.md) |
+| `ldc_output_size`, `ldc_downsample_factor`, `ldc_balance`, `isaac_lut_texture_size` | their settings: corrected image size (default each camera's), a mesh node every 2^n pixels (4), how much of the view to keep from 0 to 1 (0.5), LUT texture size (each camera's) |
 | `camera_params_file_name` | output cameras filename (`""` ⇒ `calibrated_cameras_data.yml`) |
 | `webviewer` | `true` (default) to launch the live browser 3D view during the run; `false` to skip it. Independent of `verbose` (terminal progress). Needs the optional `ds-msp[webviewer]` extra. |
 | `accuracy_profile_path` *(DS-MSP extension)* | strict JSON deployment profile declaring physical unit, task-space ROI, required camera pairs, and optional accuracy limits. Relative paths resolve beside the config. |
