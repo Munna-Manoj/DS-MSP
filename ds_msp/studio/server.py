@@ -637,6 +637,116 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         doc["name"] = folder.name
         return doc
 
+    # -- exporting LDC meshes and Isaac LUTs ------------------------------------------------
+    def _export_paths():
+        from .exporting import ExportProblem
+
+        def inside(path: str) -> Path:
+            try:
+                return _inside(path)
+            except HTTPException as exc:
+                raise ExportProblem(str(exc.detail), [{"key": "source",
+                                                       "message": str(exc.detail)}]) from None
+
+        def result_folder(run_id: str) -> Path:
+            try:
+                return _folder(run_id)
+            except HTTPException:
+                raise ExportProblem("That result is not in the folders Studio was started with.",
+                                    [{"key": "source", "message": "unknown result"}]) from None
+
+        return inside, result_folder
+
+    def _export_call(fn, *args):
+        from .exporting import ExportProblem
+        try:
+            return fn(*args, *_export_paths())
+        except ExportProblem as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+
+    @app.post("/api/export/cameras")
+    def export_cameras(body: Dict[str, Any] = Body(...)) -> Any:
+        """The cameras of a file, a result or typed values, as the export page lists them."""
+        from .exporting import list_source
+        return _export_call(list_source, dict(body.get("source") or {}))
+
+    @app.post("/api/export/check")
+    def export_check(body: Dict[str, Any] = Body(...)) -> Any:
+        """A preview of each chosen camera's LDC mesh accuracy; nothing is written."""
+        from .exporting import check
+        return _export_call(check, dict(body.get("spec") or {}))
+
+    @app.post("/api/export/view")
+    def export_view(body: Dict[str, Any] = Body(...)) -> Any:
+        """Pictures of one camera's LDC mesh or LUT as the spec would write it."""
+        from .exporting import ExportProblem, view
+        inside, result_folder = _export_paths()
+        try:
+            return view(dict(body.get("spec") or {}), str(body.get("camera") or ""),
+                        str(body.get("kind") or "ldc"), inside, result_folder,
+                        use_photo=bool(body.get("photo")),
+                        frame=int(body["frame"]) if body.get("frame") is not None else None,
+                        overlay=bool(body.get("overlay")),
+                        display=max(160, min(int(body.get("width") or 720), 1600)), readable=readable)
+        except ExportProblem as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+
+    @app.get("/api/run/export-view")
+    def run_export_view(id: str = Query(...), camera: str = Query(...),  # noqa: A002
+                        kind: str = Query("ldc"), photo: bool = Query(False),
+                        frame: Optional[int] = Query(None), overlay: bool = Query(False),
+                        width: int = Query(720, ge=160, le=1600)) -> Any:
+        """Pictures of one camera's written LDC mesh or LUT, read from the files."""
+        from .exporting import ExportProblem, view_files
+        try:
+            folder = rs.resolve(id)
+        except KeyError:
+            raise HTTPException(404, "unknown folder") from None
+        try:
+            return view_files(folder, camera, kind if kind in ("ldc", "lut") else "ldc",
+                              use_photo=photo, frame=frame, overlay=overlay, display=width,
+                              readable=readable)
+        except ExportProblem as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(422, f"could not read the exported files: {exc}") from None
+
+    @app.post("/api/jobs/export")
+    def start_export(body: Dict[str, Any] = Body(...)) -> Any:
+        inside, result_folder = _export_paths()
+        try:
+            job = _manager().submit_export(int(body.get("root", 0)), str(body.get("name") or ""),
+                                           dict(body.get("spec") or {}), inside, result_folder,
+                                           parent=str(body.get("parent") or ""))
+        except JobError as exc:
+            return JSONResponse({"detail": str(exc), "problems": exc.problems}, status_code=400)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "bad request") from None
+        return _manager().snapshot(job.id, log_lines=0)
+
+    @app.get("/api/run/exports")
+    def run_exports(id: str = Query(...)) -> Dict[str, Any]:  # noqa: A002
+        """The exports a result or an export folder holds (its ``exports.json``)."""
+        from .exporting import summary_of
+        try:
+            folder = rs.resolve(id)
+        except KeyError:
+            raise HTTPException(404, "unknown folder") from None
+        return {"exports": summary_of(folder)}
+
+    @app.get("/api/run/export-file")
+    def run_export_file(id: str = Query(...), path: str = Query(...)) -> Response:  # noqa: A002
+        """One exported file, for download."""
+        try:
+            folder = rs.resolve(id)
+        except KeyError:
+            raise HTTPException(404, "unknown folder") from None
+        target = (folder / path).resolve()
+        if folder not in target.parents or target.parent.name not in ("ldc", "isaac_lut") \
+                or not target.is_file():
+            raise HTTPException(404, "unknown file")
+        return FileResponse(target, filename=target.name)
+
     # -- running ---------------------------------------------------------------------------
     @app.get("/api/jobs")
     def list_jobs() -> List[Dict[str, Any]]:

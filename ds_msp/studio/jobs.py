@@ -79,6 +79,7 @@ class Job:
     pid: Optional[int] = None
     repeat_of: Optional[str] = None      # id of the result this job repeats, if it is a repeat
     reused_from: Optional[str] = None    # id of the result whose detections this job reuses
+    kind: str = "rig"                    # "rig" calibration, or "export" (ds-msp export)
     folder: Path = field(default=Path("."), repr=False, compare=False)
 
     def record(self) -> Dict[str, Any]:
@@ -221,6 +222,7 @@ class JobManager:
                         job = Job(folder=folder, **{k: doc.get(k) for k in Job.__dataclass_fields__
                                                     if k != "folder"})
                         job.id = self._id(folder)
+                        job.kind = job.kind or "rig"
                     except (ValueError, TypeError, KeyError):
                         continue
                     if job.state in ACTIVE:              # its Studio stopped before it ended
@@ -292,6 +294,24 @@ class JobManager:
             raise JobError(loaded["error"], [{"key": "", "message": loaded["error"]}])
         return self._enqueue(folder, ["--config", str(config)], reused_from=reuse or None)
 
+    def submit_export(self, root: int, name: str, spec: Dict[str, Any], inside, result_folder,
+                      parent: str = "") -> Job:
+        """Create and queue an export: ``ds-msp export`` into a new folder
+        (:mod:`ds_msp.studio.exporting`). The spec is checked before anything is created."""
+        from . import exporting
+
+        folder_name(name)
+        folder = self._target(root, name, parent)
+        try:
+            exporting.check_spec(spec, inside, result_folder)
+            args = exporting.command_args(spec, folder, inside, result_folder)
+        except exporting.ExportProblem as exc:
+            if folder.exists() and not any(folder.iterdir()):
+                folder.rmdir()
+            raise JobError(str(exc), exc.problems) from None
+        folder.mkdir(parents=True, exist_ok=True)
+        return self._enqueue(folder, args, kind="export")
+
     def _target(self, root: int, name: str, parent: str = "") -> Path:
         """The new result folder for a job: under a served root, named ``name``, not there yet."""
         if not 0 <= int(root) < len(self.roots):
@@ -325,11 +345,15 @@ class JobManager:
         return self._enqueue(folder, args, repeat_of=original_id)
 
     def _enqueue(self, folder: Path, cli_args: List[str], repeat_of: Optional[str] = None,
-                 reused_from: Optional[str] = None) -> Job:
-        command = [self.python, "-m", "ds_msp.rig.cli", *cli_args,
-                   "--no-webviewer", "--progress-file", str(folder / PROGRESS_FILE)]
+                 reused_from: Optional[str] = None, kind: str = "rig") -> Job:
+        if kind == "export":
+            command = [self.python, "-m", "ds_msp.export_cli", *cli_args]
+        else:
+            command = [self.python, "-m", "ds_msp.rig.cli", *cli_args,
+                       "--no-webviewer", "--progress-file", str(folder / PROGRESS_FILE)]
         job = Job(id=self._id(folder), name=folder.name, state="queued", created_utc=_now(),
-                  command=command, repeat_of=repeat_of, reused_from=reused_from, folder=folder)
+                  command=command, repeat_of=repeat_of, reused_from=reused_from, kind=kind,
+                  folder=folder)
         job.save()
         with self._lock:
             self._jobs[job.id] = job
@@ -387,12 +411,13 @@ class JobManager:
             job.exit_code, job.finished_utc, job.pid = code, _now(), None
             if cancelled:
                 job.state, job.error = "cancelled", None
-            elif (job.folder / REPORT_FILE).is_file():
+            elif (job.folder / _result_file(job)).is_file():
                 job.state = "done"
             else:
                 job.state = "failed"
-                job.error = job.error or error_headline(log_tail(job.folder / LOG_FILE)) or \
-                    "The calibration stopped before writing a result."
+                job.error = job.error or error_headline(log_tail(job.folder / LOG_FILE)) or (
+                    "The export stopped before writing anything." if job.kind == "export"
+                    else "The calibration stopped before writing a result.")
             job.save()
 
     def cancel(self, job_id: str) -> Job:
@@ -434,7 +459,7 @@ class JobManager:
     def _brief(self, job: Job, waiting: Sequence[str]) -> Dict[str, Any]:
         doc = job.record()
         doc.pop("command")
-        doc["has_result"] = (job.folder / REPORT_FILE).is_file()
+        doc["has_result"] = (job.folder / _result_file(job)).is_file()
         doc["queue_position"] = waiting.index(job.id) + 1 if job.id in waiting else None
         return doc
 
@@ -449,6 +474,9 @@ class JobManager:
             doc["progress"] = dict(reader.update())
         doc["command"] = self._terminal_command(job)
         doc["log"] = log_tail(job.folder / LOG_FILE, max_lines=log_lines)
+        if job.kind == "export":
+            from .exporting import summary_of
+            doc["exports"] = summary_of(job.folder)
         if job.repeat_of and job.state == "done":
             from . import replay
             k_str, _sep, rel = job.repeat_of.partition(":")
@@ -460,11 +488,21 @@ class JobManager:
         """The same calibration as a terminal command: the job's own arguments without the two
         Studio adds to follow it."""
         args = list(job.command[3:])
+        if job.kind == "export":
+            return "ds-msp export " + shlex.join(args)
         if "--progress-file" in args:
             k = args.index("--progress-file")
             del args[k:k + 2]
         args = [a for a in args if a != "--no-webviewer"]
         return "ds-msp-calibrate-rig " + shlex.join(args)
+
+
+def _result_file(job: Job) -> str:
+    """The file whose presence means the job produced its result."""
+    if job.kind == "export":
+        from ..exports import SUMMARY_FILE
+        return SUMMARY_FILE
+    return REPORT_FILE
 
 
 def _stop(proc: subprocess.Popen, grace: float = 5.0) -> None:

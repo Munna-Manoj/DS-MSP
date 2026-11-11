@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { href } from "../router";
 import { api, type JobDoc, type JobProgress, type JobState } from "./api";
 import { num, when } from "./format";
+import { ExportsPanel } from "./ExportsPanel";
 import { Badge, Button, Callout, Card, ErrorBox, Loading, Note, Stat } from "./ui";
 
 const STATE: Record<JobState, { label: string; tone: "ok" | "warn" | "bad" | "info" | "plain" }> = {
@@ -67,6 +68,8 @@ export function JobPage({ id }: { id: string }) {
     );
 
   const active = job.state === "queued" || job.state === "running";
+  const exporting = job.kind === "export";
+  const what = exporting ? "export" : "calibration";
   const p = job.progress;
   const st = STATE[job.state];
 
@@ -88,13 +91,13 @@ export function JobPage({ id }: { id: string }) {
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
           {active && !confirming && <Button kind="danger" onClick={() => setConfirming(true)}>Cancel</Button>}
-          {!active && (
+          {!active && !exporting && (
             <a href={href({ page: "new", from: job.repeat_of ?? id })}
               className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-rule bg-s-surface hover:bg-s-sunken">
               New calibration with these settings
             </a>
           )}
-          {job.has_result && (
+          {job.has_result && !exporting && (
             <a href={href({ page: "run", id })}
               className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium bg-s-accent text-white hover:opacity-90">
               Open the result
@@ -106,8 +109,8 @@ export function JobPage({ id }: { id: string }) {
       {error && <ErrorBox title="Lost contact with Studio" detail={`${error}. Trying again.`} />}
 
       {confirming && (
-        <Callout tone="warn" title="Cancel this calibration?">
-          <p>It stops now and no result is written. The settings stay in its folder, so it can be started again.</p>
+        <Callout tone="warn" title={`Cancel this ${what}?`}>
+          <p>It stops now and {exporting ? "the files written so far stay in its folder" : "no result is written. The settings stay in its folder, so it can be started again"}.</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <Button kind="danger" onClick={cancel} busy={cancelling}>Yes, cancel it</Button>
             <Button onClick={() => setConfirming(false)}>Keep it running</Button>
@@ -117,11 +120,16 @@ export function JobPage({ id }: { id: string }) {
 
       {job.state === "queued" && (
         <Callout tone="info" title={job.queue_position === 1 ? "Next in line" : `Number ${job.queue_position ?? "?"} in line`}>
-          Calibrations run one at a time, because each one uses every processor core. This one
-          starts when the one before it ends.
+          Calibrations and exports run one at a time, because each one uses every processor core.
+          This one starts when the one before it ends.
         </Callout>
       )}
-      {job.state === "done" && (
+      {job.state === "done" && exporting && (
+        <Callout tone={job.exit_code === 0 ? "ok" : "warn"} title={job.exit_code === 0 ? "The export finished" : "The export finished, but some files could not be written"}>
+          Each camera's files and what was measured are listed below. The files are in the folder <span className="font-studio-mono">{job.name}</span>.
+        </Callout>
+      )}
+      {job.state === "done" && !exporting && (
         <Callout tone="ok" title="The calibration finished">
           {p.final_rms != null && <>The worst camera's typical error is {num(p.final_rms)} px. </>}
           Open the result to see whether every camera can be trusted.
@@ -157,25 +165,27 @@ export function JobPage({ id }: { id: string }) {
         </Callout>
       )}
       {job.state === "failed" && (
-        <Callout tone="bad" title="The calibration stopped without a result">
+        <Callout tone="bad" title={exporting ? "The export stopped before writing anything" : "The calibration stopped without a result"}>
           <p className="break-words">{job.error}</p>
           <p className="mt-2 text-s-muted">The output below shows what led to it. Change the settings and start again.</p>
         </Callout>
       )}
       {job.state === "interrupted" && <Callout tone="warn" title="Interrupted">{job.error}</Callout>}
-      {job.state === "cancelled" && <Callout tone="info" title="Cancelled">No result was written.</Callout>}
+      {job.state === "cancelled" && <Callout tone="info" title="Cancelled">{exporting ? "The export was stopped." : "No result was written."}</Callout>}
 
-      {(job.state === "running" || p.stages.length > 0) && (
+      {job.exports && <ExportsPanel summary={job.exports} id={id} />}
+
+      {!exporting && (job.state === "running" || p.stages.length > 0) && (
         <Progress p={p} running={job.state === "running"} stopped={!active && job.state !== "done"} />
       )}
 
-      <Card title="Output" aside="what the calibration printed">
+      <Card title="Output" aside={`what the ${what} printed`}>
         <LogView lines={job.log} follow={active} />
       </Card>
 
       <Card title="Run it from a terminal">
         <div className="grid gap-2 min-w-0">
-          <Note>The same calibration, with the settings saved in this folder:</Note>
+          <Note>{exporting ? "The same export, as one command:" : "The same calibration, with the settings saved in this folder:"}</Note>
           <CopyLine text={job.command} />
         </div>
       </Card>

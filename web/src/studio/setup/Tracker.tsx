@@ -8,8 +8,8 @@ import { STEP_WORD, type StepState } from "./kit";
 export type StepId = "data" | "board" | "lens" | "rules" | "more" | "start";
 export type ItemState = "ok" | "todo" | "optional";
 
-export interface TrackedStep {
-  id: StepId; n: number; title: string; state: StepState; note: string;
+export interface TrackedStep<I extends string = StepId> {
+  id: I; n: number; title: string; state: StepState; note: string;
   /** Says the state in other words than usual. */
   word?: string;
   items?: { label: string; state: ItemState }[];
@@ -18,7 +18,7 @@ export interface TrackedStep {
 const TICK = "M5 12.5l4.5 4.5L19 7.5";
 
 /** A step's number in a circle, in the colour of its state. */
-export function StepDot({ step, on, size = "size-9" }: { step: TrackedStep; on: boolean; size?: string }) {
+export function StepDot({ step, on, size = "size-9" }: { step: TrackedStep<string>; on: boolean; size?: string }) {
   const fill = step.state === "done" ? "bg-s-ok text-white"
     : step.state === "warn" ? "bg-s-warn text-white"
     : step.state === "fix" ? "bg-s-bad text-white"
@@ -43,17 +43,17 @@ function ItemMark({ state }: { state: ItemState }) {
   return <span className={`size-3 mt-1 mx-0.5 shrink-0 rounded-full border-2 ${state === "todo" ? "border-s-accent" : "border-s-field-line"}`} aria-hidden="true" />;
 }
 
-export function Tracker({ from, icon, onChangeFrom, prelude, steps, active, onGo, headline, done, total }: {
+export function Tracker<I extends string = StepId>({ from, icon, onChangeFrom, prelude, steps, active, onGo, headline, done, total, label = "Setup progress" }: {
   from: string; icon: string; onChangeFrom: () => void;
   /** What has to be chosen before the steps open, when something does. */
   prelude: string | null;
-  steps: TrackedStep[]; active: StepId; onGo: (id: StepId) => void;
-  headline: ReactNode; done: number; total: number;
+  steps: TrackedStep<I>[]; active: I; onGo: (id: I) => void;
+  headline: ReactNode; done: number; total: number; label?: string;
 }) {
   const share = total ? Math.round((done / total) * 100) : 0;
   const current = steps.find((s) => s.id === active);
   return (
-    <nav aria-label="Setup progress" className="rounded-2xl bg-s-surface border border-s-rule shadow-[0_1px_2px_rgb(15_23_42/0.06),0_8px_24px_rgb(15_23_42/0.06)] overflow-hidden">
+    <nav aria-label={label} className="rounded-2xl bg-s-surface border border-s-rule shadow-[0_1px_2px_rgb(15_23_42/0.06),0_8px_24px_rgb(15_23_42/0.06)] overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3.5 bg-s-accent-soft border-b border-s-accent/20">
         <span className="size-10 shrink-0 rounded-xl grid place-items-center bg-s-accent text-white" aria-hidden="true">
           <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={icon} /></svg>

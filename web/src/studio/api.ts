@@ -345,6 +345,8 @@ export interface JobBrief {
   queue_position: number | null;
   /** The earlier result whose corner detections this calibration reuses. */
   reused_from?: string | null;
+  /** A rig calibration, or an export of LDC meshes and Isaac LUTs. */
+  kind?: "rig" | "export";
 }
 
 export interface JobProgress {
@@ -370,6 +372,47 @@ export interface JobDoc extends JobBrief {
   /** Set on a job that repeats a result: its id, and once done whether it reproduced it. */
   repeat_of?: string | null;
   repeat?: RepeatCompare;
+  /** An export job's exports.json, once written. */
+  exports?: ExportSummary | null;
+}
+
+export interface LdcRow {
+  camera: string; record?: string; mesh?: string; problem?: string;
+  output_size?: [number, number]; q3_overflow?: boolean; n_invalid_nodes?: number;
+  median_px?: number | null; p99_px?: number | null; max_px?: number | null;
+  in_view_fraction?: number | null; notes?: string[];
+}
+export interface LutRow {
+  camera: string; manifest?: string; problem?: string; texture_size?: [number, number]; round_trip_max_px?: number;
+}
+/** exports.json: what a rig run or an export wrote for each camera. */
+export interface ExportSummary {
+  ldc: { folder: string; cameras: LdcRow[]; settings?: { output_size: number[]; downsample_factor: number; balance: number } } | null;
+  isaac_lut: { folder: string; cameras: LutRow[]; settings?: { texture_size: number[] } } | null;
+}
+export type ExportSource =
+  | { kind: "file"; path: string }
+  | { kind: "result"; id: string }
+  | { kind: "typed"; cameras: Record<string, unknown>[] };
+export interface ExportSpec {
+  source: ExportSource; cameras: string[];
+  ldc: { output_size: number[]; downsample_factor: number; balance: number } | null;
+  lut: { texture_size: number[] } | null;
+}
+export interface LensViewImage { src: string; width: number; height: number }
+export interface LensViewDoc {
+  camera: string; kind: "ldc" | "lut"; from_files: boolean; used_photo: boolean;
+  frames: number[]; frame: number | null;
+  /** With the overlay on: the share of the corrected picture misplaced by more than 0.5 px and 2 px. */
+  overlay?: { over_half_px: number; over_2_px: number } | null;
+  images: { camera?: LensViewImage; corrected?: LensViewImage; render?: LensViewImage };
+}
+export interface LensViewOpts { camera: string; kind: "ldc" | "lut"; photo: boolean; frame: number | null; overlay: boolean; width: number }
+export interface SourceCamera { camera: string; model: string | null; width: number | null; height: number | null; problem: string | null }
+export interface ExportCheckRow {
+  camera: string; model: string; width: number; height: number;
+  ldc?: { output_size: [number, number]; mesh_size: [number, number]; q3_overflow: boolean; n_invalid_nodes: number;
+    median_px: number | null; p99_px: number | null; max_px: number | null; in_view_fraction: number | null };
 }
 
 export interface KeypointsScan {
@@ -535,6 +578,16 @@ export const api = {
     getJSON<PrecisionDoc>(`api/run/precision?id=${encodeURIComponent(id)}${rotation != null ? `&rotation=${rotation}` : ""}${centre != null ? `&centre=${centre}` : ""}`),
   task: (id: string, a: string | number, b: string | number, distance: number, pixelNoise: number) =>
     getJSON<TaskDoc>(`api/run/task?id=${encodeURIComponent(id)}&a=${a}&b=${b}&distance=${distance}&pixel_noise=${pixelNoise}`),
+  exportCameras: (source: ExportSource) =>
+    postJSON<{ format: string | null; file: string | null; cameras: SourceCamera[] }>("api/export/cameras", { source }),
+  exportCheck: (spec: ExportSpec) => postJSON<{ cameras: ExportCheckRow[] }>("api/export/check", { spec }),
+  startExport: (root: number, name: string, spec: ExportSpec) => postJSON<JobDoc>("api/jobs/export", { root, name, spec }),
+  exportView: (spec: ExportSpec, o: LensViewOpts) => postJSON<LensViewDoc>("api/export/view", { spec, ...o }),
+  runExportView: (id: string, o: LensViewOpts) =>
+    getJSON<LensViewDoc>(`api/run/export-view?id=${encodeURIComponent(id)}&camera=${encodeURIComponent(o.camera)}&kind=${o.kind}&photo=${o.photo}&overlay=${o.overlay}&width=${o.width}${o.frame != null ? `&frame=${o.frame}` : ""}`),
+  runExports: (id: string) => getJSON<{ exports: ExportSummary | null }>(`api/run/exports?id=${encodeURIComponent(id)}`),
+  exportFileUrl: (id: string, path: string) =>
+    `api/run/export-file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`,
   fileUrl: (id: string, name: string) =>
     `api/run/file?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
 };
