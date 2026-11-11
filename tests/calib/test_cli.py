@@ -60,6 +60,27 @@ def test_cli_can_request_isaac_lut_during_calibration(tmp_path, monkeypatch):
     assert cfg.isaac_lut.overwrite is True
 
 
+@pytest.mark.req("FR-INTEROP-005")
+def test_cli_can_request_an_ldc_mesh_during_calibration(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(cfg, **_thresholds):
+        captured["cfg"] = cfg
+        return 0
+
+    monkeypatch.setattr(cli, "_run", fake_run)
+    monkeypatch.setattr(sys, "argv", [
+        "ds-msp-calibrate", str(tmp_path), "--rows", "5", "--cols", "6",
+        "--square-size", "0.025", "--save-dir", str(tmp_path / "out"),
+        "--ldc", "--ldc-output-dir", "meshes",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    assert captured["cfg"].ldc.enabled is True
+    assert captured["cfg"].ldc.output_dir == "meshes"
+
+
 def _render_checkerboard(model, R, t, rows, cols, square, w, h, supersample=4):
     W, H = w * supersample, h * supersample
     img = np.full((H, W), 255, dtype=np.uint8)
@@ -112,6 +133,10 @@ isaac_lut:
   enabled: true
   texture_width: 32
   texture_height: 24
+ldc:
+  enabled: true
+  output_width: 480
+  output_height: 320
 """)
     monkeypatch.setattr(sys, "argv", ["ds-msp-calibrate", "--config", str(config_path), "--quiet"])
     with pytest.raises(SystemExit) as exc:
@@ -136,3 +161,10 @@ isaac_lut:
     assert len(list(lut_dir.glob("*_ray_enter_direction.exr"))) == 1
     assert len(list(lut_dir.glob("*_ray_exit_position.exr"))) == 1
     assert len(list(lut_dir.glob("*_isaac_lut.json"))) == 1
+
+    from ds_msp.ldc import read_ldc_mesh
+    mesh, record = read_ldc_mesh(save_dir / "ldc" / "cam0_ldc.json")
+    assert (record["output_width"], record["output_height"]) == (480, 320)
+    assert (record["source"]["input_width"], record["source"]["input_height"]) == (w, h)
+    assert record["camera_model"]["name"] == "ds"
+    assert record["accuracy"]["max_px"] is not None

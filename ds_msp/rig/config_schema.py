@@ -153,6 +153,21 @@ PROPERTIES: Dict[str, Dict[str, Any]] = {
     "verbose": _p(_BOOL, True, "output", "Print progress while calibrating.", level="expert"),
     "webviewer": _p(_BOOL, True, "output", "Open the live 3D view during a CLI run.",
                     level="expert"),
+    # Exports
+    "export_ldc": _p(_BOOL, False, "exports", "Write a TI LDC mesh for each camera into "
+                     "<save_path>/ldc."),
+    "ldc_output_size": _p("array", [], "exports", "Width and height of the corrected image the "
+                          "board outputs; empty uses each camera's size.", items=_INT_LIST,
+                          level="expert"),
+    "ldc_downsample_factor": _p(_INT, 4, "exports", "Mesh node every 2^n output pixels; "
+                                "smaller is more accurate and larger.", level="expert",
+                                minimum=0),
+    "ldc_balance": _p(_NUM, 0.5, "exports", "0 keeps the widest view, 1 crops tightest.",
+                      level="expert", minimum=0),
+    "export_isaac_lut": _p(_BOOL, False, "exports", "Write an Isaac Sim lens LUT for each "
+                           "camera into <save_path>/isaac_lut."),
+    "isaac_lut_texture_size": _p("array", [], "exports", "LUT texture width and height; empty "
+                                 "uses each camera's size.", items=_INT_LIST, level="expert"),
 }
 
 GROUPS = [
@@ -162,6 +177,7 @@ GROUPS = [
     {"id": "solver", "title": "Solver"},
     {"id": "checks", "title": "Checks"},
     {"id": "output", "title": "Output"},
+    {"id": "exports", "title": "Exports"},
 ]
 
 

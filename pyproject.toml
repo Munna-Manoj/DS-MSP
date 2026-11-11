@@ -66,6 +66,7 @@ docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions", "mkdocs
 [project.scripts]
 ds-msp = "ds_msp.cli:main"
 ds-msp-lut = "ds_msp.isaac_sim.cli:main"
+ds-msp-ldc = "ds_msp.ldc_cli:main"
 ds-msp-calibrate-rig = "ds_msp.rig.cli:main"
 ds-msp-calibrate = "ds_msp.calib.cli:main"
 

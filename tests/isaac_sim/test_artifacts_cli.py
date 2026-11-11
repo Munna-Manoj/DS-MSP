@@ -91,3 +91,25 @@ def test_cli_path_alias_loads_calibration_artifact(tmp_path):
 
 
 pytestmark = pytest.mark.req("FR-INTEROP-003")
+
+
+def test_cli_exports_every_camera_of_a_rig_result_by_default(tmp_path, capsys):
+    cams = {0: _BY_NAME["ds"].sample(), 1: _BY_NAME["kb"].sample()}
+    rig = RigState(
+        cameras=cams, T_c_g={0: np.eye(4), 1: np.eye(4)}, ref_cam_id=0,
+        object_poses={}, objects={},
+        img_size={c: (int(round(2 * m.cx)), int(round(2 * m.cy))) for c, m in cams.items()},
+    )
+    sizes = [f"{w}x{h}" for w, h in rig.img_size.values()]
+    path = tmp_path / "calibrated_cameras_data.yml"
+    save_mccalib_cameras(rig, str(path))
+    assert run_lut_cli(["--input", str(path), "--list-cameras"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"camera_0: ds {sizes[0]}", f"camera_1: kb {sizes[1]}"]
+    small = ["--texture-size", "32", "24"]
+    assert run_lut_cli(["--input", str(path), "--stem", "rig", *small]) == 0
+    names = sorted(p.name for p in (tmp_path / "isaac_lut").glob("*_isaac_lut.json"))
+    assert names == ["rig_camera_0_isaac_lut.json", "rig_camera_1_isaac_lut.json"]
+    assert run_lut_cli(["--input", str(path), "--camera", "camera_1", "--output-dir",
+                        str(tmp_path / "one"), *small]) == 0
+    assert len(list((tmp_path / "one").glob("*_isaac_lut.json"))) == 1

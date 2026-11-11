@@ -80,6 +80,16 @@ isaac_lut:
   texture_height: 0              # 0 => calibrated image height
   overwrite: false
 
+# TI LDC displacement mesh for the calibrated camera (ds-msp ldc writes the same files).
+ldc:
+  enabled: false
+  output_dir: ldc                # relative paths are placed under save_path
+  output_width: 0                # 0 => calibrated image width
+  output_height: 0               # 0 => calibrated image height
+  downsample_factor: 4           # a mesh node every 2^4 = 16 output pixels
+  balance: 0.5                   # 0 keeps the widest view, 1 crops tightest
+  overwrite: false
+
 ######################################## Bundle-adjustment tuning ################################
 # These map 1:1 onto ds_msp.calib.bundle.calibrate's own keyword arguments.
 robust: cauchy               # robust loss kernel
