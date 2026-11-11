@@ -287,6 +287,12 @@ every field that matters.
 | `number_board` | number of physical boards in the rigid object (`1` for a single board) |
 | `square_size` | **physical** square size in your unit of choice (m / cm / mm). **This sets the metric scale** of all 3D output and the camera baselines. Use the real measured size. |
 | `*_per_board` (`number_x_square_per_board`, …) | only if boards differ in size; else leave `[]` |
+| `boards_index` | the printed number of each board in its generated set; leave `[]` for boards 0, 1, 2, … A single board that is not board 0 needs its number, for example `[13]` |
+| `structure_mode` | how far the target may differ from print: `rigid` (default), `bend`, `free` or `off`. `bend` is the only mode that changes a single-board target |
+
+A board on paper, foam or thin plastic can bow. In simulation, a single board that bows by 2.6 mm,
+treated as flat, put the focal length more than 2.5 % off; with `structure_mode: "bend"` the error
+stayed under 1 %. The run then reports the bow it measured in `diagnostics.board_flatness`.
 
 ### Camera model selection
 | Key | Meaning |

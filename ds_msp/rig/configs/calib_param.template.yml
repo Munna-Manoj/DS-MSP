@@ -102,6 +102,7 @@ camera_params_file_name: ""         # output cameras filename; "" => calibrated_
 # DS-MSP target geometry and physical acceptance controls
 # Target deformation is opt-in; lower reprojection error alone does not validate its shape.
 refine_structure: "false"
+# structure_mode: "rigid"    # rigid (default), bend, free or off; bend also fits one bowed board
 # structure_prior_sigma: 0.1  # target length units; use justified geometry uncertainty
 # accuracy_gate: "refuse"    # requires accuracy_profile_path and independent truth; default off
 # audit_gate: "refuse"       # refuse unobservable fits before writing calibration outputs
