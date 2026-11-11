@@ -4,6 +4,9 @@ DS-MSP Studio shows a rig calibration result in your browser: a verdict, what to
 the evidence for each camera. It reads the folders that `ds-msp-calibrate-rig` writes and never
 changes them.
 
+To set up and start a calibration from the browser instead, see
+[Calibrate a rig in DS-MSP Studio](calibrate_a_rig_in_studio.md).
+
 ## Install
 
 ```bash
@@ -26,7 +29,7 @@ report saved: out/calibration_report.txt  +  out/calibration_report.json
 run manifest: out/calibration_manifest.json
 view in DS-MSP Studio:  ds-msp studio --open "/path/to/rig/out"
 
-DS-MSP Studio: http://127.0.0.1:8765/#/run/0%3Aout
+DS-MSP Studio: http://127.0.0.1:8765/?token=...#/run/0%3Aout
 Press Ctrl+C to stop.
 ```
 
@@ -45,7 +48,7 @@ ds-msp studio --root path/to/results
 
 Studio searches `--root`, and up to six folder levels below it, for result folders. A result
 folder is one that holds `calibration_report.json`. It prints its address,
-`http://127.0.0.1:8765/`, and opens it. Pass `--root` more than once to search several folders,
+`http://127.0.0.1:8765/?token=...`, and opens it. Pass `--root` more than once to search several folders,
 and `--no-browser` to skip opening a browser.
 
 ## On another computer
@@ -58,8 +61,8 @@ ssh -L 8765:127.0.0.1:8765 user@host
 ds-msp studio --root path/to/results --no-browser     # on that computer
 ```
 
-Then open `http://127.0.0.1:8765/` on your own computer. If you bind to another address with
-`--host`, Studio requires a token and prints a URL that carries it.
+Then open, on your own computer, the link Studio printed on the other one. It holds an access key
+(`?token=...`). With `--read-only` or `--only-roots`, and no `--host`, there is no key.
 
 ## Read a result
 
@@ -67,7 +70,8 @@ A result page answers three questions in order: can I use it, what should I do, 
 
 ### 1. The verdict
 
-The banner gives one verdict for the rig, and each camera tile carries its own level:
+The banner gives one verdict for the rig, and each camera carries its own level, shown as the
+dot on its button:
 
 | Level | Meaning |
 |---|---|
@@ -91,9 +95,67 @@ Improve  Add photos of camera 3 with the board in the areas marked on its uncert
 
 Select **Show all** for the rest.
 
-### 3. Evidence for each camera
+### 3. Explore the result on your own capture
 
-Select a camera tile. Each view starts with its answer in one line.
+The dark panel shows the calibration on the capture itself. Choose a camera with the buttons at
+its top. The strip at its bottom is the capture: one bar per photo, as tall as that photo's
+error. Click a bar, drag along the strip, or press play; every view follows.
+
+- **On your photos.** The photo, with each corner where it was found (white dot) and a line to
+  where the calibration expects it (ring). The line is stretched so a typical error is
+  about 1/110 of the photo's width: 136 times for a 0.05 px error on a 748 px wide photo. The
+  control shows the factor. Short lines in all directions are
+  good. **Shade where this lens was never checked** stripes the parts of the image no board ever
+  covered.
+- **The rig in 3D.** The cameras and the boards where they were in the selected photo, each
+  outlined and named in its own colour, the same colour as on the photos.
+  Click a second camera to measure to it: distance, position and yaw, pitch and roll, with how
+  well each is known. **Show the uncertainty** makes each camera sway by its own uncertainty,
+  enlarged until it is visible.
+- **What it means.** How exactly a camera pair locates a point. For cameras with no shared
+  view, such as two facing each other, it shows how exactly a point known to one is placed for
+  the other. Set the distance and your detector's precision. The panel gives the sideways and
+  depth uncertainty, and the range within 1 mm.
+
+When the calibration was set up with a board that may be bowed, a line above the panel states
+the bow Studio measured, from the lowest to the highest point of the board.
+
+A photo that is blurred, has glare, or shows long lines all pointing one way can be left out of
+the next run. Select it and choose **Leave this photo out next time**; its bar turns amber and a
+bar under the timeline lists what you marked. **Run again without them** opens the setup with the
+same settings and those photos listed under, for example, **2 photos are left out of this
+calibration**. The result you are
+looking at does not change, and the new result names the photos that were left out of it.
+
+Lengths are in the unit of your square size. Tell Studio once whether that was metres,
+centimetres or millimetres and it shows millimetres.
+
+/// note | A lower bound
+The numbers under **What it means** count random error only, as the pair uncertainty does.
+Real errors are usually larger.
+///
+
+**How close is this to what you need?** compares the weakest camera pair with the precision you
+asked for when you set up the run, or that you type on the page. If it falls short, Studio
+estimates how many photos of the same kind would close the gap.
+
+Treat that estimate as rough. It assumes the new photos are as varied as the ones you have. On
+the 10 real datasets, half the photos predicted the whole capture within 25 % in 97 % of trials.
+The first half of a capture was up to 190 times too pessimistic, because later photos added new
+angles. Photos with new angles can need far fewer.
+
+/// note | Without 3D in the browser
+Over remote desktop, in a virtual machine or without graphics drivers, **The rig in 3D** says it
+cannot draw. The other views and every number on the page still work.
+///
+
+Studio shows photos from anywhere on its computer. With `--only-roots` or `--read-only`, it
+shows only those under a folder given with `--root`. A result written by an earlier version does
+not record which photo is which frame; Studio then matches them by file number and says so.
+
+### 4. Evidence for each camera
+
+Open **All the numbers** for the charts below. Each view starts with its answer in one line.
 
 - **Is there a pattern in the errors?**
     - A line chart of the error size from the image centre to its corners. A flat line is good;

@@ -34,8 +34,12 @@ def _parser(prog: str) -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=8765,
                     help="port (default 8765; the next free one is used when it is taken)")
     ap.add_argument("--token", default=None,
-                    help="access token (default: generated when --host is not local)")
+                    help="access token (default: generated)")
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    ap.add_argument("--read-only", action="store_true",
+                    help="only view results: no setting up or starting calibrations")
+    ap.add_argument("--only-roots", action="store_true",
+                    help="read only under --root, instead of anywhere on this computer")
     ap.add_argument("--max-depth", type=int, default=6,
                     help="folder levels to search below each root (default 6)")
     return ap
@@ -62,8 +66,9 @@ def _result_target(open_dir: str) -> Tuple[str, str]:
 
 def serve(roots: Sequence[str], *, host: str = "127.0.0.1", port: int = 8765,
           token: Optional[str] = None, open_browser: bool = True, run_id: Optional[str] = None,
-          max_depth: int = 6) -> int:
-    """Serve Studio until Ctrl+C. Prints the link (to ``run_id``'s page when given)."""
+          max_depth: int = 6, read_only: bool = False, only_roots: bool = False) -> int:
+    """Serve Studio until Ctrl+C. Prints the link (to ``run_id``'s page when given). A
+    calibration still running when Studio stops is stopped with it."""
     try:
         import uvicorn
 
@@ -72,10 +77,17 @@ def serve(roots: Sequence[str], *, host: str = "127.0.0.1", port: int = 8765,
         print(f"DS-MSP Studio needs the ui extra: pip install \"ds-msp[ui]\" ({exc})",
               file=sys.stderr)
         return 2
-    if token is None and host not in _LOCAL_HOSTS:
+    # Bound to this computer and able to set up runs, Studio may read any folder here. The token
+    # keeps other accounts on the same computer out of those folders.
+    anywhere = host in _LOCAL_HOSTS and not read_only and not only_roots
+    if token is None and (host not in _LOCAL_HOSTS or anywhere):
         token = secrets.token_urlsafe(18)
     try:
-        app = create_app(roots, token=token, max_depth=max_depth)
+        # Bound to this computer only: answer to its local names and nothing else, so a page
+        # on another site cannot reach Studio through a host name it controls.
+        allowed = sorted(_LOCAL_HOSTS) if host in _LOCAL_HOSTS else None
+        app = create_app(roots, token=token, max_depth=max_depth, read_only=read_only,
+                         allowed_hosts=allowed, anywhere=anywhere)
     except NotADirectoryError as exc:
         print(f"not a folder: {exc}", file=sys.stderr)
         return 2
@@ -96,6 +108,9 @@ def serve(roots: Sequence[str], *, host: str = "127.0.0.1", port: int = 8765,
         uvicorn.run(app, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
         pass
+    finally:
+        if app.state.jobs is not None:
+            app.state.jobs.shutdown()
     return 0
 
 
@@ -111,7 +126,8 @@ def run(argv: Sequence[str] | None = None, prog: str = "ds-msp studio") -> int:
             return 2
         roots = [root]
     return serve(roots, host=args.host, port=args.port, token=args.token,
-                 open_browser=not args.no_browser, run_id=run_id, max_depth=args.max_depth)
+                 open_browser=not args.no_browser, run_id=run_id, max_depth=args.max_depth,
+                 read_only=args.read_only, only_roots=args.only_roots)
 
 
 def main() -> None:

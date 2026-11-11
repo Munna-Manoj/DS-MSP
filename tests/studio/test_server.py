@@ -1,4 +1,5 @@
 """The Studio JSON API: listing, reading, file access and its confinement to the roots."""
+import os
 import pytest
 
 pytest.importorskip("fastapi")
@@ -6,7 +7,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from ds_msp.studio.server import create_app  # noqa: E402
+from ds_msp.studio.server import WRITE_HEADER, create_app  # noqa: E402
 
 pytestmark = pytest.mark.req("FR-UI-001", "FR-UI-003")
 
@@ -81,3 +82,71 @@ def test_diagnostics_endpoint(client):
     assert d["cam"] == 0 and d["residuals"]["n_shown"] > 0 and d["lens"]["nx"] == 24
     assert client.get("/api/run/diagnostics", params={"id": "0:..", "cam": 0}).status_code == 404
     assert client.get("/api/run/diagnostics", params={"id": "0:lab/run_a", "cam": -1}).status_code == 422
+
+
+@pytest.mark.req("FR-UI-016")
+def test_folders_outside_the_roots_need_anywhere(results_root, tmp_path):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "lens.yml").write_text("x: 1\n")
+    head = {"x-dsmsp-studio": "1"}
+    limited = TestClient(create_app([str(results_root)]))
+    assert limited.get("/api/browse", params={"ref": f"abs:{outside}"}).status_code == 404
+    assert limited.post("/api/roots/add", json={"path": str(outside)}, headers=head).status_code == 403
+    assert limited.post("/api/photos/scan", json={"root_path": str(outside)}, headers=head).status_code == 400
+    assert limited.get("/api/browse").json()["anywhere"] is False
+
+    free = TestClient(create_app([str(results_root)], anywhere=True))
+    top = free.get("/api/browse").json()
+    assert top["anywhere"] is True and {p["name"] for p in top["places"]} == {"Home folder", "Whole computer"}
+    doc = free.get("/api/browse", params={"ref": f"abs:{outside}"}).json()
+    assert doc["path"] == str(outside) and [f["name"] for f in doc["files"]] == ["lens.yml"]
+    assert doc["parent"] == f"abs:{outside.parent}"
+    assert free.post("/api/photos/scan", json={"root_path": str(outside)}, headers=head).status_code == 200
+    # the whole disk is too broad to search for results; a folder is fine, and only once
+    assert free.post("/api/roots/add", json={"path": "/"}, headers=head).status_code == 400
+    k = free.post("/api/roots/add", json={"path": str(outside)}, headers=head).json()["index"]
+    assert free.post("/api/roots/add", json={"path": str(outside)}, headers=head).json()["index"] == k == 1
+    assert [d["path"] for d in free.get("/api/browse").json()["dirs"]][k] == str(outside)
+
+    # read-only always stays inside the roots
+    viewer = TestClient(create_app([str(results_root)], anywhere=True, read_only=True))
+    assert viewer.get("/api/browse", params={"ref": f"abs:{outside}"}).status_code == 404
+
+
+@pytest.mark.req("FR-UI-016")
+def test_reading_anywhere_is_behind_a_token(monkeypatch, tmp_path):
+    from ds_msp.studio import cli
+
+    seen = {}
+    monkeypatch.setattr("ds_msp.studio.server.create_app",
+                        lambda *a, **k: seen.update(k) or (_ for _ in ()).throw(NotADirectoryError("stop")))
+    assert cli.serve([str(tmp_path)], open_browser=False) == 2
+    assert seen["anywhere"] is True and seen["token"]
+    seen.clear()
+    assert cli.serve([str(tmp_path)], open_browser=False, only_roots=True) == 2
+    assert seen["anywhere"] is False and seen["token"] is None
+    seen.clear()
+    assert cli.serve([str(tmp_path)], open_browser=False, read_only=True) == 2
+    assert seen["anywhere"] is False and seen["token"] is None
+
+
+@pytest.mark.req("FR-UI-016")
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root can read every folder")
+def test_a_locked_folder_is_listed_and_does_not_break_the_list(results_root, tmp_path):
+    (tmp_path / "open").mkdir()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        free = TestClient(create_app([str(results_root)], anywhere=True))
+        doc = free.get("/api/browse", params={"ref": f"abs:{tmp_path}"})
+        assert doc.status_code == 200
+        assert {d["name"]: d["locked"] for d in doc.json()["dirs"]} == {"locked": True, "open": False}
+        inside = free.get("/api/browse", params={"ref": f"abs:{locked}"})
+        assert inside.status_code == 403 and "permission" in inside.json()["detail"]
+        scan = free.post("/api/photos/scan", json={"root_path": str(locked / "x")},
+                         headers={WRITE_HEADER: "1"})
+        assert scan.status_code == 403 and "permission" in scan.json()["detail"]
+    finally:
+        locked.chmod(0o755)

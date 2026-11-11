@@ -19,7 +19,7 @@
 | IFC-10 | Isaac Sim camera LUT export | File I/O + CLI | `OmniLensDistortionLutAPI` EXRs, manifest, Camera USDA | `ds_msp/isaac_sim`, `ds-msp lut` | FR-INTEROP-003 |
 | IFC-11 | Rig run manifest | File I/O + CLI | strict-JSON `calibration_manifest.json`; immutable-input verification and replay into a new output directory | `ds_msp/rig/provenance.py`, `tools/replay_rig_manifest.py` | NFR-REPRO-002 |
 | IFC-12 | Rig accuracy profile and report | File I/O + Python API + CLI | strict versioned profile JSON; schema-versioned all-pair SE(3), exact ROI displacement, and explicit evaluation status in `calibration_report.json` | `ds_msp/rig/accuracy.py`, `ds_msp/rig/report.py`, `ds-msp-calibrate-rig --init-accuracy-profile` | FR-RIG-024 |
-| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; read-only `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
+| IFC-13 | DS-MSP Studio | CLI + HTTP JSON API | `ds-msp studio --root DIR` / `--open DIR`, `ds-msp-calibrate-rig --studio`; `GET /api/runs`, `/api/run?id=`, `/api/run/diagnostics?id=&cam=`, `/api/run/file?id=&name=`, `/api/schema/rig-config`; run document schema `ds-msp-studio-run` v1 | `ds_msp/studio`, `ds_msp/rig/config_schema.py`, `ds_msp/rig/cli.py`, `web/` | FR-UI-001..006 |
 
 ## Stability & conventions
 
@@ -47,12 +47,13 @@ in an optional parallel `pixel_covariances` sequence, and a top-level `pixel_con
 (`pixel_center`; readers accept `keypoints_pixel_convention: opencv4_charuco` to migrate
 unlabeled caches written by earlier DS-MSP on OpenCV 4.x). Rig configuration adds
 `structure_mode` (`rigid` default, `bend`, `free`, `off`; legacy `refine_structure: true` means
-`free`), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
+`free`; `bend` is the one mode that also acts on a single-board target), `structure_prior_sigma` (target units, free mode), `frame_pattern` (regex with a
 `frame` group), `accuracy_gate` (`off` or `refuse`), `uncertainty_gate` (`off`, `warn`, `refuse`)
 with `max_rotation_sigma_deg` / `max_centre_sigma`, `convergence_gate` (`off`, `warn`,
 `refuse`; judges the final BA stage), `coverage_gate` (`off`, `warn`, `refuse`) with
 `min_camera_coverage` (default 0.75; the share of each camera's corners within the GNC-TLS inlier
-band), `reject_outliers`, `lens_gate` and `crossval_gate` (`off`, `warn`, `refuse`; `crossval_gate` is `off`
+band), `reject_outliers`, `exclude_views` (a list of `cam:frame` or `cam:frame:board` entries left
+out before the target is built; `acceptance.json` records those that matched as `excluded_views`), `lens_gate` and `crossval_gate` (`off`, `warn`, `refuse`; `crossval_gate` is `off`
 by default and under production) with
 `max_lens_sigma_px` (default `noise_bound`, else 1 px), and `profile`
 (`default` or `production`; production sets the audit, uncertainty, convergence and lens gates to
@@ -111,7 +112,10 @@ than localhost a token is generated when none is given, and the printed URL carr
 a child process until Ctrl+C and exits with the calibration's own code; without the `ui` extra it
 prints the install command instead. The library never imports `ds_msp.studio`.
 
-The API is read-only and versioned by `api_version` in `GET /api/health`:
+`--read-only` leaves out everything that writes: Studio then only shows results.
+
+The API is versioned by `api_version` in `GET /api/health`, which also reports `can_run`
+(false under `--read-only`). Reading results:
 
 - `GET /api/runs`: one summary per result folder (`id`, `path`, `created_utc`, `n_cameras`,
   `models`, `fit_level`, `median_px`, `p95_px`, `solver_status`, `n_weak`, `lens_failed`).
@@ -129,4 +133,101 @@ The API is read-only and versioned by `api_version` in `GET /api/health`:
   `pattern` (answer, error by distance from the centre, 6 x 4 region means), `lens` (the 24 x 18
   grid and its `zones`), `outliers`. Files outside the result folder are ignored.
 - `GET /api/run/file?id=&name=`: one of the known result files, by name only.
-- `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002).
+- `GET /api/schema/rig-config`: the JSON Schema of `calib_param.yml` (FR-UI-002). `x-profiles`
+  gives, per `profile` value, the defaults that profile uses in place of each property's own.
+\n
+A result on its own capture (FR-UI-009):
+
+- `GET /api/run/scene?id=`: the target's boards (points, outline) and its 4x4 pose in every
+  frame, in the reference camera's frame; `photos` says how photos are matched to frames.
+- `GET /api/run/errors?id=`: how far the corners of a result lie from where its calibration
+  expects them: `n`, `median_px`, `max_px`, `grid_px` (161 distances from 0.01 px to 100 px),
+  `above` (corners further than each), and at most 400 error vectors `dx`, `dy` that include
+  the 60 largest.
+- `GET /api/run/frames?id=&cam=` and `GET /api/run/frame?id=&cam=&frame=`: per-photo error
+  summaries, and one photo's corners with the step to their predicted position.
+- `GET /api/run/photo?id=&cam=&frame=&w=`: that photo as a JPEG no wider than `w`; 404 unless
+  it lies under a root.
+- `GET /api/run/pair?id=&a=&b=`: distance, position and yaw, pitch, roll of camera `b` seen
+  from `a`, with the recorded 1-sigma.
+- `GET /api/run/precision?id=&rotation=&centre=`: the gap between the result's camera-pair
+  uncertainty and the limits (FR-UI-022): `ok`, `limits` and `from_run`, `n_pairs`, `n_over`,
+  `n_undetermined`, the worst pairs first in `rows` (at most 12), `worst_rotation`,
+  `worst_centre`, and `frames_needed` and `times`, the frames of the same kind needed. A limit
+  not given falls back to the run's own.
+- `GET /api/run/task?id=&a=&b=&distance=&pixel_noise=`: 1-sigma uncertainty, sideways and in
+  depth, of a point the two cameras triangulate, and the same over a range of distances.
+
+Other starting points and repeats (FR-UI-010):
+
+- `GET /api/source/config?path=`, `/api/source/keypoints?path=`, `/api/source/intrinsics?path=`:
+  a `calib_param.yml` on disk as form values, and summaries of a saved-detections file and of
+  a lens file. The path must lie under a root.
+- `GET /api/run/fingerprint?id=`: what the run's manifest records. `GET
+  /api/run/fingerprint/check?id=` re-hashes its inputs and lists those that changed.
+- `POST /api/jobs/repeat` `{id, root, name}`: runs the recorded config and overrides into a new
+  folder. The job's document then carries `repeat_of` and, once done, `repeat` (`same` and one
+  row per compared digest or file).
+
+Checks before a run (FR-UI-011):
+
+- `POST /api/photos/lens-advice` `{values, cam}`: one camera's measured field of view and
+  whether its chosen lens type fits (`verdict`: `ok`, `misfit`, `caution`, `unknown`).
+- `POST /api/photos/lens-health` `{values, cam}`: whether the lens file's values for that
+  camera explain its photos. Both lens routes read up to 12 board views of the camera from
+  `keypoints_path` when `values` has no `root_path`; `source` says which was used
+  (`sample photos` or `saved detections`).
+- `POST /api/capture/history` `{values}`: earlier results made from the same photo folder and
+  `reusable`, the newest whose detections fit. `POST /api/jobs` takes `reuse` (that id).
+
+Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
+
+- `GET /api/browse?ref=`: one folder, with its subfolders (image count, whether it is a result)
+  and its `.yml`/`.yaml`/`.json` files; without `ref`, the roots and, as `places`, the home
+  folder and the whole computer. `anywhere` says whether folders outside the roots can be opened
+  (`ref` `abs:<full path>`): true when Studio is bound to this computer, not read-only and not
+  started with `--only-roots`. A generated token then guards every request.
+  A subfolder this account may not open is listed with `locked: true`. Any request for a path
+  this account may not read answers 403 with that path, not 500.
+- `POST /api/roots/add` `{path}`: serves one more folder for the session (only when `anywhere`):
+  its results are listed and new results can be saved in it. Returns `index` and `path`.
+- `POST /api/photos/scan` `{root_path, cam_prefix?, frame_pattern?}`: the cameras found in the
+  layout the calibration reads, image sizes, shared frame count, `problems`, and `found`: the
+  settings, lens and corner files directly in that folder (`name`, `path`, `kind`).
+- `POST /api/photos/find-board` `{values}`: reads the board size from the ArUco markers in about
+  48 photos: `ok`, `number_x_square`, `number_y_square`, `boards_seen`, `markers`, `photos`,
+  `message`. `ok` is false when no whole board is seen at least twice; the size is not guessed.
+  `marker_fill` is the marker width over the square width measured in the same photos, from
+  `marker_fill_pairs` pairs of markers that touch at a corner; it is `null` below 20 pairs or
+  when the readings disagree, and is given whether or not the size was settled.
+- `GET /api/photos/thumb?path=&cam=&photo=&prefix=`: one photo of one camera of a photo folder
+  under a root, as a JPEG at most 640 pixels wide.
+- `POST /api/photos/lineup` `{root_path, folders}`: links the subfolders `folders`, in that order,
+  as `Cam_001`, `Cam_002`, ... and returns the linked folder as `{root_path}`. The subfolders are
+  not changed. `POST /api/photos/scan` also returns `folders`, `needs_lineup`, `notes` and, for a
+  linked folder, `lineup`. `GET /api/photos/folder-thumb?path=&folder=`: the first photo of one
+  subfolder.
+- `POST /api/lens/values` `{cameras}`: writes typed lens values, one entry per camera with `model`,
+  `width`, `height` and that model's parameters, as a lens file, and returns it as
+  `GET /api/source/intrinsics` does.
+- `POST /api/photos/check-board` `{values}`: detects the configured board in up to 4 photos per
+  camera. Each camera's `sample` names the tried photo with the most corners and gives their
+  pixels, for drawing them on it.
+- `POST /api/config/check` `{values}`: checks form values against the schema, the roots and
+  the CLI's own loader; returns `ok`, `problems`, `warnings` and the `yaml` that would be written.
+- `POST /api/config/import` `{text}` and `GET /api/config?id=`: the schema keys set in a
+  `calib_param.yml` (uploaded text, or the one in a result folder), with `unknown` keys listed.
+  For a result folder without one, the config its manifest records is read with the recorded
+  `--set` values applied, only when it lies under a root; `changed` says that file no longer has
+  the recorded SHA-256. `save_path` and `webviewer` are left out.
+- `POST /api/jobs` `{root, name, values}`: creates `<root>/<name>/`, writes `calib_param.yml`
+  there and queues `python -m ds_msp.rig.cli --config <that file> --no-webviewer --progress-file
+  ...`. `GET /api/jobs`, `GET /api/job?id=` (state, progress summary, last output lines) and
+  `POST /api/job/cancel` `{id}` follow and stop it. States: `queued`, `running`, `done`,
+  `failed`, `cancelled`, `interrupted`. Jobs run one at a time.
+
+`values` holds only the keys the user set; a key left out keeps the loader's default, so a
+`profile` can still raise it. Path values must lie under a root. A POST must carry the header
+`x-dsmsp-studio: 1` and, when the browser sends `Origin`, come from the server's own address;
+when Studio is bound to a local address it answers only requests addressed to `127.0.0.1`,
+`localhost` or `::1`.

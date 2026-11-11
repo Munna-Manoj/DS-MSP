@@ -38,7 +38,7 @@ export function Evidence({ runId, cam, available }: { runId: string; cam: string
 function Frame({ w, h, children, label }: { w: number; h: number; children: React.ReactNode; label: string }) {
   return (
     <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}
-      className="w-full h-auto rounded border border-s-line bg-s-sunken">
+      className="w-full h-auto rounded border border-s-rule bg-s-sunken">
       {children}
     </svg>
   );
@@ -264,7 +264,7 @@ function FramesCard({ d }: { d: CameraDiagnostics }) {
             </thead>
             <tbody>
               {f.map((x) => (
-                <tr key={x.frame} className="border-t border-s-line">
+                <tr key={x.frame} className="border-t border-s-rule">
                   <td className="py-1 font-studio-mono">{x.frame}</td>
                   <td className="py-1 text-right">{px(x.rms_px)}</td>
                   <td className="py-1 text-right">{px(x.max_px, 1)}</td>

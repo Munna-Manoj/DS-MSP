@@ -18,6 +18,8 @@ Nine recipes are available now:
 - [Read/write Kalibr YAML](read_write_kalibr.md) — load a Kalibr camchain into DS-MSP and write a model back out as Kalibr YAML.
 - [Reproduce and audit a rig calibration](reproduce_rig_calibration.md) — verify immutable inputs,
   replay a calibration safely, interpret mismatches, and retain production evidence.
+- [Calibrate a rig in DS-MSP Studio](calibrate_a_rig_in_studio.md) — set up a rig calibration
+  in a browser, start it, watch it run and open its result, with no config file to write.
 - [View rig results in DS-MSP Studio](view_rig_results_in_studio.md) — open a rig calibration
   in a browser: a verdict, the next steps, and per camera where the errors are and where the
   lens can be trusted.

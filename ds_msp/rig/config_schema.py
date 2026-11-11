@@ -88,6 +88,9 @@ PROPERTIES: Dict[str, Dict[str, Any]] = {
                      "<prefix>001."),
     "keypoints_path": _p(_OPT_STR, None, "images", "Pre-detected keypoints file; empty to "
                          "detect the boards in the images.", level="expert"),
+    "exclude_views": _p("array", [], "images", "Views to leave out, as cam:frame or "
+                        "cam:frame:board (camera counted from 0; frame and board numbers as in "
+                        "the result files).", level="expert", items={"type": _STR}),
     "frame_pattern": _p(_OPT_STR, None, "images", "Regex whose group 'frame' is the frame "
                         "number in a file name.", level="expert"),
     "keypoints_pixel_convention": _p(_OPT_STR, None, "images", "Pixel convention of a "
@@ -106,7 +109,8 @@ PROPERTIES: Dict[str, Dict[str, Any]] = {
                       level="expert", enum=[0, 1]),
     "noise_bound": _p(_OPT_NUM, 1.0, "solver", "Expected corner noise in pixels; also the "
                       "default lens limit.", level="expert"),
-    "structure_mode": _p(_STR, "rigid", "solver", "Target refinement: rigid, bend, free or off.",
+    "structure_mode": _p(_STR, "rigid", "solver", "Target refinement: rigid, bend, free or off. "
+                         "bend also measures the bow of a single board.",
                          level="expert", enum=["rigid", "bend", "free", "off"]),
     "refine_structure": _p(_BOOL, False, "solver", "Legacy: true means structure_mode free.",
                            level="expert"),
@@ -162,7 +166,12 @@ GROUPS = [
 
 
 def config_schema() -> Dict[str, Any]:
-    """The JSON Schema (draft 2020-12) of ``calib_param.yml``, with form hints."""
+    """The JSON Schema (draft 2020-12) of ``calib_param.yml``, with form hints.
+
+    ``x-profiles`` gives, per ``profile`` value, the defaults that profile uses in place of the
+    ``default`` of each property, so a form can show what an untouched key will do."""
+    from .calib_param import _PRODUCTION
+
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": f"{SCHEMA_ID}/v{SCHEMA_VERSION}",
@@ -171,5 +180,6 @@ def config_schema() -> Dict[str, Any]:
         "required": ["number_camera"],
         "properties": {k: dict(v) for k, v in PROPERTIES.items()},
         "x-groups": [dict(g) for g in GROUPS],
+        "x-profiles": {"production": dict(_PRODUCTION)},
         "x-schema-version": SCHEMA_VERSION,
     }

@@ -35,7 +35,7 @@ export function TechDetails({ doc }: { doc: RunDoc }) {
               <table className="text-sm tnum">
                 <tbody>
                   {stages.map((s, i) => (
-                    <tr key={`${s.stage}-${i}`} className="border-t border-s-line">
+                    <tr key={`${s.stage}-${i}`} className="border-t border-s-rule">
                       <td className="pr-4 py-1 font-studio-mono text-xs">{s.stage}</td>
                       <td className="pr-4 py-1">{s.status?.toLowerCase().replace(/_/g, " ")}</td>
                       <td className="pr-4 py-1 text-right text-s-muted">{s.iterations} it</td>

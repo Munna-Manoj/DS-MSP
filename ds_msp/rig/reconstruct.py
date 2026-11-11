@@ -45,6 +45,10 @@ from .types import BoardObs, Object3D, ObjectObs
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
 
+class NoBoardDetected(ValueError):
+    """Detection found the configured boards in no image: nothing to reconstruct from."""
+
+
 def _T_from_rt(rvec, tvec) -> np.ndarray:
     T = np.eye(4)
     T[:3, :3] = cv2.Rodrigues(np.asarray(rvec, float))[0]
@@ -328,7 +332,10 @@ def reconstruct_objects(board_obs: List[BoardObs], specs: List[BoardSpec],
     smallest board id) and ``object_id`` is reassigned to the sorted index. ``init_models``
     resects each board with the camera's native model (see :func:`_resect_boards`).
 
-    Raises ``ValueError`` if no board resects successfully."""
+    Raises :class:`NoBoardDetected` when there is no detection at all, and ``ValueError`` if no
+    board resects successfully."""
+    if not board_obs:
+        raise NoBoardDetected("no board was detected in any image")
     board_points = _resect_boards(board_obs, specs, img_size, init_models, model_spec)
     valid = [o for o in board_obs if o.valid and o.T_c_b is not None]
     objects = build_objects(valid, board_points)
@@ -480,17 +487,24 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
                                     min_corners: int = 6,
                                     init_models: Optional[Dict[int, object]] = None,
                                     progress_cb=None, frame_pattern: Optional[str] = None,
-                                    model_spec: Optional[Dict[int, object]] = None
+                                    model_spec: Optional[Dict[int, object]] = None,
+                                    exclude: Optional[set] = None
                                     ) -> Tuple[List[Object3D], List[ObjectObs],
                                                Dict[int, Tuple[int, int]]]:
     """Raw image folder -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
     keeping every covisibility component (see :func:`reconstruct_objects`). Multi-object
     analogue of :func:`reconstruct_from_images`. ``init_models`` resects boards with the
-    native per-camera model; ``progress_cb`` is forwarded to :func:`detect_board_obs_images`."""
+    native per-camera model; ``progress_cb`` is forwarded to :func:`detect_board_obs_images`.
+    ``exclude`` (:func:`ds_msp.rig.exclude.parse_exclusions`) is a set of views or boards to
+    leave out before the target is built; the entries that matched are removed from it."""
     board_obs, img_size = detect_board_obs_images(
         root_path, cam_ids, specs, cam_prefix=cam_prefix, legacy=legacy,
         min_corners=min_corners, progress_cb=progress_cb,
         frame_pattern=frame_pattern)
+    if exclude:
+        from .exclude import drop_board_obs
+        board_obs, used = drop_board_obs(board_obs, exclude)
+        exclude -= used                                  # what is left matched nothing
     objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models,
                                        model_spec=model_spec)
     return objects, obs, img_size
@@ -499,7 +513,8 @@ def reconstruct_objects_from_images(root_path: str, cam_ids: List[int], specs: L
 def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpec], *,
                                        init_models: Optional[Dict[int, object]] = None,
                                        pixel_convention: Optional[str] = None,
-                                       model_spec: Optional[Dict[int, object]] = None
+                                       model_spec: Optional[Dict[int, object]] = None,
+                                       exclude: Optional[set] = None
                                        ) -> Tuple[List[Object3D], List[ObjectObs],
                                                   Dict[int, Tuple[int, int]]]:
     """Pre-detected keypoints -> ``(objects, object_obs, img_size)`` for a multi-*object* rig,
@@ -507,6 +522,10 @@ def reconstruct_objects_from_keypoints(keypoints_path: str, specs: List[BoardSpe
     :func:`reconstruct_from_keypoints`. ``init_models`` resects boards with the native
     per-camera model (see :func:`reconstruct_objects`)."""
     board_obs, img_size = detect_board_obs_keypoints(keypoints_path, pixel_convention)
+    if exclude:
+        from .exclude import drop_board_obs
+        board_obs, used = drop_board_obs(board_obs, exclude)
+        exclude -= used
     objects, obs = reconstruct_objects(board_obs, specs, img_size, init_models=init_models,
                                        model_spec=model_spec)
     return objects, obs, img_size

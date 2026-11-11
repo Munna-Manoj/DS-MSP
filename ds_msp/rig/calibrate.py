@@ -678,7 +678,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     ``structure_mode`` selects the multi-board target refinement (stage d): ``"rigid"``
     (default) refines each non-reference board's 6-DOF pose in the fused object with its
     printed shape held; ``"bend"`` adds a 3-parameter quadratic out-of-plane bow per board for
-    physically warped targets; ``"free"`` moves every object point (MC-Calib ``refineObject``; can
+    physically warped targets, and is the one mode that also acts on a single-board target (its
+    bow is then the only target parameter); ``"free"`` moves every object point (MC-Calib ``refineObject``; can
     absorb detector bias — pair it with ``structure_prior_sigma``); ``"off"`` freezes the
     PnP-averaged inter-board poses from :func:`~.object3d.build_objects`. The legacy
     ``refine_structure=True`` means ``"free"`` when ``structure_mode`` is not given.
@@ -857,13 +858,16 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
     #        reference board), alternating with a light joint polish.
     multi_board = (any(len(o.board_ids) > 1 for o in rig.objects.values())
                    if structure_mode in ("rigid", "bend") else len(obj.board_ids) > 1)
-    if structure_mode in ("rigid", "bend") and multi_board:
+    # A single board has no inter-board pose to refine, but it can bow like any other: "bend"
+    # runs this stage for it too, with the bow as the only target parameters.
+    bend = structure_mode == "bend"
+    if structure_mode in ("rigid", "bend") and (multi_board or bend):
         if on_iter is not None and hasattr(on_iter, "set_stage"):
             on_iter.set_stage(f"(d) {structure_mode} board-pose refinement")
         n0 = len(stages)
         rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto", refine_boards=True,
-                            bend_boards=structure_mode == "bend", verbose=verbose,
+                            bend_boards=bend, verbose=verbose,
                             on_iter=on_iter, log=stages)
         _label(f"d_{structure_mode}_boards", n0)
     elif structure_mode == "free" and multi_board:
@@ -899,8 +903,8 @@ def calibrate_rig(obj: Object3D, object_obs: List[ObjectObs],
         n0 = len(stages)
         rig = bundle.refine(rig, object_obs, fix_intrinsics=fix_intrinsics,
                             robust_kernel="cauchy", robust_scale="auto",
-                            refine_boards=multi_board and structure_mode in ("rigid", "bend"),
-                            bend_boards=multi_board and structure_mode == "bend",
+                            refine_boards=(multi_board or bend) and structure_mode in ("rigid", "bend"),
+                            bend_boards=bend,
                             noise_bound=noise_bound, gnc_iters=gnc_iters, gnc_start=gnc_start,
                             verbose=verbose,
                             on_iter=on_iter, log=stages)

@@ -99,15 +99,17 @@ def _report_and_exit_code(rig, scn, models, save_dir, *, pass_px, warn_px, html_
     return 0 if level in ("PASS", "WARN") else 1
 
 
-def _run_config(config_path, sets, *, pass_px, warn_px, report_path):
-    """MC-Calib-compatible single-file entry: parse calib_param.yml and run."""
+def _run_config(config_path, sets, *, pass_px, warn_px, report_path, progress_path=None):
+    """MC-Calib-compatible single-file entry: parse calib_param.yml and run. ``progress_path``
+    also writes the machine-readable progress log (:mod:`ds_msp.rig.progress`); it does not
+    enter the run manifest, since it changes nothing about the result."""
     from .calib_param import calibrate_from_config
     overrides = {}
     for kv in sets or []:
         k, _, v = kv.partition("=")
         overrides[k.strip()] = [s.strip() for s in v.split(",")] if k.strip() == "camera_models" \
             else v.strip()
-    res = calibrate_from_config(config_path, overrides or None)
+    res = calibrate_from_config(config_path, overrides or None, progress_path=progress_path)
     cfg = res["config"]
     print(f"=== {os.path.basename(config_path)}: {cfg.number_camera} cameras, "
           f"{cfg.number_board} board(s), {len(res['rig'].cameras)} calibrated ===")
@@ -234,6 +236,9 @@ def main():
                     help="suppress live per-stage progress (only the final report prints)")
     ap.add_argument("--no-webviewer", action="store_true",
                     help="don't launch the live browser 3D view (independent of --quiet)")
+    ap.add_argument("--progress-file", metavar="PATH", default=None,
+                    help="with --config: also write progress as JSON lines to PATH (stages, "
+                         "detection counts, solver iterations), for programs that follow a run")
     ap.add_argument("--studio", action="store_true",
                     help="when the calibration is done, open its result in DS-MSP Studio and "
                          "keep serving it until Ctrl+C (needs the ui extra)")
@@ -272,7 +277,7 @@ def main():
         if args.no_webviewer:
             sets.append("webviewer=false")
         res = _run_config(args.config, sets, pass_px=args.pass_px, warn_px=args.warn_px,
-                          report_path=args.report or None)
+                          report_path=args.report or None, progress_path=args.progress_file)
         if args.studio:
             _open_studio(res["config"].save_path, args.studio_port)
         raise SystemExit(res["exit_code"])

@@ -362,6 +362,9 @@ the target jointly with the cameras, keeping each board's printed shape. Use `"b
 target that may bow (foam or double-sided boards): it adds a three-parameter bow per board.
 `"bend"` is experimental: on MC-Calib Seq00/Seq04 it lowers the median held-out error, but
 pose fitting against the bowed target fails on about 2% of held-out frames.
+`"bend"` also acts on a target of one board, where the other modes change nothing: the board's
+bow is then the only target parameter, and `calibration_acceptance.json` reports it under
+`diagnostics.board_flatness`.
 `"free"` moves every target point and can absorb detector bias; with it, `structure_prior_sigma`
 sets a Gaussian prior in the target's length units (for millimetres, `0.1` means 0.1 mm),
 weighted at the measured corner noise. `"off"` keeps the averaged PnP inter-board poses.

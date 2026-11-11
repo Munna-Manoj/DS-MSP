@@ -103,11 +103,14 @@ export interface Acceptance {
   min_camera_coverage?: number;
   coverage?: Record<string, { coverage: number; n_observed: number }> | null;
   rejected_observations?: Record<string, unknown>[];
+  /** Views ("cam:frame" or "cam:frame:board") left out of this calibration on request. */
+  excluded_views?: string[];
   config_warnings?: string[];
   solver?: { final_stage?: string; final_status?: string;
     stages?: { stage: string; status: string; iterations: number; rms: number }[] } | null;
   extrinsic_uncertainty?: { units?: Record<string, string>; pairs?: Record<string, PairSigma>;
-    within_limits?: boolean | null } | null;
+    within_limits?: boolean | null;
+    limits?: { max_rotation_sigma_deg?: number | null; max_centre_sigma?: number | null } } | null;
   observability?: { n_weak: number; findings: AuditFinding[] } | null;
   lens_gate?: string;
   lens?: { limit_px: number; failed: string[]; cameras: Record<string, LensCam> } | null;
@@ -162,6 +165,20 @@ export interface CameraDiagnostics {
   } | null;
 }
 
+export interface PrecisionRow {
+  pair: string; rotation: number | null; centre: number | null; rotation_ratio: number | null;
+  centre_ratio: number | null; determined: boolean; over: boolean; worst_ratio: number | null;
+}
+
+export interface PrecisionDoc {
+  ok: boolean; reason?: string; frames?: number; from_run?: boolean;
+  limits?: { rotation: number | null; centre: number | null };
+  n_pairs?: number; n_over?: number; n_undetermined?: number; rows?: PrecisionRow[];
+  worst_rotation?: PrecisionRow | null; worst_centre?: PrecisionRow | null;
+  /** Photos of the same kind needed in total; null when within the limits or not estimable. */
+  frames_needed?: number | null; times?: number | null;
+}
+
 export interface RunDoc {
   schema: string;
   schema_version: number;
@@ -179,28 +196,345 @@ export interface RunDoc {
   files: { name: string; bytes: number }[];
   verdict?: Verdict;
   has_diagnostics?: boolean;
+  /** The folder holds the calib_param.yml it was calibrated with. */
+  has_config?: boolean;
 }
 
-async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(path, { credentials: "same-origin" });
+// -- a result on its own capture ---------------------------------------------------------------
+
+export interface SceneDoc {
+  boards: { id: number; points: number[][]; outline: number[][] }[];
+  /** T maps target coordinates into the reference camera's frame. */
+  frames: { frame: number; T: number[][] }[];
+  /** How photos are matched to frames: recorded in the result, assumed from file numbers, or none. */
+  photos: "recorded" | "assumed" | "none";
+}
+
+export interface FrameStat { frame: number; n: number; rms_px: number; max_px: number; n_outside: number; boards?: number[] }
+
+export interface FrameCorners {
+  cam: number; frame: number; n: number;
+  u: number[]; v: number[]; dx: number[]; dy: number[]; within: boolean[];
+  /** Index of each corner's board, and its number on that board. */
+  board?: number[]; corner?: number[];
+  photo: boolean;
+}
+
+export interface PairDoc {
+  ok: boolean; reason?: string;
+  distance: number; position: number[];
+  yaw_deg: number; pitch_deg: number; roll_deg: number; angle_deg: number;
+  rotation_sigma_deg: number | null; position_sigma: number | null;
+  /** How far from the first camera the boards were, in scene units. */
+  working_distance?: number | null;
+}
+
+export interface TaskDoc {
+  ok: boolean; reason?: string;
+  /** triangulate: both cameras locate the point. transfer: one camera's point handed to the other. */
+  mode: "triangulate" | "transfer";
+  distance: number; baseline: number; pixel_noise: number;
+  depth: number; sideways: number;
+  from_cameras: { depth: number; sideways: number };
+  from_pixels: { depth: number; sideways: number };
+  /** False when the run holds no lens uncertainty: any error in the lenses is not counted. */
+  lens_recorded?: boolean;
+  relation?: "each_other" | "apart" | "no_shared_view";
+  axes_deg?: number;
+  /** The second camera from above, in the first camera's frame: [x, z]. */
+  plan?: { b: [number, number]; axis: [number, number] };
+  curve?: { distance: number; depth: number; sideways: number }[];
+}
+
+// -- setting up and running a calibration -------------------------------------------------
+
+export interface SchemaProp {
+  type: string | string[];
+  default: unknown;
+  description: string;
+  enum?: unknown[];
+  minimum?: number;
+  items?: { type: string };
+  "x-group": string;
+  "x-level": "basic" | "expert";
+}
+
+export interface ConfigSchema {
+  properties: Record<string, SchemaProp>;
+  "x-groups": { id: string; title: string }[];
+  /** Per profile, the defaults it uses in place of each property's own default. */
+  "x-profiles"?: Record<string, Values>;
+}
+
+export type Values = Record<string, unknown>;
+export interface Problem { key: string; message: string }
+
+export interface BrowseDoc {
+  ref: string | null;
+  path: string | null;
+  name: string;
+  parent: string | null;
+  images: number;
+  dirs: { name: string; ref: string; path: string; images: number; result: boolean; locked?: boolean }[];
+  files: { name: string; path: string }[];
+  /** True when this Studio can open any folder on the computer. */
+  anywhere?: boolean;
+  places?: { name: string; ref: string; path: string }[];
+}
+
+export interface ScanDoc {
+  cam_prefix: string | null;
+  number_camera: number;
+  cameras: { index: number; folder: string; images: number; width: number | null;
+    height: number | null; frames: number }[];
+  shared_frames: number;
+  problems: string[];
+  /** Every subfolder, and whether it is proposed as a camera. */
+  folders: { name: string; images: number; proposed: boolean; reason: string;
+    width: number | null; height: number | null }[];
+  /** A folder with photos would not be used: the user must say which folder is which camera. */
+  needs_lineup: boolean;
+  notes: string[];
+  /** For a folder of links: the folder and subfolders it stands for. */
+  lineup: { root: string; cameras: { camera: string; folder: string }[] } | null;
+  /** Files in the same folder that a calibration can use. */
+  found?: { name: string; path: string; kind: "settings" | "lens" | "corners" }[];
+}
+
+export interface BoardCheck {
+  cameras: { index: number; folder: string; tried: number; found: number;
+    corners_max: number; corners_of: number;
+    /** The tried photo that showed the most corners, and where they were found in it. */
+    sample: { photo: number; file: string; width: number; height: number; corners: [number, number][]; boards?: number[] } | null }[];
+  found: number;
+  tried: number;
+  message: string;
+}
+
+/** The board size Studio read from the markers in a few photos. */
+export interface BoardGuess {
+  ok: boolean; number_x_square: number | null; number_y_square: number | null;
+  /** How many different boards appeared in the photos that were read. */
+  boards_seen: number; markers: number; photos: number; message: string;
+  /** Marker width over square width as measured in the photos; null when they do not settle it. */
+  marker_fill?: number | null;
+  /** How many pairs of touching markers the measurement rests on. */
+  marker_fill_pairs?: number;
+}
+
+export interface ConfigCheck {
+  ok: boolean;
+  problems: Problem[];
+  warnings: string[];
+  yaml: string;
+  values: Values;
+}
+
+export type JobState = "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
+
+export interface JobBrief {
+  id: string;
+  name: string;
+  state: JobState;
+  created_utc: string;
+  started_utc: string | null;
+  finished_utc: string | null;
+  exit_code: number | null;
+  error: string | null;
+  has_result: boolean;
+  queue_position: number | null;
+  /** The earlier result whose corner detections this calibration reuses. */
+  reused_from?: string | null;
+}
+
+export interface JobProgress {
+  phase: "starting" | "detecting" | "solving" | "saving" | "done";
+  stage: string | null;
+  stage_index: number;
+  stages: { name: string; t: number }[];
+  detect: Record<string, [number, number]> | null;
+  save: Record<string, [number, number]> | null;
+  iter: { it: number; max_iter: number; rms: number | null; cost: number | null } | null;
+  elapsed: number | null;
+  history: [number, number][];
+  scene?: { cameras: number; observations: number };
+  final_rms?: number | null;
+}
+
+export interface RepeatCompare { ok: boolean; reason?: string; same?: boolean; rows?: { what: string; same: boolean }[] }
+
+export interface JobDoc extends JobBrief {
+  progress: JobProgress;
+  command: string;
+  log: string[];
+  /** Set on a job that repeats a result: its id, and once done whether it reproduced it. */
+  repeat_of?: string | null;
+  repeat?: RepeatCompare;
+}
+
+export interface KeypointsScan {
+  path: string;
+  number_camera: number;
+  number_board: number;
+  cameras: { index: number; width: number; height: number; frames: number; sightings: number; boards: number[] }[];
+  pixel_convention: string | null;
+  reused_target: string | null;
+  problems: string[];
+}
+
+export interface IntrinsicsScan {
+  path: string;
+  cameras: { index: number; model: string | null; fx: number; fy: number; cx: number; cy: number;
+    width: number | null; height: number | null }[];
+}
+
+export interface LensAdvice {
+  cam: number; views: number; chosen: string;
+  verdict: "ok" | "misfit" | "caution" | "unknown"; message: string; suggested: string | null;
+  fov_h_deg: number | null; measured_to_deg: number | null;
+  reference_px: number | null; chosen_px: number | null;
+}
+
+export interface LensHealth {
+  cam: number; verdict: "ok" | "misfit" | "unknown"; message: string;
+  given_px: number | null; reference_px: number | null; views: number;
+}
+
+/** How far a result's corners lie from where its calibration expects them. */
+export interface ErrorSpread {
+  n: number; median_px?: number; max_px?: number;
+  /** above[k] = corners further than grid_px[k] pixels. */
+  grid_px: number[]; above: number[];
+  dx: number[]; dy: number[];
+}
+
+export interface CaptureHistory {
+  root_path: string;
+  runs: { id: string; name: string; created_utc: string | null; n_cameras: number | null;
+    models: string[]; median_px: number | null; has_config: boolean;
+    reuse?: { ok: boolean; why: string } }[];
+  /** The newest earlier result whose corner detections fit the current settings. */
+  reusable: string | null;
+}
+
+export interface Fingerprint {
+  ok: boolean; reason?: string;
+  run_id?: string; created_utc?: string; configuration_sha256?: string;
+  config_path?: string; overrides?: string[];
+  n_inputs?: number; input_bytes?: number;
+  observations?: { n_corners?: number; n_observations?: number; sha256?: string } | null;
+  software?: { version?: string | null; commit?: string | null; dirty?: boolean | null };
+  python?: string | null;
+  can_repeat?: boolean;
+}
+
+export interface InputCheck {
+  ok: boolean; checked: number; same: boolean;
+  n_missing: number; n_changed: number; n_appeared: number;
+  missing: string[]; changed: string[]; appeared: string[];
+}
+
+/** An error from the API; `problems` names the settings at fault when the server listed them. */
+export class ApiError extends Error {
+  problems: Problem[];
+  constructor(message: string, problems: Problem[] = []) {
+    super(message);
+    this.problems = problems;
+  }
+}
+
+async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
+    let problems: Problem[] = [];
     try {
-      detail = (await res.json()).detail ?? detail;
+      const body = await res.json();
+      detail = body.detail ?? detail;
+      problems = body.problems ?? [];
     } catch {
       /* not JSON */
     }
-    throw new Error(`${res.status} ${detail}`);
+    throw new ApiError(typeof detail === "string" ? detail : `${res.status}`, problems);
   }
   return (await res.json()) as T;
 }
 
+async function getJSON<T>(path: string): Promise<T> {
+  return parse<T>(await fetch(path, { credentials: "same-origin" }));
+}
+
+// The header marks the request as sent by this page: the server refuses changes without it.
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  return parse<T>(await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", "x-dsmsp-studio": "1" },
+    body: JSON.stringify(body),
+  }));
+}
+
 export const api = {
-  health: () => getJSON<{ ok: boolean; version: string; api_version: number }>("api/health"),
+  health: () =>
+    getJSON<{ ok: boolean; version: string; api_version: number; can_run?: boolean }>("api/health"),
+  schema: () => getJSON<ConfigSchema>("api/schema/rig-config"),
+  browse: (ref: string | null) =>
+    getJSON<BrowseDoc>(ref == null ? "api/browse" : `api/browse?ref=${encodeURIComponent(ref)}`),
+  /** Serve one more folder: its results are listed and new results can be saved in it. */
+  addRoot: (path: string) => postJSON<{ index: number; path: string }>("api/roots/add", { path }),
+  scanPhotos: (root_path: string, cam_prefix?: string, frame_pattern?: string) =>
+    postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix, frame_pattern }),
+  stageLineup: (root_path: string, folders: string[]) =>
+    postJSON<{ root_path: string }>("api/photos/lineup", { root_path, folders }),
+  /** Turn lens values typed on the page into a lens file. */
+  lensValues: (cameras: Record<string, unknown>[]) => postJSON<IntrinsicsScan>("api/lens/values", { cameras }),
+  folderThumbUrl: (root: string, folder: string) =>
+    `api/photos/folder-thumb?path=${encodeURIComponent(root)}&folder=${encodeURIComponent(folder)}`,
+  checkBoard: (values: Values) => postJSON<BoardCheck>("api/photos/check-board", { values }),
+  findBoard: (values: Values) => postJSON<BoardGuess>("api/photos/find-board", { values }),
+  /** A scaled-down photo of one camera in a photo folder that has no result yet. */
+  thumbUrl: (root: string, cam: number, photo = 0, prefix?: string | null) =>
+    `api/photos/thumb?path=${encodeURIComponent(root)}&cam=${cam}&photo=${photo}${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ""}`,
+  checkConfig: (values: Values) => postJSON<ConfigCheck>("api/config/check", { values }),
+  importConfig: (text: string) =>
+    postJSON<{ values: Values; unknown: string[]; problems: Problem[] }>("api/config/import", { text }),
+  configOf: (id: string) =>
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string; changed?: boolean }>(
+      `api/config?id=${encodeURIComponent(id)}`),
+  sourceConfig: (path: string) =>
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string;
+      repointed?: { key: string; was: string; now: string }[]; missing?: { key: string; was: string }[] }>(
+      `api/source/config?path=${encodeURIComponent(path)}`),
+  runErrors: (id: string) => getJSON<ErrorSpread>(`api/run/errors?id=${encodeURIComponent(id)}`),
+  sourceKeypoints: (path: string) => getJSON<KeypointsScan>(`api/source/keypoints?path=${encodeURIComponent(path)}`),
+  sourceIntrinsics: (path: string) => getJSON<IntrinsicsScan>(`api/source/intrinsics?path=${encodeURIComponent(path)}`),
+  fingerprint: (id: string) => getJSON<Fingerprint>(`api/run/fingerprint?id=${encodeURIComponent(id)}`),
+  fingerprintCheck: (id: string) => getJSON<InputCheck>(`api/run/fingerprint/check?id=${encodeURIComponent(id)}`),
+  repeatJob: (id: string, root: number, name: string) => postJSON<JobDoc>("api/jobs/repeat", { id, root, name }),
+  jobs: () => getJSON<JobBrief[]>("api/jobs"),
+  job: (id: string) => getJSON<JobDoc>(`api/job?id=${encodeURIComponent(id)}`),
+  startJob: (root: number, name: string, values: Values, reuse?: string | null) =>
+    postJSON<JobDoc>("api/jobs", { root, name, values, reuse: reuse ?? undefined }),
+  lensAdvice: (values: Values, cam: number) => postJSON<LensAdvice>("api/photos/lens-advice", { values, cam }),
+  lensHealth: (values: Values, cam: number) => postJSON<LensHealth>("api/photos/lens-health", { values, cam }),
+  captureHistory: (values: Values) => postJSON<CaptureHistory>("api/capture/history", { values }),
+  cancelJob: (id: string) => postJSON<{ id: string; state: JobState }>("api/job/cancel", { id }),
   runs: () => getJSON<RunSummary[]>("api/runs"),
   run: (id: string) => getJSON<RunDoc>(`api/run?id=${encodeURIComponent(id)}`),
   diagnostics: (id: string, cam: string) =>
     getJSON<CameraDiagnostics>(`api/run/diagnostics?id=${encodeURIComponent(id)}&cam=${encodeURIComponent(cam)}`),
+  scene: (id: string) => getJSON<SceneDoc>(`api/run/scene?id=${encodeURIComponent(id)}`),
+  frames: (id: string, cam: string) =>
+    getJSON<{ cam: number; frames: FrameStat[] }>(`api/run/frames?id=${encodeURIComponent(id)}&cam=${cam}`),
+  frame: (id: string, cam: string, frame: number) =>
+    getJSON<FrameCorners>(`api/run/frame?id=${encodeURIComponent(id)}&cam=${cam}&frame=${frame}`),
+  photoUrl: (id: string, cam: string | number, frame: number, w = 1280) =>
+    `api/run/photo?id=${encodeURIComponent(id)}&cam=${cam}&frame=${frame}&w=${w}`,
+  pair: (id: string, a: string | number, b: string | number) =>
+    getJSON<PairDoc>(`api/run/pair?id=${encodeURIComponent(id)}&a=${a}&b=${b}`),
+  precision: (id: string, rotation: number | null, centre: number | null) =>
+    getJSON<PrecisionDoc>(`api/run/precision?id=${encodeURIComponent(id)}${rotation != null ? `&rotation=${rotation}` : ""}${centre != null ? `&centre=${centre}` : ""}`),
+  task: (id: string, a: string | number, b: string | number, distance: number, pixelNoise: number) =>
+    getJSON<TaskDoc>(`api/run/task?id=${encodeURIComponent(id)}&a=${a}&b=${b}&distance=${distance}&pixel_noise=${pixelNoise}`),
   fileUrl: (id: string, name: string) =>
     `api/run/file?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
 };
