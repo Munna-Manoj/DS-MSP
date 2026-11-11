@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import shlex
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..rig.config_schema import PROPERTIES
 
@@ -235,10 +235,10 @@ def load_check(config_path: Path) -> Dict[str, Any]:
     return {"ok": True, "error": None, "warnings": list(dict.fromkeys(notes))}
 
 
-def path_problems(values: Dict[str, Any], inside: Sequence[Path],
+def path_problems(values: Dict[str, Any], inside: Optional[Sequence[Path]],
                   skip: Sequence[str] = ()) -> List[Dict[str, str]]:
     """Path keys that point outside every folder in ``inside`` or at something that does not
-    exist. Studio only reads and writes under the folders it was started with."""
+    exist. ``inside`` is ``None`` for a Studio that may read anywhere on this computer."""
     out: List[Dict[str, str]] = []
     for key in PATH_KEYS:
         if key in skip or not values.get(key):
@@ -248,7 +248,7 @@ def path_problems(values: Dict[str, Any], inside: Sequence[Path],
             out.append({"key": key, "message": "must be a full path"})
             continue
         target = target.resolve()
-        if not any(target == root or root in target.parents for root in inside):
+        if inside is not None and not any(target == root or root in target.parents for root in inside):
             out.append({"key": key, "message": "is outside the folders Studio was started with"})
         elif not target.exists():
             out.append({"key": key, "message": "does not exist"})

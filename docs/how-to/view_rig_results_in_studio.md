@@ -106,11 +106,13 @@ error. Click a bar, drag along the strip, or press play; every view follows.
   0.05 px typical error, so a sub-pixel error can be seen. Short lines in all directions are
   good. **Shade where this lens was never checked** stripes the parts of the image no board ever
   covered.
-- **The rig in 3D.** The cameras and, in white, the board where it was in the selected photo.
+- **The rig in 3D.** The cameras and the boards where they were in the selected photo, each
+  outlined and named in its own colour, the same colour as on the photos.
   Click a second camera to measure to it: distance, position and yaw, pitch and roll, with how
   well each is known. **Show the uncertainty** makes each camera sway by its own uncertainty,
   enlarged until it is visible.
-- **What it means.** How exactly two cameras locate a point. Set the distance to the point and
+- **What it means.** For cameras that do not share a view, such as two facing each other, how
+  exactly a point known to one is placed for the other. Otherwise, how exactly two cameras locate a point. Set the distance to the point and
   how precisely your own detector finds it; the panel gives the uncertainty sideways and in
   depth, and how far out the pair stays within 1 mm.
 
@@ -131,7 +133,8 @@ The numbers under **What it means** count random error only, as the pair uncerta
 Real errors are usually larger.
 ///
 
-Photos show when they lie under a folder given with `--root`. A result written by an
+Photos show when Studio can read them: anywhere on this computer, or, with `--only-roots` or
+`--read-only`, under a folder given with `--root`. A result written by an
 earlier version does not record which photo is which frame; Studio then matches them by file
 number and says so.
 

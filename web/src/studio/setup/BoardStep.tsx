@@ -6,6 +6,7 @@ import type { BoardCheck, BoardGuess, Values } from "../api";
 import { api } from "../api";
 import type { Unit } from "../stage/units";
 import { Button, Callout, INPUT } from "../ui";
+import { boardColor, boardName } from "../stage/boards";
 import { TargetShape } from "../Teach";
 import { Explain, KeyTag, NumberBox, Range, Stepper, Toggle } from "./kit";
 
@@ -16,8 +17,10 @@ const list = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number) : []);
 const trim = (v: number) => Number(v.toPrecision(4)).toString();
 
 /** A photo of one camera with the corners Studio found drawn on it. */
-export function PhotoThumb({ src, width, height, corners, caption, tone }: {
+export function PhotoThumb({ src, width, height, corners, boards, caption, tone }: {
   src: string; width?: number | null; height?: number | null; corners?: [number, number][];
+  /** The board of each corner; colours the corners when given. */
+  boards?: number[];
   caption?: React.ReactNode; tone?: "ok" | "bad" | "plain";
 }) {
   const w = width || 4;
@@ -30,7 +33,7 @@ export function PhotoThumb({ src, width, height, corners, caption, tone }: {
         <img src={src} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
         {corners && corners.length > 0 && (
           <svg viewBox={`0 0 ${w} ${h}`} className="absolute inset-0 size-full" aria-hidden="true">
-            {corners.map(([u, v], k) => <circle key={k} cx={u} cy={v} r={r} fill="#34d399" stroke="#022c22" strokeWidth={r / 3} />)}
+            {corners.map(([u, v], k) => <circle key={k} cx={u} cy={v} r={r} fill={boards ? boardColor(boards[k]) : "#34d399"} stroke="#022c22" strokeWidth={r / 3} />)}
           </svg>
         )}
       </div>
@@ -290,10 +293,10 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
               <div className="grid gap-2">
                 {Array.from({ length: nb }, (_, k) => (
                   <div key={k} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-s-sunken px-3 py-2.5">
-                    <span className="text-base font-semibold w-20">Board {k + 1}</span>
-                    <Stepper id={`bx${k}`} label={`Squares across, board ${k + 1}`} value={Number.isFinite(perX[k]) ? perX[k] : nx} min={2} max={40} onChange={(v) => setRow(k, "x", v)} />
+                    <span className="text-base font-semibold w-20">Board {k}</span>
+                    <Stepper id={`bx${k}`} label={`Squares across, board ${k}`} value={Number.isFinite(perX[k]) ? perX[k] : nx} min={2} max={40} onChange={(v) => setRow(k, "x", v)} />
                     <span className="text-s-muted" aria-hidden="true">×</span>
-                    <Stepper id={`by${k}`} label={`Squares down, board ${k + 1}`} value={Number.isFinite(perY[k]) ? perY[k] : ny} min={2} max={40} onChange={(v) => setRow(k, "y", v)} />
+                    <Stepper id={`by${k}`} label={`Squares down, board ${k}`} value={Number.isFinite(perY[k]) ? perY[k] : ny} min={2} max={40} onChange={(v) => setRow(k, "y", v)} />
                     <span className="text-[15px] text-s-muted">squares, each</span>
                     <NumberBox id={`bs${k}`} value={Number.isFinite(perS[k]) ? perS[k] : size} unit={unit === "?" ? undefined : unit} onChange={(v) => setRow(k, "s", v)} width="w-36" />
                   </div>
@@ -350,9 +353,10 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
               {check.cameras.map((c) => (
                 <PhotoThumb key={c.index} src={api.thumbUrl(photos.root, c.index, c.sample?.photo ?? 0, photos.prefix)}
-                  width={c.sample?.width} height={c.sample?.height} corners={c.sample?.corners} tone={c.found > 0 ? "ok" : "bad"}
+                  width={c.sample?.width} height={c.sample?.height} corners={c.sample?.corners} boards={c.sample?.boards} tone={c.found > 0 ? "ok" : "bad"}
                   caption={<><b className="font-semibold">{c.folder}</b><span className={`block ${c.found > 0 ? "text-s-ok" : "text-s-bad"} font-medium`}>
-                    {c.found > 0 ? `${c.corners_max} of ${c.corners_of} corners found` : `not found in ${c.tried} photos`}</span></>} />
+                    {c.found > 0 ? `${c.corners_max} of ${c.corners_of} corners found` : `not found in ${c.tried} photos`}</span>
+                    {c.sample?.boards && <span className="block text-s-muted">{[...new Set(c.sample.boards)].sort((x, y) => x - y).map(boardName).join(", ")}</span>}</>} />
               ))}
             </div>
           )}
@@ -427,8 +431,8 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
                 <div className="flex flex-wrap gap-3">
                   {Array.from({ length: nb }, (_, k) => (
                     <div key={k} className="grid gap-1">
-                      <label htmlFor={`bi${k}`} className="text-[15px] font-medium">Board {k + 1} is number</label>
-                      <Stepper id={`bi${k}`} label={`Printed number of board ${k + 1}`} value={Number.isFinite(index[k]) ? index[k] : k} min={0} max={199}
+                      <label htmlFor={`bi${k}`} className="text-[15px] font-medium">Board {k} is number</label>
+                      <Stepper id={`bi${k}`} label={`Printed number of board ${k}`} value={Number.isFinite(index[k]) ? index[k] : k} min={0} max={199}
                         onChange={(v) => set("boards_index", Array.from({ length: nb }, (_, i) => (i === k ? v : Number.isFinite(index[i]) ? index[i] : i)))} />
                     </div>
                   ))}

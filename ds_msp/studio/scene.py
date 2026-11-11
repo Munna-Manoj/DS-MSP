@@ -41,7 +41,7 @@ def _residuals(folder: Path) -> Optional[Dict[str, np.ndarray]]:
 # -- frames and corners ----------------------------------------------------------------------
 def frame_list(folder: os.PathLike | str, cam: int) -> Dict[str, Any]:
     """Every frame in which camera ``cam`` saw the board, in capture order: corner count, RMS and
-    largest error in pixels, corners outside the inlier band."""
+    largest error in pixels, corners outside the inlier band, and the boards it saw there."""
     z = _residuals(Path(folder))
     if z is None:
         return {"cam": cam, "frames": []}
@@ -52,21 +52,25 @@ def frame_list(folder: os.PathLike | str, cam: int) -> Dict[str, Any]:
         fm = m & (z["frame"] == f)
         rf = r[fm]
         frames.append({"frame": int(f), "n": int(fm.sum()), "rms_px": float(np.sqrt(np.mean(rf ** 2))),
-                       "max_px": float(rf.max()), "n_outside": int((fm & ~z["within_band"]).sum())})
+                       "max_px": float(rf.max()), "n_outside": int((fm & ~z["within_band"]).sum()),
+                       "boards": sorted({int(b) for b in z["board"][fm]})})
     return {"cam": cam, "frames": frames}
 
 
 def frame_corners(folder: os.PathLike | str, cam: int, frame: int) -> Dict[str, Any]:
     """The corners of one photo: where each was detected (``u``, ``v``, pixel centres) and the
-    step to where the calibration predicts it (``dx``, ``dy`` = predicted minus detected)."""
+    step to where the calibration predicts it (``dx``, ``dy`` = predicted minus detected), with
+    the index of its board (``board``) and its number on that board (``corner``)."""
     z = _residuals(Path(folder))
     if z is None:
-        return {"cam": cam, "frame": frame, "n": 0, "u": [], "v": [], "dx": [], "dy": [], "within": []}
+        return {"cam": cam, "frame": frame, "n": 0, "u": [], "v": [], "dx": [], "dy": [], "within": [],
+                "board": [], "corner": []}
     m = (z["cam"] == cam) & (z["frame"] == frame) & z["valid"]
     return {"cam": cam, "frame": frame, "n": int(m.sum()),
             "u": np.round(z["u"][m], 2).tolist(), "v": np.round(z["v"][m], 2).tolist(),
             "dx": np.round(z["dx"][m], 4).tolist(), "dy": np.round(z["dy"][m], 4).tolist(),
-            "within": z["within_band"][m].tolist()}
+            "within": z["within_band"][m].tolist(),
+            "board": z["board"][m].astype(int).tolist(), "corner": z["corner"][m].astype(int).tolist()}
 
 
 #: Distances, in pixels, at which :func:`error_spread` counts the corners further out: 0.01 px
@@ -165,13 +169,16 @@ def photo_index(folder: os.PathLike | str) -> Dict[str, Any]:
 
 
 def photo_path(folder: os.PathLike | str, cam: int, frame: int,
-               inside: Sequence[Path]) -> Optional[Path]:
-    """The photo of ``(cam, frame)`` when it exists and lies under one of ``inside``."""
+               inside: Optional[Sequence[Path]]) -> Optional[Path]:
+    """The photo of ``(cam, frame)`` when it exists and lies under one of ``inside`` (``None``:
+    anywhere)."""
     raw = photo_index(folder)["index"].get((cam, frame))
     if not raw:
         return None
     path = Path(raw).resolve()
-    if not path.is_file() or not any(root == path or root in path.parents for root in inside):
+    if not path.is_file():
+        return None
+    if inside is not None and not any(root == path or root in path.parents for root in inside):
         return None
     return path
 
@@ -266,6 +273,12 @@ def _relative(T_a: np.ndarray, T_b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]
 
 def _so3_exp(w: np.ndarray) -> np.ndarray:
     return _rodrigues(w)
+
+
+#: Reasons of :func:`task_uncertainty` that mean the two cameras share no such point.
+_NO_SHARED_POINT = ("these two cameras face opposite ways",
+                    "at this distance the point is outside one camera's image",
+                    "the two views do not fix a point there")
 
 
 def task_uncertainty(folder: os.PathLike | str, a: int, b: int, distance: float,
@@ -373,23 +386,126 @@ def task_uncertainty(folder: os.PathLike | str, a: int, b: int, distance: float,
             "note": "random error only; the real error is usually larger"}
 
 
+def task_transfer(folder: os.PathLike | str, a: int, b: int, distance: float) -> Dict[str, Any]:
+    r"""1-sigma error of handing a point from camera ``a`` to camera ``b``.
+
+    Two cameras that do not share a view cannot locate a point together, but the calibration
+    still says where a point known to ``a`` lies for ``b``. The point is ``distance`` in front
+    of ``a``, on its viewing axis. With ``J`` the Jacobian of its coordinates in ``b`` in the
+    relative pose and ``P`` the recorded 6x6 pair covariance widened by the Student-t factor,
+    ``Cov = J P Jᵀ``. Returned along ``a``'s line of sight (``depth``) and across it
+    (``sideways``, the larger of the two). Only the error of the cameras' relative pose: the
+    error of the measurement made in ``a`` comes on top.
+
+    ``relation`` is ``each_other`` for cameras that face each other, ``apart`` for axes more
+    than 90 degrees apart otherwise, and ``no_shared_view`` for the rest; ``plan`` is ``b`` seen
+    from above in ``a``'s frame (``[x, z]`` of its centre and of its viewing axis)."""
+    folder = Path(folder)
+    report, acc = _json(folder / REPORT_FILE), _json(folder / ACCEPTANCE_FILE)
+    ext = {e["cam_id"]: np.asarray(e["T_c_ref"], float) for e in report.get("extrinsics") or []}
+    if a == b or a not in ext or b not in ext:
+        return {"ok": False, "reason": "choose two different cameras of this rig"}
+    if not (np.isfinite(distance) and distance > 0):
+        return {"ok": False, "reason": "the distance must be positive"}
+    unc = acc.get("extrinsic_uncertainty") or {}
+    pair = (unc.get("pairs") or {}).get(f"{min(a, b)}-{max(a, b)}")
+    if not pair or not pair.get("covariance"):
+        return {"ok": False, "reason": "this result has no uncertainty for that camera pair"}
+    lo, hi = min(a, b), max(a, b)                      # the covariance is of hi relative to lo
+    R0, C0 = _relative(ext[lo], ext[hi])
+    t_factor = float(unc.get("t_factor") or 1.0)
+    P = np.asarray(pair["covariance"], float) * t_factor ** 2
+    X = np.array([0.0, 0.0, float(distance)])
+
+    def in_b(d: np.ndarray) -> np.ndarray:
+        R, C = R0 @ _so3_exp(d[:3]), C0 + d[3:]
+        return R @ (X - C) if a == lo else R.T @ X + C
+
+    base = float(np.linalg.norm(C0))
+    h = np.r_[np.full(3, 1e-6), np.full(3, 1e-6 * max(base, 1e-9))]
+    J = np.zeros((3, 6))
+    for j in range(6):
+        e = np.zeros(6)
+        e[j] = h[j]
+        J[:, j] = (in_b(e) - in_b(-e)) / (2 * h[j])
+    cov = J @ P @ J.T
+    R_ab, C_b = _relative(ext[a], ext[b])
+    look = R_ab @ np.array([0.0, 0.0, 1.0])            # a's line of sight, in b's frame
+    Q = np.eye(3) - np.outer(look, look)
+    axis_b = R_ab.T @ np.array([0.0, 0.0, 1.0])        # b's viewing axis, in a's frame
+    in_front_of_b = float(axis_b @ -C_b) > 0
+    relation = ("no_shared_view" if axis_b[2] >= 0
+                else "each_other" if C_b[2] > 0 and in_front_of_b else "apart")
+    return {"ok": True, "mode": "transfer", "a": a, "b": b, "distance": float(distance),
+            "baseline": base, "depth": float(np.sqrt(max(look @ cov @ look, 0.0))),
+            "sideways": float(np.sqrt(max(np.linalg.eigvalsh(Q @ cov @ Q)[-1], 0.0))),
+            "relation": relation, "axes_deg": float(np.degrees(np.arccos(np.clip(axis_b[2], -1, 1)))),
+            "plan": {"b": [float(C_b[0]), float(C_b[2])], "axis": [float(axis_b[0]), float(axis_b[2])]},
+            "t_factor": t_factor, "note": "random error only; the real error is usually larger"}
+
+
+def task_answer(folder: os.PathLike | str, a: int, b: int, distance: float,
+                pixel_noise: float = 0.5) -> Dict[str, Any]:
+    """What the calibration means for this pair at ``distance``: a point located by both
+    cameras (:func:`task_uncertainty`, ``mode`` ``triangulate``) when they look the same way and
+    both see it, otherwise a point handed from one to the other (:func:`task_transfer`).
+    ``lens_recorded`` is false when the run holds no lens uncertainty, as with lenses kept fixed:
+    any error in those lenses is then not counted."""
+    report, acc = _json(Path(folder) / REPORT_FILE), _json(Path(folder) / ACCEPTANCE_FILE)
+    ext = {e["cam_id"]: np.asarray(e["T_c_ref"], float) for e in report.get("extrinsics") or []}
+    apart = False
+    if a in ext and b in ext and a != b:
+        R, _C = _relative(ext[a], ext[b])
+        apart = bool(R[2, 2] < 0)                      # viewing axes more than 90 degrees apart
+    doc = {"ok": False, "reason": _NO_SHARED_POINT[0]} if apart else task_uncertainty(folder, a, b, distance, pixel_noise)
+    if doc.get("ok"):
+        doc = {**doc, "mode": "triangulate"}
+    elif doc.get("reason") in _NO_SHARED_POINT:
+        doc = task_transfer(folder, a, b, distance)
+    doc["lens_recorded"] = acc.get("lens") is not None
+    return doc
+
+
 def task_curve(folder: os.PathLike | str, a: int, b: int, pixel_noise: float,
-               distances: Sequence[float]) -> List[Dict[str, Any]]:
-    """:func:`task_uncertainty` over several distances (points the cameras cannot both see
-    are left out)."""
+               distances: Sequence[float], mode: str = "triangulate") -> List[Dict[str, Any]]:
+    """:func:`task_uncertainty` or, for ``mode`` ``transfer``, :func:`task_transfer` over several
+    distances (points the cameras cannot both see are left out)."""
     out = []
     for d in distances:
-        r = task_uncertainty(folder, a, b, float(d), pixel_noise)
+        r = (task_transfer(folder, a, b, float(d)) if mode == "transfer"
+             else task_uncertainty(folder, a, b, float(d), pixel_noise))
         if r.get("ok"):
             out.append({"distance": r["distance"], "depth": r["depth"], "sideways": r["sideways"]})
     return out
+
+
+def working_distance(folder: os.PathLike | str, cam: int) -> Optional[float]:
+    """Median distance from camera ``cam`` to the middle of the boards it saw, or ``None`` when
+    the result does not record where the boards were."""
+    folder = Path(folder)
+    report = _json(folder / REPORT_FILE)
+    ext = {e["cam_id"]: np.asarray(e["T_c_ref"], float) for e in report.get("extrinsics") or []}
+    z = _residuals(folder)
+    if cam not in ext or z is None:
+        return None
+    scene = run_scene(folder)
+    points = {b["id"]: np.asarray(b["points"], float) for b in scene["boards"]}
+    seen = []
+    for f in scene["frames"]:
+        m = (z["cam"] == cam) & (z["frame"] == f["frame"]) & z["valid"]
+        boards = [points[int(b)] for b in np.unique(z["board"][m]) if int(b) in points]
+        if boards:
+            T = ext[cam] @ np.asarray(f["T"], float)
+            seen.append(float(np.linalg.norm(T[:3, :3] @ np.vstack(boards).mean(axis=0) + T[:3, 3])))
+    return float(np.median(seen)) if seen else None
 
 
 def pair_geometry(folder: os.PathLike | str, a: int, b: int) -> Dict[str, Any]:
     """How camera ``b`` sits relative to camera ``a``: distance between them, ``b``'s position
     in ``a``'s frame, and ``b``'s rotation as yaw (about a's down axis), pitch (about its right
     axis) and roll (about its viewing axis), degrees, applied in that order; with the recorded
-    1-sigma of the rotation and the position when the result has them."""
+    1-sigma of the rotation and the position when the result has them, and ``working_distance``,
+    how far from ``a`` the boards were."""
     report, acc = _json(Path(folder) / REPORT_FILE), _json(Path(folder) / ACCEPTANCE_FILE)
     ext = {e["cam_id"]: np.asarray(e["T_c_ref"], float) for e in report.get("extrinsics") or []}
     if a == b or a not in ext or b not in ext:
@@ -405,4 +521,5 @@ def pair_geometry(folder: os.PathLike | str, a: int, b: int) -> Dict[str, Any]:
     return {"ok": True, "a": a, "b": b, "distance": float(np.linalg.norm(C)),
             "position": C.tolist(), "yaw_deg": yaw, "pitch_deg": pitch, "roll_deg": roll,
             "angle_deg": angle, "rotation_sigma_deg": pair.get("rotation_sigma_deg_t"),
-            "position_sigma": pair.get("centre_sigma_t")}
+            "position_sigma": pair.get("centre_sigma_t"),
+            "working_distance": working_distance(folder, a)}

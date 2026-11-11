@@ -4,9 +4,10 @@
 // One camera selection and one timeline drive all three.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { href } from "../../router";
-import { api, type CameraDiagnostics, type FrameStat, type PairDoc, type RunDoc, type SceneDoc } from "../api";
+import { api, type CameraDiagnostics, type FrameStat, type PairDoc, type RunDoc, type SceneDoc, type TaskDoc } from "../api";
 import { camName, num } from "../format";
 import { STATE_LABEL, type CamStatus } from "../status";
+import { boardColor, boardName } from "./boards";
 import { MeaningStage } from "./MeaningStage";
 import { PhotoStage } from "./PhotoStage";
 import { Timeline } from "./Timeline";
@@ -40,6 +41,7 @@ export function Stage({ doc, runId, cam, statuses }: {
   const [wobble, setWobble] = useState(0);
   const [distance, setDistance] = useState<number | null>(null);
   const [pixelNoise, setPixelNoise] = useState(0.5);
+  const [meaningMode, setMeaningMode] = useState<TaskDoc["mode"]>("triangulate");
   const [unit, setUnit] = useUnit();
   const [marked, setMarked] = useState<string[]>(() => readMarked(runId));
 
@@ -89,7 +91,17 @@ export function Stage({ doc, runId, cam, statuses }: {
 
   const stretch = magnify ?? (size && typical ? Math.max(1, Math.round(size.width / 110 / Math.max(typical, 1e-3))) : 50);
   const baseline = pair?.distance ?? null;
-  const dist = distance ?? (baseline ? baseline * 5 : null);
+  // start at the distance the boards really were
+  const working = pair?.working_distance ?? null;
+  const dist = distance ?? working ?? (baseline ? baseline * 5 : null);
+  const sliderLow = baseline != null ? Math.min(baseline * 0.6, (working ?? baseline) * 0.25) : 0;
+  const sliderHigh = baseline != null ? Math.max(baseline * 40, (working ?? baseline) * 8) : 0;
+  // how many photos of this camera show each board
+  const boardCounts = useMemo(() => {
+    const seen = new Map<number, number>();
+    for (const f of frames) for (const b of f.boards ?? []) seen.set(b, (seen.get(b) ?? 0) + 1);
+    return [...seen.entries()].sort((a, b) => a[0] - b[0]);
+  }, [frames]);
   const current = frames.find((f) => f.frame === frame) ?? null;
   const viewKey = frame != null ? `${camNum}:${frame}` : null;
   const isMarked = viewKey != null && marked.includes(viewKey);
@@ -149,7 +161,7 @@ export function Stage({ doc, runId, cam, statuses }: {
             </Suspense>
           )}
           {mode === "meaning" && (other != null && dist != null
-            ? <MeaningStage runId={runId} a={cam} b={String(other)} distance={dist} pixelNoise={pixelNoise} unit={unit} />
+            ? <MeaningStage runId={runId} a={cam} b={String(other)} distance={dist} pixelNoise={pixelNoise} unit={unit} onMode={setMeaningMode} />
             : <div className="h-64 grid place-items-center text-sm text-slate-300 p-6 text-center">This needs two cameras: it shows how exactly the pair can locate a point.</div>)}
         </div>
 
@@ -165,7 +177,7 @@ export function Stage({ doc, runId, cam, statuses }: {
                   : <>Choose a photo on the timeline.</>}
               </Answer>
               <Control label={`Stretch the error ×${stretch}`}
-                help="Each line runs from where a corner was found (white dot) to where the calibration expects it (ring), stretched so you can see it. Short lines in all directions are good. Long lines that point the same way mean something is off.">
+                help="Each line runs from where a corner was found (coloured dot) to where the calibration expects it (ring), stretched so you can see it. Short lines in all directions are good. Long lines that point the same way mean something is off.">
                 <input type="range" min={0} max={3} step={0.01} value={Math.log10(stretch)} aria-label="Error magnification"
                   onChange={(e) => setMagnify(Math.max(1, Math.round(10 ** Number(e.target.value))))} className="w-full accent-sky-400" />
               </Control>
@@ -190,7 +202,14 @@ export function Stage({ doc, runId, cam, statuses }: {
                   </span>
                 </span>
               </label>
-              <Legend items={[["#34d399", "expected position, close"], ["#f87171", "expected position, far off"], ["#ffffff", "corner as found"]]} />
+              {boardCounts.length > 0 && (
+                <div className="grid gap-1.5">
+                  <div className="text-xs font-medium text-slate-200">Boards {camName(cam)} saw</div>
+                  <Legend items={boardCounts.map(([b, n]) => [boardColor(b), `${boardName(b)}: ${n} photo${n === 1 ? "" : "s"}`])} />
+                  <p className="text-xs text-slate-400 leading-relaxed">A corner's dot and the outline around it have the colour of its board. Numbers are the board index in the result files.</p>
+                </div>
+              )}
+              <Legend items={[["#34d399", "expected position, close"], ["#f87171", "expected position, far off"]]} />
             </>
           )}
           {mode === "rig" && (
@@ -230,16 +249,19 @@ export function Stage({ doc, runId, cam, statuses }: {
               <Answer>Move the sliders to your own task.</Answer>
               <PickCamera label="Second camera" value={other} onChange={setTo} cams={ext.map((e) => e.cam_id).filter((c) => c !== camNum)} />
               {baseline != null && dist != null && (
-                <Control label={`Distance to the point: ${length(dist, unit)}`} help="How far away the thing you measure is.">
-                  <input type="range" min={Math.log10(baseline * 0.6)} max={Math.log10(baseline * 40)} step={0.01} value={Math.log10(dist)}
+                <Control label={`Distance to the point: ${length(dist, unit)}`}
+                  help={meaningMode === "transfer" ? `How far in front of ${camName(cam)} the point is. It starts where your boards were.` : "How far away the thing you measure is. It starts where your boards were."}>
+                  <input type="range" min={Math.log10(sliderLow)} max={Math.log10(sliderHigh)} step={0.01} value={Math.log10(dist)}
                     aria-label="Distance to the point" onChange={(e) => setDistance(10 ** Number(e.target.value))} className="w-full accent-sky-400" />
                 </Control>
               )}
-              <Control label={`Finding the point in the image: ±${num(pixelNoise)} px`}
-                help="How precisely your own detector or matcher finds a point. A printed marker is about 0.1 px, a natural feature 0.5 to 1 px.">
-                <input type="range" min={0.05} max={2} step={0.05} value={pixelNoise} aria-label="Pixel noise of your detector"
-                  onChange={(e) => setPixelNoise(Number(e.target.value))} className="w-full accent-sky-400" />
-              </Control>
+              {meaningMode !== "transfer" && (
+                <Control label={`Finding the point in the image: ±${num(pixelNoise)} px`}
+                  help="How precisely your own detector or matcher finds a point. A printed marker is about 0.1 px, a natural feature 0.5 to 1 px.">
+                  <input type="range" min={0.05} max={2} step={0.05} value={pixelNoise} aria-label="Pixel noise of your detector"
+                    onChange={(e) => setPixelNoise(Number(e.target.value))} className="w-full accent-sky-400" />
+                </Control>
+              )}
               <UnitPicker unit={unit} onChange={setUnit} />
             </>
           )}

@@ -195,11 +195,13 @@ export interface SceneDoc {
   photos: "recorded" | "assumed" | "none";
 }
 
-export interface FrameStat { frame: number; n: number; rms_px: number; max_px: number; n_outside: number }
+export interface FrameStat { frame: number; n: number; rms_px: number; max_px: number; n_outside: number; boards?: number[] }
 
 export interface FrameCorners {
   cam: number; frame: number; n: number;
   u: number[]; v: number[]; dx: number[]; dy: number[]; within: boolean[];
+  /** Index of each corner's board, and its number on that board. */
+  board?: number[]; corner?: number[];
   photo: boolean;
 }
 
@@ -208,14 +210,24 @@ export interface PairDoc {
   distance: number; position: number[];
   yaw_deg: number; pitch_deg: number; roll_deg: number; angle_deg: number;
   rotation_sigma_deg: number | null; position_sigma: number | null;
+  /** How far from the first camera the boards were, in scene units. */
+  working_distance?: number | null;
 }
 
 export interface TaskDoc {
   ok: boolean; reason?: string;
+  /** triangulate: both cameras locate the point. transfer: one camera's point handed to the other. */
+  mode: "triangulate" | "transfer";
   distance: number; baseline: number; pixel_noise: number;
   depth: number; sideways: number;
   from_cameras: { depth: number; sideways: number };
   from_pixels: { depth: number; sideways: number };
+  /** False when the run holds no lens uncertainty: any error in the lenses is not counted. */
+  lens_recorded?: boolean;
+  relation?: "each_other" | "apart" | "no_shared_view";
+  axes_deg?: number;
+  /** The second camera from above, in the first camera's frame: [x, z]. */
+  plan?: { b: [number, number]; axis: [number, number] };
   curve?: { distance: number; depth: number; sideways: number }[];
 }
 
@@ -250,6 +262,9 @@ export interface BrowseDoc {
   images: number;
   dirs: { name: string; ref: string; path: string; images: number; result: boolean }[];
   files: { name: string; path: string }[];
+  /** True when this Studio can open any folder on the computer. */
+  anywhere?: boolean;
+  places?: { name: string; ref: string; path: string }[];
 }
 
 export interface ScanDoc {
@@ -259,13 +274,15 @@ export interface ScanDoc {
     height: number | null; frames: number }[];
   shared_frames: number;
   problems: string[];
+  /** Files in the same folder that a calibration can use. */
+  found?: { name: string; path: string; kind: "settings" | "lens" | "corners" }[];
 }
 
 export interface BoardCheck {
   cameras: { index: number; folder: string; tried: number; found: number;
     corners_max: number; corners_of: number;
     /** The tried photo that showed the most corners, and where they were found in it. */
-    sample: { photo: number; file: string; width: number; height: number; corners: [number, number][] } | null }[];
+    sample: { photo: number; file: string; width: number; height: number; corners: [number, number][]; boards?: number[] } | null }[];
   found: number;
   tried: number;
   message: string;
@@ -439,6 +456,8 @@ export const api = {
   schema: () => getJSON<ConfigSchema>("api/schema/rig-config"),
   browse: (ref: string | null) =>
     getJSON<BrowseDoc>(ref == null ? "api/browse" : `api/browse?ref=${encodeURIComponent(ref)}`),
+  /** Serve one more folder: its results are listed and new results can be saved in it. */
+  addRoot: (path: string) => postJSON<{ index: number; path: string }>("api/roots/add", { path }),
   scanPhotos: (root_path: string, cam_prefix?: string) =>
     postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix }),
   checkBoard: (values: Values) => postJSON<BoardCheck>("api/photos/check-board", { values }),
@@ -453,7 +472,8 @@ export const api = {
     getJSON<{ values: Values; unknown: string[]; problems: Problem[]; name: string; changed?: boolean }>(
       `api/config?id=${encodeURIComponent(id)}`),
   sourceConfig: (path: string) =>
-    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string }>(
+    getJSON<{ values: Values; unknown: string[]; problems: Problem[]; path: string;
+      repointed?: { key: string; was: string; now: string }[]; missing?: { key: string; was: string }[] }>(
       `api/source/config?path=${encodeURIComponent(path)}`),
   runErrors: (id: string) => getJSON<ErrorSpread>(`api/run/errors?id=${encodeURIComponent(id)}`),
   sourceKeypoints: (path: string) => getJSON<KeypointsScan>(`api/source/keypoints?path=${encodeURIComponent(path)}`),

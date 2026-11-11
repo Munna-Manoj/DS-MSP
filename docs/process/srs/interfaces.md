@@ -177,10 +177,16 @@ Checks before a run (FR-UI-011):
 
 Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read-only`):
 
-- `GET /api/browse?ref=`: one folder under the roots, with its subfolders (image count, whether
-  it is a result) and its `.yml`/`.yaml`/`.json` files; without `ref`, the roots.
+- `GET /api/browse?ref=`: one folder, with its subfolders (image count, whether it is a result)
+  and its `.yml`/`.yaml`/`.json` files; without `ref`, the roots and, as `places`, the home
+  folder and the whole computer. `anywhere` says whether folders outside the roots can be opened
+  (`ref` `abs:<full path>`): true when Studio is bound to this computer, not read-only and not
+  started with `--only-roots`. A generated token then guards every request.
+- `POST /api/roots/add` `{path}`: serves one more folder for the session (only when `anywhere`):
+  its results are listed and new results can be saved in it. Returns `index` and `path`.
 - `POST /api/photos/scan` `{root_path, cam_prefix?, frame_pattern?}`: the cameras found in the
-  layout the calibration reads, image sizes, shared frame count and `problems`.
+  layout the calibration reads, image sizes, shared frame count, `problems`, and `found`: the
+  settings, lens and corner files directly in that folder (`name`, `path`, `kind`).
 - `POST /api/photos/find-board` `{values}`: reads the board size from the ArUco markers in about
   48 photos: `ok`, `number_x_square`, `number_y_square`, `boards_seen`, `markers`, `photos`,
   `message`. `ok` is false when no whole board is seen at least twice; the size is not guessed.

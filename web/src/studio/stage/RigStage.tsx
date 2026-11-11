@@ -9,6 +9,7 @@ import { DoubleSide, type Group } from "three";
 import type { RunDoc, SceneDoc } from "../api";
 import { camName } from "../format";
 import { cameraStatus, camIds } from "../status";
+import { boardColor, boardName } from "./boards";
 import { length, type Unit } from "./units";
 
 type V3 = [number, number, number];
@@ -115,11 +116,12 @@ export default function RigStage({ doc, scene, frame, selected, from, to, onPick
   const board = useMemo(() => {
     const f = scene?.frames.find((x) => x.frame === frame);
     if (!scene || !f) return null;
-    return scene.boards.map((b) => {
+    return scene.boards.map((b, k) => {
       const q = b.outline.map((p) => toView(applyT(f.T, p)));
       const tri = new Float32Array([...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3]]);
       const dots = new Float32Array(b.points.flatMap((p) => toView(applyT(f.T, p))));
-      return { id: b.id, loop: [...q, q[0]], tri, dots };
+      // boards can share a plane (the two faces of one board): name each at a different corner
+      return { id: b.id, loop: [...q, q[0]], tri, dots, tag: q[k % 4] };
     });
   }, [scene, frame]);
 
@@ -174,7 +176,11 @@ export default function RigStage({ doc, scene, frame, selected, from, to, onPick
               </bufferGeometry>
               <meshBasicMaterial color="#f8fafc" transparent opacity={0.92} side={DoubleSide} />
             </mesh>
-            <Line points={bd.loop} color="#0f172a" lineWidth={1.5} />
+            <Line points={bd.loop} color={boardColor(bd.id)} lineWidth={3} />
+            <Html position={bd.tag} center zIndexRange={[15, 0]}>
+              <span className="pointer-events-none select-none whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-bold"
+                style={{ color: "#0f172a", background: boardColor(bd.id) }}>{boardName(bd.id)}</span>
+            </Html>
             <points>
               <bufferGeometry>
                 <bufferAttribute attach="attributes-position" count={bd.dots.length / 3} array={bd.dots} itemSize={3} />
@@ -197,7 +203,7 @@ export default function RigStage({ doc, scene, frame, selected, from, to, onPick
       </Canvas>
       <div className="absolute bottom-2 left-2 right-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-300 pointer-events-none">
         <span>Drag to turn, scroll to zoom. Click a camera to measure to it.</span>
-        {board ? <span>The white board is where the target was in the selected photo.</span> : <span>No board position is recorded for this photo.</span>}
+        {board ? <span>The boards are where the target was in the selected photo, each outlined in its colour.</span> : <span>No board position is recorded for this photo.</span>}
       </div>
     </div>
   );

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { href } from "../router";
 import { api, type JobBrief, type RunSummary } from "./api";
 import { int, num, when } from "./format";
-import { Badge, ErrorBox, Loading } from "./ui";
+import { FolderPicker } from "./FolderPicker";
+import { Badge, Button, ErrorBox, Loading } from "./ui";
 
 const JOB_LABEL: Record<JobBrief["state"], { label: string; tone: "info" | "plain" | "bad" | "warn" | "ok" }> = {
   queued: { label: "Waiting", tone: "plain" },
@@ -19,8 +20,11 @@ export function RunsPage() {
   const [query, setQuery] = useState("");
   const [jobs, setJobs] = useState<JobBrief[]>([]);
   const [canRun, setCanRun] = useState(false);
+  const [anywhere, setAnywhere] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
+    api.browse(null).then((d) => setAnywhere(d.anywhere === true), () => undefined);
     api.runs().then(setRuns, (e: Error) => setError(e.message));
     api.health().then((h) => setCanRun(h.can_run === true), () => undefined);
   }, []);
@@ -52,11 +56,20 @@ export function RunsPage() {
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 grid gap-6">
+      {picking && (
+        <FolderPicker mode="folder" title="Folder with calibration results" onClose={() => setPicking(false)}
+          onPick={(path) => {
+            setPicking(false);
+            setRuns(null);
+            api.addRoot(path).then(() => api.runs()).then(setRuns, (e: Error) => setError(e.message));
+          }} />
+      )}
       <div className="flex flex-wrap items-end gap-4">
         <div className="grid gap-1">
           <h1 className="text-2xl font-semibold">Calibration results</h1>
           <p className="text-s-muted text-sm">
-            Result folders found under the folders this Studio was started with.
+            {anywhere ? "Result folders Studio has found so far. Open another folder to add the results in it."
+              : "Result folders found under the folders this Studio was started with."}
           </p>
         </div>
         <input
@@ -67,6 +80,7 @@ export function RunsPage() {
           aria-label="Filter results"
           className="sm:ml-auto w-full sm:w-72 rounded-md border border-s-line bg-s-surface px-3 py-2 text-sm outline-none focus:border-s-accent"
         />
+        {anywhere && <Button onClick={() => setPicking(true)}>Open a folder of results</Button>}
         {canRun && (
           <a href={href({ page: "new" })}
             className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium whitespace-nowrap bg-s-accent text-white hover:opacity-90">

@@ -51,3 +51,14 @@ Options considered:
   not recorded rather than as failed.
 - Comparing two runs, launching runs and the second-capture validation step are not part of this
   decision's first version.
+
+## Update 2026-11-11: reading anywhere on this computer
+
+Point 6 limited every read to the folders given with `--root`. A user with photos elsewhere had to
+restart Studio to reach them, and could not choose a folder from the page.
+
+Studio bound to this computer, not read-only and not started with `--only-roots` can now browse
+and read any folder the user's account can read. Results are still written only under served
+folders, and the page can add one for the session. With this wider reach, any account on the same
+computer could otherwise reach those files through the port, so a token is generated in this mode
+too. Bound to another address, or read-only, Studio stays limited to its roots.

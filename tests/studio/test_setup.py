@@ -310,6 +310,7 @@ def test_board_check_returns_the_corners_and_thumbnails_stay_inside(tmp_path):
     doc = check_board(str(tmp_path), {"number_camera": 1, "number_x_square": 6, "number_y_square": 5})
     sample = doc["cameras"][0]["sample"]
     assert sample["width"] == 1600 and len(sample["corners"]) == 20 and sample["photo"] in (0, 1)
+    assert sample["boards"] == [0] * 20
     assert all(0 <= u < 1600 and 0 <= v < 1200 for u, v in sample["corners"])
     jpg = thumbnail(str(tmp_path), 0, sample["photo"])
     small = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_GRAYSCALE)

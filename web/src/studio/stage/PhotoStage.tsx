@@ -3,6 +3,36 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type CameraDiagnostics, type FrameCorners } from "../api";
 import { num } from "../format";
+import { boardColor, boardName } from "./boards";
+
+/** The convex hull of some points, in order. */
+function hull(pts: [number, number][]): [number, number][] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list: [number, number][]) => {
+    const out: [number, number][] = [];
+    for (const q of list) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
+      out.push(q);
+    }
+    out.pop();
+    return out;
+  };
+  return [...half(p), ...half([...p].reverse())];
+}
+
+/** Each board in a photo: an outline around its corners, a little larger, and where to name it. */
+function boardShapes(c: FrameCorners) {
+  const ids = [...new Set(c.board ?? [])].sort((a, b) => a - b);
+  return ids.map((id) => {
+    const pts = c.u.map((u, i) => [u, c.v[i]] as [number, number]).filter((_, i) => c.board![i] === id);
+    const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length, my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    const out = hull(pts).map(([x, y]) => [mx + (x - mx) * 1.16, my + (y - my) * 1.16] as [number, number]);
+    const top = out.reduce((a, p) => (p[1] < a[1] ? p : a), out[0]);
+    return { id, n: pts.length, out, top };
+  });
+}
 
 export function PhotoStage({ runId, cam, frame, size, magnify, showTrust, diagnostics, photos }: {
   runId: string; cam: string; frame: number | null; size: { width: number; height: number } | null;
@@ -55,6 +85,17 @@ export function PhotoStage({ runId, cam, frame, size, magnify, showTrust, diagno
               fill={z === "uncertain" ? "rgba(245,158,11,0.45)" : "url(#never)"} />
           );
         })}
+        {corners && boardShapes(corners).map((b) => {
+          const size = W / 62, w = size * 5.4, h = size * 1.55;
+          const x = Math.min(Math.max(b.top[0] - w / 2, 2), W - w - 2), y = Math.min(Math.max(b.top[1] - h - size * 0.3, 2), H - h - 2);
+          return (
+            <g key={b.id}>
+              <polygon points={b.out.map((p) => p.join(",")).join(" ")} fill="none" stroke={boardColor(b.id)} strokeWidth={r * 0.5} strokeLinejoin="round" />
+              <rect x={x} y={y} width={w} height={h} rx={h / 4} fill={boardColor(b.id)} />
+              <text x={x + w / 2} y={y + h * 0.74} textAnchor="middle" fontSize={size} fontWeight="700" fill="#0f172a">{boardName(b.id)}</text>
+            </g>
+          );
+        })}
         {corners && corners.u.map((u, i) => {
           const v = corners.v[i];
           const x2 = u + corners.dx[i] * magnify, y2 = v + corners.dy[i] * magnify;
@@ -62,9 +103,9 @@ export function PhotoStage({ runId, cam, frame, size, magnify, showTrust, diagno
           const color = corners.within[i] ? "#34d399" : "#f87171";
           return (
             <g key={i}>
-              <title>{`error ${num(err, 3)} px`}</title>
+              <title>{`${corners.board ? `${boardName(corners.board[i])}, corner ${corners.corner?.[i]}: ` : ""}error ${num(err, 3)} px`}</title>
               <line x1={u} y1={v} x2={x2} y2={y2} stroke={color} strokeWidth={r * 0.45} strokeLinecap="round" />
-              <circle cx={u} cy={v} r={r * 0.55} fill="#fff" stroke="#0f172a" strokeWidth={r * 0.18} />
+              <circle cx={u} cy={v} r={r * 0.55} fill={corners.board ? boardColor(corners.board[i]) : "#fff"} stroke="#0f172a" strokeWidth={r * 0.18} />
               <circle cx={x2} cy={y2} r={r} fill="none" stroke={color} strokeWidth={r * 0.4} />
             </g>
           );

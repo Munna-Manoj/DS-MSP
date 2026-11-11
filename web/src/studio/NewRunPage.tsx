@@ -80,6 +80,7 @@ export function NewRunPage({ from }: { from?: string }) {
   const [name, setName] = useState(defaultName);
   const [root, setRoot] = useState(0);
   const [roots, setRoots] = useState<{ name: string; path: string }[]>([]);
+  const [anywhere, setAnywhere] = useState(false);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -202,7 +203,7 @@ export function NewRunPage({ from }: { from?: string }) {
   useEffect(() => {
     api.health().then((h) => setCanRun(h.can_run !== false), () => undefined);
     api.schema().then(setSchema, (e: Error) => setFatal(e.message));
-    api.browse(null).then((d) => setRoots(d.dirs.map((x) => ({ name: x.name, path: x.path }))), () => undefined);
+    api.browse(null).then((d) => { setRoots(d.dirs.map((x) => ({ name: x.name, path: x.path }))); setAnywhere(d.anywhere === true); }, () => undefined);
   }, []);
 
   useEffect(() => {
@@ -298,6 +299,13 @@ export function NewRunPage({ from }: { from?: string }) {
   function pickFolder(path: string, ref: string) {
     const key = picker?.key ?? "root_path";
     setPicker(null);
+    if (key === "@save") {
+      api.addRoot(path).then(
+        (r) => api.browse(null).then((d) => { setRoots(d.dirs.map((x) => ({ name: x.name, path: x.path }))); setRoot(r.index); }),
+        (e: Error) => setStartError(e.message),
+      );
+      return;
+    }
     set(key, path);
     if (key === "root_path") {
       const k = Number(ref.split(":", 1)[0]);
@@ -306,12 +314,29 @@ export function NewRunPage({ from }: { from?: string }) {
     }
   }
 
+  /** Fill the page from a settings file on disk, saying which of its paths were not valid here. */
+  function adoptFile(doc: Awaited<ReturnType<typeof api.sourceConfig>>) {
+    const moved = doc.repointed ?? [], gone = doc.missing ?? [];
+    const notes = [
+      moved.length ? `It was written on another computer, so ${moved.map((m) => m.key).join(" and ")} now point${moved.length === 1 ? "s" : ""} to what sits next to it.` : "",
+      gone.length ? `${gone.map((m) => m.key).join(" and ")} could not be found here: choose ${gone.length === 1 ? "it" : "them"} below.` : "",
+    ].filter(Boolean).join(" ");
+    adopt(doc.values, `Settings loaded from ${doc.path.split("/").pop()}.${notes ? ` ${notes}` : ""}`, doc.unknown);
+    showTop();
+  }
+
+  function useFound(f: NonNullable<ScanDoc["found"]>[number]) {
+    if (f.kind === "lens") loadLens(f.path);
+    else if (f.kind === "corners") { setSource("detections"); loadDetections(f.path); }
+    else api.sourceConfig(f.path).then(adoptFile, (e: Error) => { setFileError({ where: "config", message: e.message }); showTop(); });
+  }
+
   function pickFile(path: string) {
     const key = picker?.key ?? "";
     setPicker(null);
     if (key === "@config") {
       api.sourceConfig(path).then(
-        (doc) => adopt(doc.values, `Settings loaded from ${doc.path}.`, doc.unknown),
+        (doc) => adoptFile(doc),
         (e: Error) => { setFileError({ where: "config", message: e.message }); showTop(); },
       );
     } else if (key === "@detections") loadDetections(path);
@@ -558,6 +583,29 @@ export function NewRunPage({ from }: { from?: string }) {
                     ))}
                   </div>
                   {scan.cameras.length > 24 && <Explain>and {scan.cameras.length - 24} more cameras.</Explain>}
+                  {(scan.found ?? []).length > 0 && (
+                    <div className="rounded-xl bg-s-info-soft border border-s-info/25 p-4 grid gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-s-info">This folder also holds files Studio can use</div>
+                        <div className="text-[15px] text-s-text">Use one to fill in this page instead of typing it. Nothing is used until you choose.</div>
+                      </div>
+                      <ul className="grid gap-2">
+                        {(scan.found ?? []).map((f) => {
+                          const inUse = (f.kind === "lens" && lens?.path === f.path);
+                          return (
+                            <li key={f.path} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                              <div className="min-w-0 mr-auto">
+                                <div className="text-[15px] font-semibold break-all">{f.name}</div>
+                                <div className="text-[14px] text-s-muted">{FOUND_WORDS[f.kind].what}</div>
+                              </div>
+                              {inUse ? <span className="text-[15px] font-medium text-s-ok">In use</span>
+                                : <Button onClick={() => useFound(f)}>{FOUND_WORDS[f.kind].action}</Button>}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </>
               )}
               {blocking.map((p) => <Callout key={p} tone="warn">{p}</Callout>)}
@@ -705,6 +753,10 @@ export function NewRunPage({ from }: { from?: string }) {
                   </select>
                 </label>
               ) : roots.length === 1 && <div className="text-[14px] text-s-muted break-all">The result is saved in a new folder with this name, inside {roots[0].path}</div>}
+              {anywhere && (
+                <button type="button" className="justify-self-start text-[15px] font-medium text-s-accent hover:underline cursor-pointer"
+                  onClick={() => setPicker({ mode: "folder", key: "@save", title: "Save the result in" })}>Save somewhere else</button>
+              )}
             </div>
             {startError && <Callout tone="bad" title="Not started">{startError}</Callout>}
             {problems.filter((p) => p.key !== "").length > 0 && (
@@ -748,6 +800,12 @@ export function NewRunPage({ from }: { from?: string }) {
 }
 
 const LINK_BUTTON = "inline-flex items-center rounded-lg px-4 min-h-11 text-[15px] font-semibold border-[1.5px] border-s-field-line/70 bg-s-surface shadow-sm hover:bg-s-sunken hover:border-s-text/50";
+
+const FOUND_WORDS = {
+  settings: { what: "Settings: the board, the lens types and the rest of this page", action: "Use these settings" },
+  lens: { what: "Lens values for the cameras", action: "Use these lens values" },
+  corners: { what: "Corners found earlier: the photos would not be read again", action: "Use these corners" },
+};
 
 function Page({ children, ...drop }: { children: ReactNode } & Pick<React.HTMLAttributes<HTMLElement>, "onDragOver" | "onDragLeave" | "onDrop">) {
   return <main {...drop} className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 grid gap-7 text-base">{children}</main>;

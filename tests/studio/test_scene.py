@@ -196,3 +196,61 @@ def test_error_spread_counts_the_corners_beyond_each_distance(results_root):
     assert error_spread(results_root / "nowhere")["n"] == 0
     c = TestClient(create_app([str(results_root)]))
     assert c.get("/api/run/errors", params={"id": f"0:{RUN}"}).json()["n"] == len(r)
+
+
+def _facing_pair(folder):
+    """A result holding only two cameras that face each other, 1 m apart, and their covariance."""
+    Ry = cv2.Rodrigues(np.array([0.0, np.pi - 0.1, 0.0]))[0]
+    C = np.array([0.05, -0.02, 1.0])
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = Ry, -Ry @ C
+    A = np.random.default_rng(3).normal(size=(6, 6))
+    D = np.diag(np.r_[np.full(3, 1e-3), np.full(3, 3e-3)])
+    P = D @ (A @ A.T) @ D
+    (folder / "calibration_report.json").write_text(json.dumps({"extrinsics": [
+        {"cam_id": 0, "T_c_ref": np.eye(4).tolist()}, {"cam_id": 1, "T_c_ref": T.tolist()}]}))
+    (folder / "calibration_acceptance.json").write_text(json.dumps({"extrinsic_uncertainty": {
+        "t_factor": 1.0, "pairs": {"0-1": {"covariance": P.tolist()}}}}))
+    return Ry, C, P
+
+
+@pytest.mark.req("FR-UI-018")
+@pytest.mark.parametrize("a,b", [(0, 1), (1, 0)])
+def test_handing_a_point_between_facing_cameras_equals_a_monte_carlo(tmp_path, a, b):
+    R0, C0, P = _facing_pair(tmp_path)
+    d = 0.6
+    doc = scene.task_answer(tmp_path, a, b, d)
+    assert doc["ok"] and doc["mode"] == "transfer" and doc["relation"] == "each_other"
+    assert doc["lens_recorded"] is False
+    rng = np.random.default_rng(5)
+    X = np.array([0.0, 0.0, d])
+    out = []
+    for s in rng.multivariate_normal(np.zeros(6), P, size=40000):
+        R, C = R0 @ cv2.Rodrigues(s[:3])[0], C0 + s[3:]
+        out.append(R @ (X - C) if a == 0 else R.T @ X + C)
+    out = np.asarray(out)
+    R_ab = R0 if a == 0 else R0.T
+    look = R_ab @ np.array([0.0, 0.0, 1.0])
+    cov = np.cov(out.T)
+    Q = np.eye(3) - np.outer(look, look)
+    assert doc["depth"] == pytest.approx(np.sqrt(look @ cov @ look), rel=0.03)
+    assert doc["sideways"] == pytest.approx(np.sqrt(np.linalg.eigvalsh(Q @ cov @ Q)[-1]), rel=0.03)
+
+
+@pytest.mark.req("FR-UI-018")
+def test_a_stereo_pair_is_still_triangulated_and_the_route_has_a_curve(results_root):
+    folder = results_root / RUN
+    doc = scene.pair_geometry(folder, 0, 1)
+    assert doc["working_distance"] > 0
+    answer = scene.task_answer(folder, 0, 1, doc["working_distance"])
+    assert answer["ok"] and answer["mode"] == "triangulate" and "from_pixels" in answer
+
+
+@pytest.mark.req("FR-UI-017")
+def test_every_corner_and_photo_names_its_board(results_root):
+    folder = results_root / RUN
+    frames = scene.frame_list(folder, 1)["frames"]
+    assert all(f["boards"] for f in frames)
+    one = scene.frame_corners(folder, 1, frames[3]["frame"])
+    assert len(one["board"]) == len(one["corner"]) == one["n"]
+    assert sorted(set(one["board"])) == frames[3]["boards"]

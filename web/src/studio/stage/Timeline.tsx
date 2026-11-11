@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { FrameStat } from "../api";
 import { num } from "../format";
+import { boardName } from "./boards";
 
 /** Round tick values for an axis that reaches `top`: 3 to 5 steps of 1, 2 or 5 times a power of ten. */
 export function ticks(top: number): { step: number; max: number; values: number[] } {
@@ -59,7 +60,7 @@ export function Timeline({ frames, frame, onFrame, playing, onPlaying, marked }:
           <IconButton label="Next photo" onClick={() => step(1)}>›</IconButton>
         </div>
         <span className="tnum">
-          {cur ? <>Photo <b className="text-white">{index + 1}</b> of {frames.length} · {cur.n} corners · typical error <b className="text-white">{num(cur.rms_px)} px</b></> : "Choose a photo"}
+          {cur ? <>Photo <b className="text-white">{index + 1}</b> of {frames.length} · {cur.n} corners{cur.boards?.length ? ` · ${cur.boards.map(boardName).join(", ")}` : ""} · typical error <b className="text-white">{num(cur.rms_px)} px</b></> : "Choose a photo"}
         </span>
         <button type="button" onClick={() => onFrame(worst.frame)}
           className="ml-auto rounded px-2 py-1 bg-white/10 hover:bg-white/20 text-slate-100">

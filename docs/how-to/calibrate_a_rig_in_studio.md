@@ -31,8 +31,10 @@ DS-MSP Studio: http://127.0.0.1:8765/
 Press Ctrl+C to stop.
 ```
 
-Studio reads and writes only inside the folders given with `--root`. Results are saved there
-too, each in its own folder.
+Studio can read any folder on this computer, so you can choose your photos wherever they are.
+Use the link it prints, which holds an access key. With `--only-roots` it reads only inside the
+folders given with `--root`. Results are saved only inside those folders, or one you choose under
+**Save somewhere else**, each in its own folder.
 
 ## Set up the calibration
 

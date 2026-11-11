@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from . import configio
 
@@ -26,7 +26,37 @@ def config_file(path: Path) -> Dict[str, Any]:
     return doc
 
 
-def settings_of(folder: Path, inside: Sequence[Path]) -> Dict[str, Any]:
+def config_here(path: Path) -> Dict[str, Any]:
+    """:func:`config_file`, for a settings file that may have been written on another computer.
+
+    A path it names that does not exist here is looked for next to the file: the photos in the
+    file's own folder when that holds camera folders, any other file under its own name. What
+    is found replaces the path (listed in ``repointed``); what is not is left out (listed in
+    ``missing``), so the form asks for it instead of failing on a path from elsewhere."""
+    from .photos import guess_prefix
+
+    doc = config_file(path)
+    base = Path(path).resolve().parent
+    doc["repointed"], doc["missing"] = [], []
+    for key in configio.PATH_KEYS:
+        value = doc["values"].get(key)
+        if key == "save_path" or not isinstance(value, str) or not value:
+            continue
+        if Path(value).expanduser().exists():
+            continue
+        name = Path(value).name
+        found = (base if guess_prefix(base) else None) if key == "root_path" else (
+            base / name if name and (base / name).is_file() else None)
+        if found is None:
+            del doc["values"][key]
+            doc["missing"].append({"key": key, "was": value})
+        else:
+            doc["values"][key] = str(found)
+            doc["repointed"].append({"key": key, "was": value, "now": str(found)})
+    return doc
+
+
+def settings_of(folder: Path, inside: Optional[Sequence[Path]]) -> Dict[str, Any]:
     """The settings a result folder was calibrated with, to start a new run from them.
 
     A run started in Studio keeps its ``calib_param.yml`` in the folder. A run started from a
@@ -34,7 +64,8 @@ def settings_of(folder: Path, inside: Sequence[Path]) -> Dict[str, Any]:
     values of that run applied; ``changed`` is true when that file no longer has the recorded
     SHA-256. ``save_path`` and ``webviewer`` are left out: the new run gets its own.
 
-    Raises ``FileNotFoundError`` when there is no settings file under ``inside``."""
+    Raises ``FileNotFoundError`` when there is no settings file under ``inside`` (``None``:
+    anywhere)."""
     from ..rig.provenance import sha256_file
     from .replay import fingerprint, manifest_file_sha
 
@@ -47,7 +78,7 @@ def settings_of(folder: Path, inside: Sequence[Path]) -> Dict[str, Any]:
         recorded = Path(str(fp["config_path"])).resolve() if fp.get("config_path") else None
         if recorded is None or not recorded.is_file():
             raise FileNotFoundError("the settings file this result was made from is no longer there")
-        if not any(r == recorded or r in recorded.parents for r in inside):
+        if inside is not None and not any(r == recorded or r in recorded.parents for r in inside):
             raise FileNotFoundError("the settings file of this result is outside the folders "
                                     "Studio was started with")
         path, overrides = recorded, [str(o) for o in fp.get("overrides") or []]
@@ -92,6 +123,24 @@ def what_is(path: Path) -> str:
         if re.search(pattern, text, re.MULTILINE):
             return name
     return ""
+
+
+def companions(folder: Path) -> List[Dict[str, str]]:
+    """The files directly in a photo folder that a calibration can use: ``{"name", "path",
+    "kind"}``, with ``kind`` one of ``settings``, ``lens`` and ``corners``."""
+    kinds = (("a settings file", "settings"), ("a lens file", "lens"), ("a file of found corners", "corners"))
+    out: List[Dict[str, str]] = []
+    try:
+        entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
+    except OSError:
+        return out
+    for e in entries:
+        if e.is_file() and e.name.lower().endswith((".yml", ".yaml")):
+            said = what_is(Path(e.path))
+            kind = next((k for start, k in kinds if said.startswith(start)), None)
+            if kind:
+                out.append({"name": e.name, "path": e.path, "kind": kind})
+    return out[:20]
 
 
 def _wrong_kind(path: Path, wanted: str, hint: str) -> ValueError:

@@ -1,5 +1,6 @@
-// A folder (or file) chooser over the folders Studio was started with. A browser cannot hand a
-// page the path of a folder on disk, so the server lists them (GET api/browse).
+// A folder (or file) chooser. A browser cannot hand a page the path of a folder on disk, so the
+// server lists them (GET api/browse): any folder on this computer, or, for a Studio limited to
+// them, the folders it was started with.
 import { useEffect, useRef, useState } from "react";
 import { api, type BrowseDoc } from "./api";
 import { Button, ErrorBox, Loading } from "./ui";
@@ -16,6 +17,8 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
   const [ref, setRef] = useState<string | null>(start ?? null);
   const [doc, setDoc] = useState<BrowseDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [anywhere, setAnywhere] = useState(false);
 
   useEffect(() => {
     const d = dialog.current;
@@ -29,8 +32,9 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
     api.browse(ref).then(
       (d) => {
         if (!live) return;
-        // one served folder: open it straight away instead of showing a list of one
-        if (ref == null && d.dirs.length === 1) setRef(d.dirs[0].ref);
+        setAnywhere(d.anywhere === true);
+        // one served folder and nowhere else to go: open it instead of showing a list of one
+        if (ref == null && d.dirs.length === 1 && !d.anywhere) setRef(d.dirs[0].ref);
         else setDoc(d);
       },
       (e: Error) => live && setError(e.message),
@@ -51,8 +55,15 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
         <div className="px-5 pt-4 pb-3 border-b border-s-line grid gap-1">
           <h2 className="text-lg font-semibold">{title}</h2>
           <div className="font-studio-mono text-xs text-s-muted break-all min-h-4">
-            {doc?.path ?? "Folders this Studio was started with"}
+            {doc?.path ?? (anywhere ? "Places on this computer" : "Folders this Studio was started with")}
           </div>
+          {anywhere && (
+            <form className="flex gap-2 mt-1.5" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) setRef(`abs:${typed.trim()}`); }}>
+              <input aria-label="Go to a folder by its path" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or paste a folder path"
+                className="flex-1 min-w-0 rounded-md border border-s-field-line bg-s-field px-3 min-h-10 text-sm font-studio-mono outline-none focus:border-s-accent" />
+              <Button type="submit">Go</Button>
+            </form>
+          )}
         </div>
 
         <div className="overflow-y-auto px-2 py-2 min-h-48">
@@ -68,6 +79,15 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
                   </button>
                 </li>
               )}
+              {doc.places?.map((d) => (
+                <li key={d.ref}>
+                  <button type="button" onClick={() => setRef(d.ref)} className={ROW}>
+                    <FolderIcon />
+                    <span className="font-medium text-left">{d.name}</span>
+                    <span className="ml-auto text-xs text-s-faint font-studio-mono break-all">{d.path}</span>
+                  </button>
+                </li>
+              ))}
               {doc.dirs.map((d) => (
                 <li key={d.ref}>
                   <button type="button" onClick={() => setRef(d.ref)} className={ROW}>
@@ -103,8 +123,8 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
 
         <div className="px-5 py-3 border-t border-s-line flex flex-wrap items-center gap-3">
           <p className="text-xs text-s-muted mr-auto max-w-sm">
-            Only folders given to <code className="font-studio-mono">ds-msp studio --root</code> are
-            listed.
+            {anywhere ? "Nothing is changed in a folder you only read from."
+              : <>Only folders given to <code className="font-studio-mono">ds-msp studio --root</code> are listed.</>}
           </p>
           <Button onClick={() => dialog.current?.close()}>Cancel</Button>
           {mode === "folder" && (

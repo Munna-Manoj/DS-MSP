@@ -164,7 +164,8 @@ def check_board(root_path: str, values: Dict[str, Any], *, per_camera: int = 4,
     "sample"}], "found", "tried", "message"}``. ``found`` counts photos where at least one
     board was detected; a board description that does not match the printed target finds none.
     ``sample`` is the tried photo with the most corners: its place in the folder listing
-    (``photo``), its size, and the pixel of every corner found, for drawing them on it."""
+    (``photo``), its size, the pixel of every corner found, for drawing them on it, and the
+    index of the board each corner belongs to (``boards``)."""
     import cv2
 
     root = Path(root_path)
@@ -200,7 +201,8 @@ def check_board(root_path: str, values: Dict[str, Any], *, per_camera: int = 4,
                     sample = {"photo": files.index(f), "file": f.name,
                               "width": int(gray.shape[1]), "height": int(gray.shape[0]),
                               "corners": [[round(float(u), 1), round(float(v), 1)]
-                                          for _b, _ids, pts in hits for u, v in pts]}
+                                          for _b, _ids, pts in hits for u, v in pts],
+                              "boards": [int(b) for b, ids, _pts in hits for _ in ids]}
                 best = max(best, max(len(ids) for _b, ids, _p in hits))
         rows.append({"index": index, "folder": folder.name, "tried": len(picks), "found": found,
                      "corners_max": best, "corners_of": most, "sample": sample})

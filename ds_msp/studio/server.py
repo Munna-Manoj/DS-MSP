@@ -51,12 +51,22 @@ def static_dir() -> Optional[Path]:
     return path if (path / "index.html").is_file() else None
 
 
+#: Browse references outside the roots start with this; the rest is a full path.
+_ABSOLUTE = "abs:"
+
+
 class _Roots:
     def __init__(self, roots: Sequence[str]):
         self.paths: List[Path] = [Path(r).expanduser().resolve() for r in roots]
         for p in self.paths:
             if not p.is_dir():
                 raise NotADirectoryError(str(p))
+
+    def add(self, folder: Path) -> int:
+        """Index of ``folder`` among the roots, adding it when it is not one yet."""
+        if folder not in self.paths:
+            self.paths.append(folder)
+        return self.paths.index(folder)
 
     def run_id(self, k: int, folder: Path) -> str:
         rel = folder.relative_to(self.paths[k]).as_posix()
@@ -83,10 +93,13 @@ def _host_name(host: str) -> str:
 
 
 def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: int = 6,
-               read_only: bool = False, allowed_hosts: Optional[Sequence[str]] = None):
+               read_only: bool = False, allowed_hosts: Optional[Sequence[str]] = None,
+               anywhere: bool = False):
     """The Studio ASGI app over result folders under ``roots``. ``token`` (when given) is
     required on every request. ``read_only`` leaves out everything that writes or starts a
-    calibration. ``allowed_hosts`` (host names) refuses requests addressed to another name."""
+    calibration. ``allowed_hosts`` (host names) refuses requests addressed to another name.
+    ``anywhere`` lets the page browse and read any folder on this computer and add one as a root;
+    results are still only written under the roots."""
     from fastapi import Body, FastAPI, HTTPException, Query, Request
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
     from starlette.middleware.base import BaseHTTPMiddleware
@@ -96,7 +109,9 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     rs = _Roots(roots)
     app = FastAPI(title="DS-MSP Studio", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url="/api/openapi.json")
-    jobs = None if read_only else JobManager(rs.paths, max_depth=max_depth)
+    anywhere = anywhere and not read_only
+    readable = None if anywhere else rs.paths          # None: no limit on what may be read
+    jobs = None if read_only else JobManager(rs.paths, max_depth=max_depth, anywhere=anywhere)
     app.state.jobs = jobs
     hosts = None if allowed_hosts is None else {h.lower() for h in allowed_hosts}
 
@@ -152,7 +167,7 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         if not target.is_absolute():
             raise HTTPException(400, "give a full path")
         target = target.resolve()
-        if not any(target == r or r in target.parents for r in rs.paths):
+        if not anywhere and not any(target == r or r in target.parents for r in rs.paths):
             raise HTTPException(400, "that folder is outside the folders Studio was started with")
         return target
 
@@ -160,7 +175,14 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         for k, root in enumerate(rs.paths):
             if folder == root or root in folder.parents:
                 return rs.run_id(k, folder)
+        if anywhere:
+            return f"{_ABSOLUTE}{folder}"
         raise KeyError(str(folder))
+
+    def _browse_target(ref: str) -> Path:
+        if anywhere and ref.startswith(_ABSOLUTE):
+            return Path(ref[len(_ABSOLUTE):]).expanduser().resolve()
+        return rs.resolve(ref)
 
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
@@ -171,11 +193,30 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     def list_roots() -> List[Dict[str, Any]]:
         return [{"index": k, "name": p.name or str(p)} for k, p in enumerate(rs.paths)]
 
+    @app.post("/api/roots/add")
+    def add_root(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Serve one more folder: its results are listed and new results can be saved in it."""
+        if not anywhere:
+            raise HTTPException(403, "this Studio only uses the folders it was started with")
+        folder = _inside(str(body.get("path") or ""))
+        if not folder.is_dir():
+            raise HTTPException(404, "no such folder")
+        if folder == Path(folder.anchor):
+            raise HTTPException(400, "choose a folder inside the disk, not the whole disk")
+        k = rs.add(folder)
+        if jobs is not None and folder not in jobs.roots:
+            jobs.roots.append(folder)
+        return {"index": k, "path": str(folder)}
+
     @app.get("/api/runs")
     def list_runs() -> List[Dict[str, Any]]:
         out = []
+        listed: set = set()                             # an added root may lie inside another
         for k, root in enumerate(rs.paths):
             for folder in iter_run_dirs(root, max_depth=max_depth):
+                if folder in listed:
+                    continue
+                listed.add(folder)
                 try:
                     summary = summarize_run(folder)
                 except RunError as exc:
@@ -241,14 +282,14 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
                       frame: int = Query(..., ge=0)) -> Dict[str, Any]:
         from .scene import frame_corners, photo_path
         doc = frame_corners(_folder(id), cam, frame)
-        doc["photo"] = photo_path(_folder(id), cam, frame, rs.paths) is not None
+        doc["photo"] = photo_path(_folder(id), cam, frame, readable) is not None
         return doc
 
     @app.get("/api/run/photo")
     def get_run_photo(id: str = Query(...), cam: int = Query(..., ge=0),  # noqa: A002
                       frame: int = Query(..., ge=0), w: int = Query(1280, ge=64, le=2000)):
         from .scene import photo_jpeg, photo_path
-        path = photo_path(_folder(id), cam, frame, rs.paths)
+        path = photo_path(_folder(id), cam, frame, readable)
         if path is None:
             raise HTTPException(404, "this photo is not under the folders Studio was started with")
         try:
@@ -268,17 +309,19 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     def get_run_task(id: str = Query(...), a: int = Query(..., ge=0), b: int = Query(..., ge=0),  # noqa: A002
                      distance: float = Query(..., gt=0), pixel_noise: float = Query(0.5, ge=0, le=50)
                      ) -> Dict[str, Any]:
-        """What the calibration's uncertainty means for a point seen by two cameras, at
-        ``distance`` and over a range of distances around it (``curve``)."""
+        """What the calibration's uncertainty means for a point at ``distance``, located by
+        both cameras or handed from one to the other, and over a range of distances around it
+        (``curve``)."""
         import numpy as np
 
-        from .scene import task_curve, task_uncertainty
+        from .scene import task_answer, task_curve
         folder = _folder(id)
-        doc = task_uncertainty(folder, a, b, distance, pixel_noise)
+        doc = task_answer(folder, a, b, distance, pixel_noise)
         base = doc.get("baseline") if doc.get("ok") else None
         if base:
-            grid = np.geomspace(max(0.5 * base, distance / 20), max(40 * base, distance * 4), 28)
-            doc["curve"] = task_curve(folder, a, b, pixel_noise, grid.tolist())
+            near, far = (0.05, 4) if doc["mode"] == "transfer" else (0.5, 40)
+            grid = np.geomspace(max(near * base, distance / 20), max(far * base, distance * 4), 28)
+            doc["curve"] = task_curve(folder, a, b, pixel_noise, grid.tolist(), doc["mode"])
         return doc
 
     # -- folders ---------------------------------------------------------------------------
@@ -287,12 +330,17 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         """One folder under the roots: its subfolders (with how many images each holds), and
         its config-like files. Without ``ref``: the roots themselves."""
         if ref is None:
+            home = Path.home()
+            places = [] if not anywhere else [
+                {"name": "My home folder", "ref": _ref(home), "path": str(home)},
+                {"name": "This computer", "ref": f"{_ABSOLUTE}{home.anchor}", "path": home.anchor}]
             return {"ref": None, "path": None, "name": "", "parent": None, "images": 0,
-                    "files": [], "dirs": [{"name": p.name or str(p), "ref": f"{k}:",
-                                           "path": str(p), "images": 0, "result": False}
-                                          for k, p in enumerate(rs.paths)]}
+                    "files": [], "anywhere": anywhere, "places": places,
+                    "dirs": [{"name": p.name or str(p), "ref": f"{k}:",
+                              "path": str(p), "images": 0, "result": False}
+                             for k, p in enumerate(rs.paths)]}
         try:
-            folder = rs.resolve(ref)
+            folder = _browse_target(ref)
         except KeyError:
             raise HTTPException(404, "unknown folder") from None
         if not folder.is_dir():
@@ -321,10 +369,11 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
                                  "result": (child / "calibration_report.json").is_file()})
             elif e.name.lower().endswith(_LISTED_FILES) and len(files) < _MAX_LISTED:
                 files.append({"name": e.name, "path": str(folder / e.name)})
-        k = int(ref.split(":", 1)[0])
-        parent = None if folder == rs.paths[k] else _ref(folder.parent)
+        is_root = folder in rs.paths
+        at_top = folder == Path(folder.anchor) if anywhere else is_root
+        parent = None if at_top else _ref(folder.parent)
         return {"ref": ref, "path": str(folder), "name": folder.name, "parent": parent,
-                "is_root": folder == rs.paths[k], "images": n_images(folder),
+                "is_root": is_root, "anywhere": anywhere, "images": n_images(folder),
                 "dirs": dirs, "files": files}
 
     # -- other things a calibration can start from -----------------------------------------
@@ -339,8 +388,8 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
 
     @app.get("/api/source/config")
     def source_config(path: str = Query(...)) -> Dict[str, Any]:
-        from .sources import config_file
-        return _source(path, config_file)
+        from .sources import config_here
+        return _source(path, config_here)
 
     @app.get("/api/source/keypoints")
     def source_keypoints(path: str = Query(...)) -> Dict[str, Any]:
@@ -380,10 +429,13 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
     @app.post("/api/photos/scan")
     def photos_scan(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         from .photos import scan_photos
+        from .sources import companions
         _manager()
         root = _inside(str(body.get("root_path") or ""))
-        return scan_photos(str(root), body.get("cam_prefix") or None,
-                           body.get("frame_pattern") or None)
+        doc = scan_photos(str(root), body.get("cam_prefix") or None,
+                          body.get("frame_pattern") or None)
+        doc["found"] = companions(root)
+        return doc
 
     @app.post("/api/photos/check-board")
     def photos_check_board(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
@@ -508,7 +560,7 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         except KeyError:
             raise HTTPException(404, "unknown folder") from None
         try:
-            doc = settings_of(folder, rs.paths)
+            doc = settings_of(folder, readable)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from None
         except ValueError as exc:

@@ -133,3 +133,29 @@ def test_a_wrong_file_is_answered_with_what_it_is(tmp_path, results_root):
         sources.scan_intrinsics(odd)
     assert sources.what_is(run / "calibrated_cameras_data.yml").startswith("a lens file")
     assert sources.what_is(tmp_path / "missing.yml") == ""
+
+
+@pytest.mark.req("FR-UI-016")
+def test_a_config_from_another_computer_points_at_what_sits_next_to_it(tmp_path):
+    (tmp_path / "Cam_001").mkdir()
+    (tmp_path / "lens.yml").write_text("%YAML:1.0\nnb_camera: 1\ncamera_0:\n  fx: 1\n")
+    path = tmp_path / "calib_param.yml"
+    path.write_text('%YAML:1.0\nnumber_camera: 1\nroot_path: "/nowhere/capture/"\n'
+                    'cam_params_path: "/nowhere/capture/lens.yml"\n'
+                    'accuracy_profile_path: "/nowhere/profile.json"\n')
+    doc = sources.config_here(path)
+    assert doc["values"]["root_path"] == str(tmp_path)
+    assert doc["values"]["cam_params_path"] == str(tmp_path / "lens.yml")
+    assert {m["key"] for m in doc["repointed"]} == {"root_path", "cam_params_path"}
+    assert "accuracy_profile_path" not in doc["values"]
+    assert doc["missing"] == [{"key": "accuracy_profile_path", "was": "/nowhere/profile.json"}]
+
+
+@pytest.mark.req("FR-UI-016")
+def test_a_photo_folder_says_which_files_in_it_can_be_used(tmp_path):
+    (tmp_path / "calib_param.yml").write_text("%YAML:1.0\nnumber_camera: 1\n")
+    (tmp_path / "lens.yml").write_text("%YAML:1.0\nnb_camera: 1\ncamera_0:\n  fx: 1\n")
+    (tmp_path / "kp.yml").write_text("%YAML:1.0\ncamera_0:\n  frame_idxs: [0]\n")
+    (tmp_path / "other.yml").write_text("%YAML:1.0\nsomething: 1\n")
+    found = {f["name"]: f["kind"] for f in sources.companions(tmp_path)}
+    assert found == {"calib_param.yml": "settings", "lens.yml": "lens", "kp.yml": "corners"}

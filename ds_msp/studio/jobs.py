@@ -187,8 +187,9 @@ class JobManager:
     """Creates, runs, follows and cancels calibration jobs under ``roots``."""
 
     def __init__(self, roots: Sequence[Path], *, python: Optional[str] = None,
-                 max_depth: int = 6):
+                 max_depth: int = 6, anywhere: bool = False):
         self.roots = [Path(r) for r in roots]
+        self.anywhere = anywhere             # may read inputs outside the roots
         self.python = python or sys.executable
         self._jobs: Dict[str, Job] = {}
         self._progress: Dict[str, _Progress] = {}
@@ -240,7 +241,7 @@ class JobManager:
         """Check form values without creating anything. Returns ``{"ok", "problems",
         "warnings", "yaml"}``."""
         clean, problems = configio.check_values(values)
-        problems += configio.path_problems(clean, self.roots, skip=("save_path",))
+        problems += configio.path_problems(clean, None if self.anywhere else self.roots, skip=("save_path",))
         if not problems and not (clean.get("root_path") or clean.get("keypoints_path")):
             problems.append({"key": "root_path", "message": "choose the folder with the photos"})
         return {"ok": not problems, "problems": problems, "warnings": [],
