@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.27.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.26.1...v0.27.0) (2026-11-11)
+
+
+### Features
+
+* leave chosen photos out of a calibration, from the result page ([7229dfa](https://github.com/Munna-Manoj/DS-MSP/commit/7229dfaeb229887768a9a1e4bd2efe82b812eecd))
+* **rig:** let structure_mode bend act on a single board ([ad03c37](https://github.com/Munna-Manoj/DS-MSP/commit/ad03c37d4bc9c52c4199adbd75d582f9bba054e3))
+* **studio:** ask whether the board is flat, and state the measured bow ([733396c](https://github.com/Munna-Manoj/DS-MSP/commit/733396c82241716fb26d2f54d9cc1deca4aef2f6))
+* **studio:** browse any folder, name each board, and explain facing cameras ([4c2089d](https://github.com/Munna-Manoj/DS-MSP/commit/4c2089d523da058635798707263a34ba1312ec5d))
+* **studio:** check lens types and lens files against saved detections ([616d344](https://github.com/Munna-Manoj/DS-MSP/commit/616d344657c7af264736f5204d112bae3026987d))
+* **studio:** check lens types and lens files against the photos, and reuse earlier detections ([664cff2](https://github.com/Munna-Manoj/DS-MSP/commit/664cff23c215607f9e29896190ff5d73300bf001))
+* **studio:** draw the marker against its square, and measure the ratio in the photos ([56d3440](https://github.com/Munna-Manoj/DS-MSP/commit/56d34406ec65747fceabffbfc6ab1ca98e9e8bdb))
+* **studio:** give the photo-error bars a pixel scale ([9e1520d](https://github.com/Munna-Manoj/DS-MSP/commit/9e1520d9ff056493b1c1a7d70c0083571b2aaf28))
+* **studio:** guide the setup step by step and show the gap to the precision needed ([898a11e](https://github.com/Munna-Manoj/DS-MSP/commit/898a11e90832b281307502503b0e77c90ce3fc57))
+* **studio:** rebuild the setup page around the user's own photos ([cbdb130](https://github.com/Munna-Manoj/DS-MSP/commit/cbdb1304e5d388d580f4fd35450d0c2a60f67a6a))
+* **studio:** set up and run a rig calibration from the browser ([37336b0](https://github.com/Munna-Manoj/DS-MSP/commit/37336b0d34b46ccc7ff6e1de9c3543d1bc260b6e))
+* **studio:** set up, run and repeat rig calibrations in the browser ([43ad66a](https://github.com/Munna-Manoj/DS-MSP/commit/43ad66add1ef1f4ec655615f7d551ae093a9361d))
+* **studio:** show a result on its own photos, in 3D and as a measurement ([3b15f99](https://github.com/Munna-Manoj/DS-MSP/commit/3b15f99c9229156718396ca286812e821a295056))
+* **studio:** show what the target-shape, outlier-band and check settings do ([fea25ff](https://github.com/Munna-Manoj/DS-MSP/commit/fea25ffd838a883e94f74b178c1506a2821652db))
+* **studio:** start from a config, saved detections or a result, and repeat a run exactly ([b44e3bb](https://github.com/Munna-Manoj/DS-MSP/commit/b44e3bbcf1c74939cd2dec33534af29d21992b53))
+
+
+### Bug Fixes
+
+* **studio:** answer a chosen file where it was chosen ([0334454](https://github.com/Munna-Manoj/DS-MSP/commit/03344546b5c7eebd6ad94717d91cea322505f0ce))
+* **studio:** take the number of a single board, and keep a page usable when a view fails ([3c7ae40](https://github.com/Munna-Manoj/DS-MSP/commit/3c7ae4099a3ece38adf071242684cb2aea846c5f))
+
+
+### Documentation
+
+* **rig:** document boards_index for one board and structure_mode ([23fa4e2](https://github.com/Munna-Manoj/DS-MSP/commit/23fa4e279ee7a6f423614f4b4979a6a08b6a8cd1))
+* **studio:** describe setting up and running a calibration in Studio ([f1817b3](https://github.com/Munna-Manoj/DS-MSP/commit/f1817b3ac029704055c52a7c82d9167b456e1bbb))
+
 ## [0.26.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.26.0...v0.26.1) (2026-11-09)
 
 
