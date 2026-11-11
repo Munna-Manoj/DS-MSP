@@ -298,7 +298,7 @@ walks you through six steps and counts the required ones left:
 | 2. Board | Squares across and down, size of one square | Reads the squares from the markers and marks every corner it finds |
 | 3. Lenses | Lens type per camera; values worked out, from a file, or typed in | Fits each type and each given lens to the photos |
 | 4. Doubtful results | Warn, or refuse unless every check passes | Strict checking needs your own lens values and precision limits |
-| 5. More settings | Optional | Each setting says why it exists and when to change it |
+| 5. More settings | Optional, including an LDC mesh and an Isaac LUT per camera | Each setting says why it exists and when to change it |
 | 6. Name and start | A name | Lists anything still missing, each item linked to its step |
 
 Studio writes the `calib_param.yml` it used next to the result. On the seven MC-Calib real
@@ -337,7 +337,18 @@ points = sweep_to_points(ref_cam, depth, valid)        # (N,3) metric point clou
 
 Generate a TI Jacinto LDC displacement-mesh lookup table (J7 / TDA4) directly from **any**
 calibrated model — the generator uses only the `CameraModel` contract, so every model in the
-library (and any you add) exports the same way:
+library (and any you add) exports the same way. For every camera of a result, from a terminal:
+
+```bash
+ds-msp export --input results/calibrated_cameras_data.yml --ldc --isaac-lut --output-dir exports
+```
+
+Each mesh gets a record with its measured error: at the usual settings, a median of 0.05 px and
+at most 3.1 px over 184 calibrated cameras. Studio does the same from its **Export** page, or
+during a calibration. Not yet checked on a TI board.
+→ [Export LDC meshes and Isaac Sim LUTs](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/export_lens_files_in_studio.md)
+
+In Python:
 
 ```python
 from ds_msp.ldc import TI_LDC_MeshGenerator

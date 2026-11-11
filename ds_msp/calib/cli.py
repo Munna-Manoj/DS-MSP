@@ -26,7 +26,7 @@ import os
 import shutil
 
 from . import report as rpt
-from .config import BoardConfig, CalibConfig, IsaacLutConfig, build_board, load_config
+from .config import BoardConfig, CalibConfig, IsaacLutConfig, LdcConfig, build_board, load_config
 from .single_camera import calibrate_camera
 
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
@@ -106,6 +106,31 @@ def _run(cfg: CalibConfig, *, pass_px: float, warn_px: float) -> int:
             overwrite=cfg.isaac_lut.overwrite,
         )
         print(f"wrote Isaac LUT manifest {bundle.manifest}")
+
+    if cfg.ldc.enabled:
+        from ..ldc import export_ldc
+
+        if cfg.ldc.output_dir:
+            ldc_dir = cfg.ldc.output_dir
+            if not os.path.isabs(ldc_dir):
+                ldc_dir = os.path.join(cfg.save_path or os.getcwd(), ldc_dir)
+        elif cfg.save_path:
+            ldc_dir = os.path.join(cfg.save_path, "ldc")
+        else:
+            raise SystemExit("LDC export needs save_path/--save-dir or --ldc-output-dir")
+        out_size = (cfg.ldc.output_width or w, cfg.ldc.output_height or h)
+        done = export_ldc(
+            result["model"], (w, h), ldc_dir, "cam0", output_size=out_size,
+            downsample_factor=cfg.ldc.downsample_factor, balance=cfg.ldc.balance,
+            overwrite=cfg.ldc.overwrite,
+            source={"file": "camchain.yaml" if cfg.save_path else None,
+                    "format": "kalibr", "camera": "cam0"},
+        )
+        acc = done.accuracy
+        worst = "n/a" if acc["max_px"] is None else f"{acc['max_px']:.3f}"
+        print(f"wrote LDC mesh {done.files.record} (worst mesh error {worst} px)")
+        for note in done.notes:
+            print(f"  note: {note}")
     return 0 if level in ("PASS", "WARN") else 1
 
 
@@ -164,6 +189,10 @@ def main() -> None:
                     help="Isaac LUT texture size (default: calibrated image size)")
     ap.add_argument("--lut-overwrite", action="store_true",
                     help="replace an existing content-matched Isaac LUT bundle")
+    ap.add_argument("--ldc", action="store_true",
+                    help="also export a TI LDC mesh (default folder: <save-dir>/ldc)")
+    ap.add_argument("--ldc-output-dir", dest="ldc_output_dir",
+                    help="LDC mesh directory (default: <save-dir>/ldc)")
     args = ap.parse_args()
 
     if args.init_config:
@@ -189,6 +218,10 @@ def main() -> None:
             cfg.isaac_lut.texture_width, cfg.isaac_lut.texture_height = args.lut_texture_size
         if args.lut_overwrite:
             cfg.isaac_lut.overwrite = True
+        if args.ldc:
+            cfg.ldc.enabled = True
+        if args.ldc_output_dir:
+            cfg.ldc.output_dir = args.ldc_output_dir
         raise SystemExit(_run(cfg, pass_px=args.pass_px, warn_px=args.warn_px))
 
     if not args.images_dir:
@@ -204,7 +237,8 @@ def main() -> None:
                           texture_width=args.lut_texture_size[0] if args.lut_texture_size else 0,
                           texture_height=args.lut_texture_size[1] if args.lut_texture_size else 0,
                           overwrite=args.lut_overwrite,
-                      ))
+                      ),
+                      ldc=LdcConfig(enabled=args.ldc, output_dir=args.ldc_output_dir))
     raise SystemExit(_run(cfg, pass_px=args.pass_px, warn_px=args.warn_px))
 
 

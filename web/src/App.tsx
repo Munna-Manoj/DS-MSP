@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { href, useRoute, type Route } from "./router";
+import { ExportPage } from "./studio/ExportPage";
 import { JobPage } from "./studio/JobPage";
 import { NewRunPage } from "./studio/NewRunPage";
 import { RepeatPage } from "./studio/RepeatPage";
@@ -27,6 +28,7 @@ export function App() {
         {route.page === "new" && (__HAS_SERVER__ ? <NewRunPage from={route.from} /> : <NoServer />)}
         {route.page === "job" && (__HAS_SERVER__ ? <JobPage id={route.id} /> : <NoServer />)}
         {route.page === "repeat" && (__HAS_SERVER__ ? <RepeatPage id={route.id} /> : <NoServer />)}
+        {route.page === "export" && (__HAS_SERVER__ ? <ExportPage key={route.from ?? ""} from={route.from} /> : <NoServer />)}
        </Guard>
       </div>
     </div>
@@ -60,6 +62,7 @@ function Header({ route }: { route: Route }) {
         <nav className="flex items-center gap-1 overflow-x-auto min-w-0" aria-label="Main">
           {tab({ page: "runs" }, "Results", route.page === "runs" || route.page === "run" || route.page === "repeat")}
           {__HAS_SERVER__ && tab({ page: "new" }, "New calibration", route.page === "new" || route.page === "job")}
+          {__HAS_SERVER__ && tab({ page: "export" }, "Export", route.page === "export")}
           {tab({ page: "learn" }, "Learn", learn)}
         </nav>
         <a

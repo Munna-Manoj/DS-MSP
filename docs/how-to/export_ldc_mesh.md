@@ -19,8 +19,10 @@ SoC, see [Undistort a fisheye image](undistort_images.md).
   `width`/`height` on the model are **not** required by the mesh generator — it uses the
   `output_width`/`output_height` arguments you pass to `generate_mesh_and_intrinsics`. If you
   still need to calibrate, start from the [README usage](https://github.com/Munna-Manoj/DS-MSP#readme).
-- The output of this recipe is a NumPy array you flash to the SoC; this page does not cover
-  the board-side flashing toolchain.
+- The output of this recipe is a NumPy array. To write it as a file with a record of its
+  settings and measured error, use `write_ldc_mesh` or `ds-msp ldc`; see
+  [Export LDC meshes and Isaac Sim LUTs](export_lens_files_in_studio.md). This page does not
+  cover the board-side flashing toolchain.
 
 ## Generate the mesh in five lines
 

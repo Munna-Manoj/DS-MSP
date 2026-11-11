@@ -3,6 +3,7 @@
 //   #/new         set up a calibration (#/new/from/<id> starts from that folder's settings)
 //   #/job/<id>    a calibration started from Studio, while it runs and after
 //   #/repeat/<id> a result's fingerprint, and repeating it exactly
+//   #/export      LDC meshes and Isaac LUTs for cameras you have (#/export/from/<id>: a result's)
 import { useEffect, useState } from "react";
 
 export type Route =
@@ -11,6 +12,7 @@ export type Route =
   | { page: "new"; from?: string }
   | { page: "job"; id: string }
   | { page: "repeat"; id: string }
+  | { page: "export"; from?: string }
   | { page: "learn" };
 
 export function parseHash(hash: string): Route {
@@ -19,6 +21,10 @@ export function parseHash(hash: string): Route {
   if (h.startsWith("new")) {
     const from = h.startsWith("new/from/") ? decodeURIComponent(h.slice(9)) : undefined;
     return { page: "new", from };
+  }
+  if (h.startsWith("export")) {
+    const from = h.startsWith("export/from/") ? decodeURIComponent(h.slice(12)) : undefined;
+    return { page: "export", from };
   }
   if (h.startsWith("job/")) return { page: "job", id: decodeURIComponent(h.slice(4)) };
   if (h.startsWith("repeat/")) return { page: "repeat", id: decodeURIComponent(h.slice(7)) };
@@ -32,6 +38,7 @@ export function parseHash(hash: string): Route {
 export function href(r: Route): string {
   if (r.page === "learn") return "#/learn";
   if (r.page === "new") return r.from ? `#/new/from/${encodeURIComponent(r.from)}` : "#/new";
+  if (r.page === "export") return r.from ? `#/export/from/${encodeURIComponent(r.from)}` : "#/export";
   if (r.page === "job") return `#/job/${encodeURIComponent(r.id)}`;
   if (r.page === "repeat") return `#/repeat/${encodeURIComponent(r.id)}`;
   if (r.page === "run")

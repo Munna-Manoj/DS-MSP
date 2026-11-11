@@ -350,6 +350,22 @@ def _int_seq(fs, name) -> List[int]:
     return [int(n.at(i).real()) for i in range(n.size())]
 
 
+def _size_field(ov: Dict, fs, name: str) -> List[int]:
+    """An optional ``[width, height]``: from the file's sequence or ``--set name=W,H``.
+    Empty means "the camera's own size"."""
+    raw = ov.get(name)
+    if raw is None:
+        values = _int_seq(fs, name)
+    elif isinstance(raw, (list, tuple)):
+        values = [int(v) for v in raw]
+    else:
+        text = str(raw).strip().strip("[]")
+        values = [int(v) for v in text.replace("x", ",").split(",") if v.strip()]
+    if values and (len(values) != 2 or min(values) <= 0):
+        raise ValueError(f"{name} must be two positive numbers, width and height")
+    return values
+
+
 def _exclude_field(ov: Dict, fs) -> List[str]:
     """``exclude_views`` as a checked, sorted list: from ``--set exclude_views=0:3,1:4`` (or a
     list) or the file's sequence. A malformed entry is an error here, before anything runs."""
@@ -414,6 +430,12 @@ class RigConfig:
     lens_gate: str = "warn"                     # per-camera lens sigma / bounds: off|warn|refuse
     crossval_gate: str = "off"                  # opt-in block-split cross-validation lens check: off|warn|refuse
     max_lens_sigma_px: Optional[float] = None   # lens limit in px (default: noise_bound)
+    export_ldc: bool = False                    # write a TI LDC mesh per camera (FR-INTEROP-005)
+    ldc_output_size: List[int] = field(default_factory=list)  # [w, h]; empty = camera size
+    ldc_downsample_factor: int = 4              # mesh node every 2**n output pixels
+    ldc_balance: float = 0.5                    # 0 widest view .. 1 tightest crop
+    export_isaac_lut: bool = False              # write an Isaac Sim LUT per camera
+    isaac_lut_texture_size: List[int] = field(default_factory=list)  # [w, h]; empty = camera size
     config_warnings: List[str] = field(default_factory=list)
     raw: Dict = field(default_factory=dict)
 
@@ -485,6 +507,8 @@ _KNOWN_KEYS = {
     "uncertainty_gate", "convergence_gate", "coverage_gate", "min_camera_coverage",
     "max_rotation_sigma_deg", "max_centre_sigma", "reject_outliers",
     "lens_gate", "crossval_gate", "max_lens_sigma_px", "exclude_views",
+    "export_ldc", "ldc_output_size", "ldc_downsample_factor", "ldc_balance",
+    "export_isaac_lut", "isaac_lut_texture_size",
 }
 #: MC-Calib keys DS-MSP accepts but does not act on, with what happens instead.
 _IGNORED_MCCALIB_KEYS = {
@@ -597,6 +621,13 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
         lens_gate=str(ov.get("lens_gate", _scalar(fs, "lens_gate", "warn"))),
         crossval_gate=str(ov.get("crossval_gate", _scalar(fs, "crossval_gate", "off"))),
         max_lens_sigma_px=ov.get("max_lens_sigma_px", _scalar(fs, "max_lens_sigma_px", None)),
+        export_ldc=_bool_field(ov, fs, "export_ldc", 0),
+        ldc_output_size=_size_field(ov, fs, "ldc_output_size"),
+        ldc_downsample_factor=int(float(ov.get("ldc_downsample_factor",
+                                               _scalar(fs, "ldc_downsample_factor", 4)))),
+        ldc_balance=float(ov.get("ldc_balance", _scalar(fs, "ldc_balance", 0.5))),
+        export_isaac_lut=_bool_field(ov, fs, "export_isaac_lut", 0),
+        isaac_lut_texture_size=_size_field(ov, fs, "isaac_lut_texture_size"),
         raw={"path": config_path},
     )
     if cfg.profile not in ("default", "production"):
@@ -638,6 +669,12 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> RigConfig
             raise ValueError("structure_prior_sigma must be positive in target length units")
     if cfg.accuracy_gate not in ("off", "refuse"):
         raise ValueError("accuracy_gate must be off or refuse")
+    if not 0 <= cfg.ldc_downsample_factor <= 7:
+        raise ValueError("ldc_downsample_factor must be between 0 and 7")
+    if not 0.0 <= cfg.ldc_balance <= 1.0:
+        raise ValueError("ldc_balance must be between 0 and 1")
+    if (cfg.export_ldc or cfg.export_isaac_lut) and not cfg.save_path:
+        raise ValueError("export_ldc and export_isaac_lut write into save_path; set save_path")
     return cfg
 
 
@@ -967,9 +1004,30 @@ def calibrate_from_config(config_path: str, overrides: Optional[Dict] = None, *,
     # (``calibrate_rig(reproj_gate_px=cfg.ransac_threshold)``) remains available for callers
     # wanting MC-Calib's ``ransac_threshold`` rejection semantics explicitly.
     animator.finish(res["rig"], rms=res["metrics"]["max_rms_px"])
+    if cfg.export_ldc or cfg.export_isaac_lut:
+        res.setdefault("paths", {}).update(write_exports(res["rig"], cfg))
     res["config"] = cfg
     res["scenario"] = scn
     # Preserve the pre-optimization target geometry for the run manifest.  The calibrated rig may
     # hold a structure-refined copy; provenance must identify the prior/input, not only the result.
     res["input_objects"] = objects
     return res
+
+
+def write_exports(rig, cfg: RigConfig) -> Dict[str, str]:
+    """Write the LDC meshes and Isaac Sim LUTs a config asks for, one per calibrated camera,
+    named ``camera_<i>``, into ``save_path`` (:func:`ds_msp.exports.write_exports`). A camera
+    whose export fails is reported and skipped; the calibration itself stands."""
+    from ..exports import ExportCamera, LdcSettings, LutSettings
+    from ..exports import write_exports as _write
+
+    source_file = cfg.camera_params_file_name or "calibrated_cameras_data.yml"
+    cameras = [
+        ExportCamera(f"camera_{c}", rig.cameras[c], tuple(int(v) for v in rig.img_size[c]),
+                     {"file": source_file, "format": "mccalib", "camera": f"camera_{c}"})
+        for c in sorted(rig.cameras)
+    ]
+    ldc = LdcSettings(tuple(cfg.ldc_output_size), cfg.ldc_downsample_factor,
+                      cfg.ldc_balance) if cfg.export_ldc else None
+    lut = LutSettings(tuple(cfg.isaac_lut_texture_size)) if cfg.export_isaac_lut else None
+    return _write(cameras, cfg.save_path, ldc=ldc, lut=lut, overwrite=True)

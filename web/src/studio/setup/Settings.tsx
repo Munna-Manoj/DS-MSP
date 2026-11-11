@@ -1,7 +1,7 @@
 // "More settings": everything a calibration can be told beyond photos, board and lenses. Each
 // setting is a question in plain words, with why it exists and when to change it, and a control
 // that fits its value. Nothing here has to be touched for a normal calibration.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { ConfigSchema, Problem, Values } from "../api";
 import { OutlierBand } from "../Teach";
@@ -24,7 +24,27 @@ const HERE = new Set([
   "min_camera_coverage", "lens_gate", "max_lens_sigma_px", "crossval_gate", "accuracy_gate",
   "accuracy_profile_path", "save_detection", "save_reprojection", "report_covariance", "certify", "verbose",
   "camera_params_file_name", "frame_pattern", "object_path", "keypoints_pixel_convention",
+  "export_ldc", "ldc_output_size", "ldc_downsample_factor", "ldc_balance", "export_isaac_lut",
+  "isaac_lut_texture_size",
 ]);
+
+/** A width and a height, both filled or both empty; empty means each camera's own size. */
+export function SizeBoxes({ id, value, onChange }: { id: string; value: unknown; onChange: (v: number[] | "") => void }) {
+  const pair = Array.isArray(value) && value.length === 2 ? (value as number[]) : null;
+  const [w, setW] = useState<number | "">(pair ? pair[0] : "");
+  const [h, setH] = useState<number | "">(pair ? pair[1] : "");
+  const send = (a: number | "", b: number | "") => onChange(a !== "" && b !== "" ? [a, b] : "");
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <NumberBox id={`${id}-w`} value={w} unit="px" decimal={false} width="w-32" onChange={(v) => { setW(v); send(v, h); }} />
+      <span className="text-s-muted" aria-hidden="true">×</span>
+      <NumberBox id={`${id}-h`} value={h} unit="px" decimal={false} width="w-32" onChange={(v) => { setH(v); send(w, v); }} />
+    </div>
+  );
+}
+
+/** Node spacing of an LDC mesh, as the power of two the files store. */
+export const SPACING = [{ id: "3", title: "8 px" }, { id: "4", title: "16 px" }, { id: "5", title: "32 px" }];
 
 /** One setting: the question, why it is there, and its control. */
 function Setting({ title, k, changed, onReset, why, when, problem, wide, children }: {
@@ -188,6 +208,40 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, sour
             why={<>The result folder holds one file with every camera's lens values and position. Other tools look for it under the usual name, <Mono>calibrated_cameras_data.yml</Mono>.</>}>
             <input id="camera_params_file_name" className={`${INPUT} font-studio-mono !text-sm`} placeholder="calibrated_cameras_data.yml"
               value={has("camera_params_file_name") ? String(values.camera_params_file_name) : ""} onChange={(e) => set("camera_params_file_name", e.target.value)} />
+          </Setting>
+        </Group>
+
+        <Group title="Files for a device or a simulator" intro={<>After calibrating, Studio can also write, for each camera, a TI LDC mesh (lens correction on a TI Jacinto board) and an Isaac Sim lens LUT. They go into <Mono>ldc</Mono> and <Mono>isaac_lut</Mono> in the result folder. The result page then shows how accurate each mesh is and says if one must not be used.</>}>
+          <Setting title="TI LDC mesh for each camera" k="export_ldc" changed={has("export_ldc") || has("ldc_output_size") || has("ldc_downsample_factor") || has("ldc_balance")}
+            onReset={() => { for (const k of ["export_ldc", "ldc_output_size", "ldc_downsample_factor", "ldc_balance"]) set(k, ""); }}
+            problem={problem("export_ldc") ?? problem("ldc_output_size") ?? problem("ldc_downsample_factor") ?? problem("ldc_balance")}
+            why={<>The board corrects each frame from a grid of stored shifts. Closer grid points are more accurate and take more memory. Keeping more of the view leaves more of the image to correct, and with a standard lens it can make the shifts too large for the file.</>}>
+            <Toggle id="export_ldc" on={Boolean(val<boolean>("export_ldc"))} onChange={(v) => set("export_ldc", v)}>{val<boolean>("export_ldc") ? "Written" : "Not written"}</Toggle>
+            {Boolean(val<boolean>("export_ldc")) && (
+              <div className="grid gap-3">
+                <label className="grid gap-1 text-[15px] font-medium">Grid points every
+                  <Segmented label="Grid point spacing" value={String(val<number>("ldc_downsample_factor"))} options={SPACING} onChange={(v) => set("ldc_downsample_factor", Number(v))} />
+                </label>
+                <div className="grid gap-1 text-[15px] font-medium">How much of the view to keep
+                  <Range id="ldc_balance" value={Number(val<number>("ldc_balance"))} min={0} max={1} step={0.05} format={(v) => v.toFixed(2)}
+                    ends={["0: all of it", "1: crop the edges"]} onChange={(v) => set("ldc_balance", v)} />
+                </div>
+                <div className="grid gap-1 text-[15px] font-medium">Size of the corrected image (empty: each camera's own size)
+                  <SizeBoxes id="ldc_output_size" value={values.ldc_output_size} onChange={(v) => set("ldc_output_size", v)} />
+                </div>
+              </div>
+            )}
+          </Setting>
+          <Setting title="Isaac Sim lens LUT for each camera" k="export_isaac_lut" changed={has("export_isaac_lut") || has("isaac_lut_texture_size")}
+            onReset={() => { set("export_isaac_lut", ""); set("isaac_lut_texture_size", ""); }}
+            problem={problem("export_isaac_lut") ?? problem("isaac_lut_texture_size")}
+            why={<>Lets Isaac Sim render images through the calibrated lens: two EXR textures, a manifest and a USD camera per camera.</>}>
+            <Toggle id="export_isaac_lut" on={Boolean(val<boolean>("export_isaac_lut"))} onChange={(v) => set("export_isaac_lut", v)}>{val<boolean>("export_isaac_lut") ? "Written" : "Not written"}</Toggle>
+            {Boolean(val<boolean>("export_isaac_lut")) && (
+              <div className="grid gap-1 text-[15px] font-medium">Texture size (empty: each camera's own size)
+                <SizeBoxes id="isaac_lut_texture_size" value={values.isaac_lut_texture_size} onChange={(v) => set("isaac_lut_texture_size", v)} />
+              </div>
+            )}
           </Setting>
         </Group>
 

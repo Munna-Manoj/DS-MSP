@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { href } from "../router";
-import { api, type RunDoc } from "./api";
+import { api, type ExportSummary, type RunDoc } from "./api";
+import { ExportsPanel } from "./ExportsPanel";
 import { CameraDetail } from "./CameraDetail";
 import { int, px, when } from "./format";
 import { LinksTable } from "./LinksTable";
@@ -49,6 +50,7 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
       <PrecisionCard doc={doc} runId={id} />
       <Stage doc={doc} runId={id} cam={selected} statuses={statuses} />
       <CameraDetail doc={doc} cam={selected} status={statuses.find((s) => s.id === selected)} />
+      <RunExports id={id} />
       <details className="rounded-lg border border-s-rule bg-s-surface group">
         <summary className="cursor-pointer px-4 py-3.5 flex flex-wrap items-baseline gap-3">
           <h2 className="text-[15px] font-semibold">All the numbers</h2>
@@ -93,6 +95,10 @@ function TitleRow({ doc, runId }: { doc: RunDoc; runId: string }) {
             Change settings and run again
           </a>
         )}
+        <a href={href({ page: "export", from: runId })}
+          className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-rule bg-s-surface hover:bg-s-sunken">
+          Export LDC or LUT files
+        </a>
       </div>
     </div>
   );
@@ -149,4 +155,14 @@ function SetAside({ doc }: { doc: RunDoc }) {
       )}
     </Card>
   );
+}
+
+/** The LDC meshes and Isaac LUTs this run wrote, if its settings asked for them. */
+function RunExports({ id }: { id: string }) {
+  const [summary, setSummary] = useState<ExportSummary | null>(null);
+  useEffect(() => {
+    setSummary(null);
+    api.runExports(id).then((d) => setSummary(d.exports), () => setSummary(null));
+  }, [id]);
+  return summary ? <ExportsPanel summary={summary} id={id} photos /> : null;
 }

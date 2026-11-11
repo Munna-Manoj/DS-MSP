@@ -37,13 +37,20 @@ interpolation error.
 
 ## Generate from an existing artifact
 
-Kalibr/DS-MSP camchains, MC-Calib `calibrated_cameras_data.yml`, model JSON/YAML, and a
-previous DS-MSP LUT manifest are accepted:
+Kalibr/DS-MSP camchains, MC-Calib `calibrated_cameras_data.yml`, COLMAP `cameras.txt`,
+nerfstudio `transforms.json`, model JSON/YAML, and a previous DS-MSP LUT manifest are accepted.
+Without `--camera`, every camera in the file is exported; `--camera` chooses one and can be
+repeated:
 
 ```bash
 ds-msp lut --path ./results/camchain.yaml --camera cam0
 ds-msp-lut --path ./Results/calibrated_cameras_data.yml --camera camera_3
+ds-msp lut --path ./Results/calibrated_cameras_data.yml --list-cameras
 ```
+
+For several cameras with `--stem`, each file name gets the camera name appended. To write LUTs
+and LDC meshes together, for every camera of a rig result, see
+[Export LDC meshes and Isaac Sim LUTs](export_lens_files_in_studio.md).
 
 `ds-msp --lut ...` is an alias for `ds-msp lut ...`.
 

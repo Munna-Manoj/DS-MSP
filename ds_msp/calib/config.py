@@ -71,6 +71,24 @@ class BoardConfig:
 
 
 @dataclass
+class LdcConfig:
+    """Optional TI LDC mesh export performed after intrinsics calibration.
+
+    A zero output dimension means "use the calibrated image dimension". A relative
+    ``output_dir`` is placed under ``save_path``; when omitted the default is
+    ``<save_path>/ldc``.
+    """
+
+    enabled: bool = False
+    output_dir: Optional[str] = None
+    output_width: int = 0
+    output_height: int = 0
+    downsample_factor: int = 4
+    balance: float = 0.5
+    overwrite: bool = False
+
+
+@dataclass
 class IsaacLutConfig:
     """Optional Isaac Sim LUT export performed after intrinsics calibration.
 
@@ -112,6 +130,7 @@ class CalibConfig:
     max_nfev: int = 200
     verbose: bool = True
     isaac_lut: IsaacLutConfig = field(default_factory=IsaacLutConfig)
+    ldc: LdcConfig = field(default_factory=LdcConfig)
     raw: Dict = field(default_factory=dict)
 
 
@@ -167,11 +186,13 @@ def load_config(config_path: str, overrides: Optional[Dict] = None) -> CalibConf
 
     board_cfg = _build_dataclass(BoardConfig, raw.get("board") or {})
     lut_cfg = _build_dataclass(IsaacLutConfig, raw.get("isaac_lut") or {})
+    ldc_cfg = _build_dataclass(LdcConfig, raw.get("ldc") or {})
     cfg = _build_dataclass(
-        CalibConfig, {k: v for k, v in raw.items() if k not in ("board", "isaac_lut")}
+        CalibConfig, {k: v for k, v in raw.items() if k not in ("board", "isaac_lut", "ldc")}
     )
     cfg.board = board_cfg
     cfg.isaac_lut = lut_cfg
+    cfg.ldc = ldc_cfg
     cfg.raw = {"path": config_path}
 
     def resolve(p):

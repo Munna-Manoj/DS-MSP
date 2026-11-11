@@ -17,8 +17,12 @@ model-specific code.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import warnings
-from typing import Any, Dict, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -383,3 +387,277 @@ class TI_LDC_PointUndistorter:
 
         delta = w00 * Q00 + w10 * Q10 + w01 * Q01 + w11 * Q11
         return delta, in_bounds
+
+
+#: Version of the files :func:`write_ldc_mesh` writes; bump on any layout change.
+LDC_FILE_FORMAT = 1
+
+#: How :func:`write_ldc_mesh` lays out the mesh bytes. Not yet checked on a board.
+LDC_MESH_LAYOUT = (
+    "int16 little-endian, (h, v) interleaved per node, nodes row by row from the "
+    "top-left, no header and no row padding; values are Q3 (pixels x 8)"
+)
+
+
+def mesh_accuracy(
+    camera: CameraModel,
+    result: Dict,
+    *,
+    input_size: Optional[Tuple[int, int]] = None,
+    stride: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Measure how far the stored mesh sends each output pixel from where it should.
+
+    For each output pixel the LDC hardware reads the input at the pixel plus the
+    bilinearly interpolated Q3 displacement. The exact source is
+    ``camera.project`` of the pixel's ray under ``K_new``. The error is the
+    distance between the two, in input pixels, so it includes both the mesh
+    spacing and the Q3 rounding.
+
+    Parameters
+    ----------
+    camera : CameraModel
+        The camera the mesh was generated for.
+    result : dict
+        The output of :meth:`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`.
+    input_size : (width, height), optional
+        The camera's own image size. When given, ``in_view_fraction`` reports the
+        share of output pixels whose source lies inside the input image.
+    stride : int, optional
+        Evaluate every ``stride``-th output pixel in each direction. Defaults to 1,
+        or 2 above 4 megapixels.
+
+    Returns
+    -------
+    dict
+        ``median_px``, ``p99_px`` and ``max_px`` over the measured pixels,
+        ``measured_fraction`` (output pixels the camera can see and the mesh
+        covers with four valid nodes), ``in_view_fraction`` (or ``None``),
+        ``stride``, and ``worst_output_px`` (where ``max_px`` occurs).
+    """
+    cfg = result["config"]
+    width, height = int(cfg["output_width"]), int(cfg["output_height"])
+    step = 2 ** int(cfg["downsample_factor"])
+    if stride is None:
+        stride = 1 if width * height <= 4_000_000 else 2
+    K_new = np.asarray(result["K_new"], dtype=np.float64)
+    mesh = np.asarray(result["mesh_lut"], dtype=np.float64) / Q3_SCALE
+    valid = np.asarray(result["valid_mask"], dtype=bool)
+
+    grid_u, grid_v = np.meshgrid(
+        np.arange(0, width, stride, dtype=np.float64),
+        np.arange(0, height, stride, dtype=np.float64),
+        indexing="xy",
+    )
+    u, v = grid_u.ravel(), grid_v.ravel()
+    rays = np.stack(
+        [(u - K_new[0, 2]) / K_new[0, 0], (v - K_new[1, 2]) / K_new[1, 1], np.ones_like(u)],
+        axis=-1,
+    )
+    exact, seen = camera.project(rays)
+    exact = np.asarray(exact, dtype=np.float64)
+    seen = np.asarray(seen, dtype=bool) & np.all(np.isfinite(exact), axis=-1)
+
+    mx, my = u / step, v / step
+    x0 = np.minimum(np.floor(mx).astype(np.int64), mesh.shape[1] - 2)
+    y0 = np.minimum(np.floor(my).astype(np.int64), mesh.shape[0] - 2)
+    fx, fy = (mx - x0)[:, None], (my - y0)[:, None]
+    corners_valid = valid[y0, x0] & valid[y0, x0 + 1] & valid[y0 + 1, x0] & valid[y0 + 1, x0 + 1]
+    delta = (
+        (1 - fx) * (1 - fy) * mesh[y0, x0] + fx * (1 - fy) * mesh[y0, x0 + 1]
+        + (1 - fx) * fy * mesh[y0 + 1, x0] + fx * fy * mesh[y0 + 1, x0 + 1]
+    )
+    hardware = np.stack([u, v], axis=-1) + delta
+    measured = seen & corners_valid
+    error = np.linalg.norm(hardware - exact, axis=-1)
+
+    in_view = None
+    if input_size is not None:
+        iw, ih = int(input_size[0]), int(input_size[1])
+        inside = (
+            seen & (exact[:, 0] >= -0.5) & (exact[:, 0] <= iw - 0.5)
+            & (exact[:, 1] >= -0.5) & (exact[:, 1] <= ih - 0.5)
+        )
+        in_view = float(inside.mean())
+
+    report: Dict[str, Any] = {
+        "median_px": None, "p99_px": None, "max_px": None,
+        "measured_fraction": float(measured.mean()),
+        "in_view_fraction": in_view,
+        "stride": int(stride),
+        "worst_output_px": None,
+    }
+    if measured.any():
+        e = error[measured]
+        worst = int(np.flatnonzero(measured)[int(np.argmax(e))])
+        report.update(
+            median_px=float(np.median(e)),
+            p99_px=float(np.percentile(e, 99)),
+            max_px=float(e.max()),
+            worst_output_px=[float(u[worst]), float(v[worst])],
+        )
+    return report
+
+
+@dataclass(frozen=True)
+class LdcFiles:
+    """The two files :func:`write_ldc_mesh` writes."""
+
+    mesh: Path
+    record: Path
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _plain(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def write_ldc_mesh(
+    result: Dict,
+    output_dir: str | Path,
+    stem: str,
+    *,
+    accuracy: Optional[Dict[str, Any]] = None,
+    source: Optional[Dict[str, Any]] = None,
+    overwrite: bool = False,
+) -> LdcFiles:
+    """Write a mesh as ``<stem>_ldc_mesh.bin`` plus a JSON record ``<stem>_ldc.json``.
+
+    The binary holds the Q3 mesh in the layout :data:`LDC_MESH_LAYOUT` describes.
+    The record holds everything needed to use or check it: mesh and output sizes,
+    node spacing, ``K_new``, the camera, invalid nodes, Q3 overflow, the measured
+    accuracy, where the camera came from, and the binary's SHA-256. Writing the
+    same mesh twice gives byte-identical files.
+
+    Raises
+    ------
+    FileExistsError
+        If either file exists and ``overwrite`` is false.
+    """
+    if not stem or any(ch in stem for ch in "/\\") or stem in (".", ".."):
+        raise ValueError(f"stem must be a plain file name, got {stem!r}")
+    out = Path(output_dir).expanduser()
+    mesh_path = out / f"{stem}_ldc_mesh.bin"
+    record_path = out / f"{stem}_ldc.json"
+    existing = [p for p in (mesh_path, record_path) if p.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(
+            f"{existing[0]} already exists; choose another folder or name, or allow overwrite"
+        )
+    out.mkdir(parents=True, exist_ok=True)
+    mesh = np.ascontiguousarray(np.asarray(result["mesh_lut"], dtype="<i2"))
+    mesh_path.write_bytes(mesh.tobytes())
+
+    cfg = result["config"]
+    record = {
+        "format": "ds-msp ti-ldc mesh",
+        "format_version": LDC_FILE_FORMAT,
+        "mesh_file": mesh_path.name,
+        "mesh_sha256": _sha256(mesh_path),
+        "layout": LDC_MESH_LAYOUT,
+        "checked_on_board": False,
+        "mesh_width": int(mesh.shape[1]),
+        "mesh_height": int(mesh.shape[0]),
+        "output_width": int(cfg["output_width"]),
+        "output_height": int(cfg["output_height"]),
+        "downsample_factor": int(cfg["downsample_factor"]),
+        "node_spacing_px": 2 ** int(cfg["downsample_factor"]),
+        "balance": float(cfg["balance"]),
+        "K_new": _plain(np.asarray(result["K_new"], dtype=np.float64)),
+        "camera_model": _plain(cfg["camera_model"]),
+        "n_invalid_nodes": int(cfg["n_invalid_nodes"]),
+        "q3_overflow": bool(cfg["q3_overflow"]),
+        "accuracy": _plain(accuracy) if accuracy is not None else None,
+        "source": _plain(source) if source is not None else None,
+    }
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return LdcFiles(mesh_path, record_path)
+
+
+def read_ldc_mesh(record_path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Read a mesh written by :func:`write_ldc_mesh`, checking its size and checksum.
+
+    Returns the ``(mesh_height, mesh_width, 2)`` ``int16`` mesh and the record.
+    """
+    record_path = Path(record_path).expanduser()
+    record = json.loads(record_path.read_text())
+    if record.get("format") != "ds-msp ti-ldc mesh":
+        raise ValueError(f"{record_path} is not a DS-MSP LDC mesh record")
+    if int(record.get("format_version", 0)) > LDC_FILE_FORMAT:
+        raise ValueError(
+            f"{record_path} uses format {record['format_version']}; this DS-MSP reads up to "
+            f"{LDC_FILE_FORMAT}"
+        )
+    mesh_path = record_path.parent / record["mesh_file"]
+    if _sha256(mesh_path) != record["mesh_sha256"]:
+        raise ValueError(f"{mesh_path} does not match the checksum in {record_path.name}")
+    h, w = int(record["mesh_height"]), int(record["mesh_width"])
+    raw = np.frombuffer(mesh_path.read_bytes(), dtype="<i2")
+    if raw.size != h * w * 2:
+        raise ValueError(f"{mesh_path} holds {raw.size} values; the record says {h * w * 2}")
+    return raw.reshape(h, w, 2).astype(np.int16), record
+
+
+@dataclass(frozen=True)
+class LdcExport:
+    """What :func:`export_ldc` wrote and measured."""
+
+    files: LdcFiles
+    accuracy: Dict[str, Any]
+    config: Dict[str, Any]
+    notes: Tuple[str, ...]
+
+
+def export_ldc(
+    camera: CameraModel,
+    input_size: Tuple[int, int],
+    output_dir: str | Path,
+    stem: str,
+    *,
+    output_size: Optional[Tuple[int, int]] = None,
+    downsample_factor: int = 4,
+    balance: float = 0.5,
+    overwrite: bool = False,
+    source: Optional[Dict[str, Any]] = None,
+) -> LdcExport:
+    """Generate, measure and write one camera's LDC mesh.
+
+    ``input_size`` is the camera's own image size; ``output_size`` (default: the
+    same) is the corrected image the board outputs. The generator's warnings
+    (invalid nodes, Q3 overflow) are returned as ``notes`` instead of raised, so
+    a caller exporting many cameras can report each one.
+    """
+    if not 0 <= int(downsample_factor) <= 7:
+        raise ValueError("downsample_factor must be between 0 and 7")
+    if not 0.0 <= float(balance) <= 1.0:
+        raise ValueError("balance must be between 0 and 1")
+    out_w, out_h = output_size or input_size
+    if min(int(out_w), int(out_h)) <= 0:
+        raise ValueError("output size must be positive")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = TI_LDC_MeshGenerator(camera).generate_mesh_and_intrinsics(
+            int(out_w), int(out_h), int(downsample_factor), float(balance)
+        )
+    accuracy = mesh_accuracy(camera, result, input_size=input_size)
+    record_source = dict(source or {})
+    record_source.update(input_width=int(input_size[0]), input_height=int(input_size[1]))
+    files = write_ldc_mesh(
+        result, output_dir, stem, accuracy=accuracy, source=record_source, overwrite=overwrite
+    )
+    return LdcExport(files, accuracy, result["config"], tuple(str(w.message) for w in caught))

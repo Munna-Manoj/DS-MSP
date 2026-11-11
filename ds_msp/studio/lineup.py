@@ -102,8 +102,10 @@ def _number(camera: int, key: str, value: Any) -> float:
     return got
 
 
-def write_lens_values(cameras: Sequence[Mapping[str, Any]], under: Path) -> Path:
-    """Write typed lens values as a lens file under ``under`` and return its path.
+def write_lens_values(cameras: Sequence[Mapping[str, Any]], under: Path,
+                      dest: Optional[Path] = None) -> Path:
+    """Write typed lens values as a lens file under ``under`` (or at ``dest``) and return its
+    path.
 
     Each entry has ``model``, ``width``, ``height`` and the values of :func:`lens_fields`, one
     entry per camera in camera order. Whether the values fit the photos is a separate check
@@ -133,9 +135,12 @@ def write_lens_values(cameras: Sequence[Mapping[str, Any]], under: Path) -> Path
 
     content = [{key: cam.get(key) for key in ("model", "width", "height", *lens_fields(str(cam["model"])))}
                for cam in cameras]
-    dest = Path(under) / WORK_DIR / "lens" / _digest(content)
-    dest.mkdir(parents=True, exist_ok=True)
-    path = dest / LENS_FILE
+    if dest is None:
+        folder = Path(under) / WORK_DIR / "lens" / _digest(content)
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / LENS_FILE
+    else:
+        path = Path(dest)
     rig = SimpleNamespace(cameras=models, img_size=sizes, T_c_g={k: np.eye(4) for k in models})
     save_mccalib_cameras(rig, str(path))
     return path

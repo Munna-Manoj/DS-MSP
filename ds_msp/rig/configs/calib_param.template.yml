@@ -106,3 +106,11 @@ refine_structure: "false"
 # structure_prior_sigma: 0.1  # target length units; use justified geometry uncertainty
 # accuracy_gate: "refuse"    # requires accuracy_profile_path and independent truth; default off
 # audit_gate: "refuse"       # refuse unobservable fits before writing calibration outputs
+
+# Lens files for a device or a simulator, one per camera, written into save_path
+# export_ldc: "true"          # TI LDC mesh: ldc/camera_<i>_ldc_mesh.bin + its JSON record
+# ldc_downsample_factor: 4    # a mesh node every 2^4 = 16 output pixels
+# ldc_balance: 0.5            # 0 keeps all of the view, 1 crops the edges
+# ldc_output_size: [ 1280, 720 ]   # corrected image size; leave out for each camera's own
+# export_isaac_lut: "true"    # Isaac Sim LUT: isaac_lut/camera_<i>_*
+# isaac_lut_texture_size: [ 1024, 768 ]
