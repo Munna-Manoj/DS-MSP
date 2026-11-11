@@ -31,20 +31,25 @@ DS-MSP Studio: http://127.0.0.1:8765/
 Press Ctrl+C to stop.
 ```
 
-Studio can read any folder on this computer, so you can choose your photos wherever they are.
+Studio can read any folder on the computer it runs on, so you can choose your photos wherever
+they are there. If you reach Studio from another device, its file choosers still show the computer
+running Studio, not that device.
 Use the link it prints, which holds an access key. With `--only-roots` it reads only inside the
 folders given with `--root`. Results are saved only inside those folders, or one you choose under
 **Save somewhere else**, each in its own folder.
 
 ## Set up the calibration
 
-Choose **New calibration**. The page first asks what you have, then has four steps and a
-**Ready to start?** panel that lists what is still missing.
+Choose **New calibration**. The page first asks only what you have. After you choose, a tracker on
+the left shows your start, the six steps under it and how many required steps remain. One step
+is open at a time: move with **Back** and **Next**, or click any step in the tracker. The last
+step, **Name and start**, lists what is still missing, and each item leads to the step that fixes
+it.
 
 | You have | Use it when | What Studio does |
 |---|---|---|
 | **My photos** | You have a new capture | Reads the cameras and frames from the folder |
-| **A settings file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in the page from it; drop the file on the page, upload it, or choose it on disk |
+| **A settings file** | You have a `calib_param.yml`, from DS-MSP or MC-Calib | Fills in the page from it. **Choose a file where Studio runs** is best: Studio can then find the photos and lens file the settings point to. **Upload a copy from this device**, or dropping the file on the page, is for a file only on the device you are using; Studio gets only its text, so you choose again any path it cannot find |
 | **Corners found earlier** | An earlier run wrote `detected_keypoints_data.yml` | Uses those corners; the photos are not read again |
 | **A finished result** | You want the same calibration again, or one change | Offers **Repeat exactly** and **Change something first** per result |
 
@@ -56,7 +61,12 @@ The steps below describe starting from photos.
 1. **Your photos.** Choose the folder that holds the camera folders (`Images` above). Studio
    shows one photo of each camera, the photo count, and the number of moments seen by two or
    more cameras. A folder layout or file naming it cannot use is named here, before anything
-   runs.
+   runs. If your folders are not named `Cam_001`, `Cam_002` and so on, each appears as a card
+   with one of its photos and the name it will go by. Set the order, because lens values go
+   with the camera numbers, mark any folder that is not a camera, and choose **Use these
+   cameras**. Your folders are not renamed: Studio links them under the new names. After you
+   choose this folder, every other file chooser on the page opens there, and you can still
+   browse elsewhere.
 2. **Your calibration board.** Choose **Find the board in my photos**: Studio reads the markers
    in about 48 photos and fills in the squares across and down. It does not guess: when no photo
    shows a whole board, it says so and you count the squares yourself. Then enter the size of
@@ -78,12 +88,18 @@ The steps below describe starting from photos.
    stiff boards to every corner free.
 3. **Your cameras and their lenses.** Each camera has a card with one of its photos.
    **Measure my lenses** measures how wide each lens sees and sets its type: a standard lens
-   under 100° across, a fisheye above. You can change any card afterwards. If you already have
-   lens values, from the maker or an earlier calibration, choose the file under **I already have
-   lens values for these cameras**, and say whether Studio should improve them or keep them
-   exactly as they are. The file must be in the format of `calibrated_cameras_data.yml`. Studio
-   names the file it is using; a file it cannot use is named with what kind of file it is, right
-   where you chose it.
+   under 100° across, a fisheye above. You can change any card afterwards. Under **Where do the
+   lens values come from?** choose one of three:
+   - **Work them out**: Studio computes them from these photos. Not available with strict
+     checking, which keeps lens values exactly as you give them.
+   - **From a lens file**: a file in the format of `calibrated_cameras_data.yml`, from MC-Calib
+     or DS-MSP. Studio names the file it is using; a file it cannot use is named with what kind
+     of file it is, right where you chose it.
+   - **I'll type them in**: each card asks for the values of its lens type. If the type does not
+     suit the photos, Studio warns you and still lets you enter the values you computed.
+
+   With a file or typed values, say whether Studio should improve them or keep them exactly as
+   they are. Keeping them needs values for every camera.
 4. **What should happen with a doubtful result?** *Give it to me with warnings* always writes a
    result and lists its warnings. *Refuse it* writes no result unless every check passes, and
    needs the two limits below it: how precisely the angle and the position between two cameras
@@ -219,6 +235,8 @@ It reads the config Studio wrote and gives the same calibration.
 | `studio_job.json` | When the run started and ended, and how it ended |
 | `studio_run.log` | Everything the calibration printed |
 | `studio_progress.jsonl` | The progress log the run page follows |
+| `camera_lineup.json` | Which of your folders is which camera, if you set that on the page |
+| `entered_lens_values.yml` | The lens values you typed in, if you typed them |
 
 ## View only
 

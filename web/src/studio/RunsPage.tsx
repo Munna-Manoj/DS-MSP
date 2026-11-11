@@ -78,7 +78,7 @@ export function RunsPage() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter by folder or lens model"
           aria-label="Filter results"
-          className="sm:ml-auto w-full sm:w-72 rounded-md border border-s-line bg-s-surface px-3 py-2 text-sm outline-none focus:border-s-accent"
+          className="sm:ml-auto w-full sm:w-72 rounded-md border border-s-rule bg-s-surface px-3 py-2 text-sm outline-none focus:border-s-accent"
         />
         {anywhere && <Button onClick={() => setPicking(true)}>Open a folder of results</Button>}
         {canRun && (
@@ -90,7 +90,7 @@ export function RunsPage() {
       </div>
 
       {pending.length > 0 && (
-        <section className="rounded-lg border border-s-line bg-s-surface" aria-label="Calibrations without a result yet">
+        <section className="rounded-lg border border-s-rule bg-s-surface" aria-label="Calibrations without a result yet">
           <h2 className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-s-faint">Started here, no result yet</h2>
           <ul className="p-2 grid">
             {pending.map((j) => (
@@ -110,7 +110,7 @@ export function RunsPage() {
       {error && <ErrorBox title="Could not list results" detail={error} />}
       {!runs && !error && <Loading what="results" />}
       {runs && runs.length === 0 && (
-        <div className="rounded-lg border border-s-line bg-s-surface p-6 text-s-muted">
+        <div className="rounded-lg border border-s-rule bg-s-surface p-6 text-s-muted">
           No results here yet.{" "}
           {canRun
             ? <>Start with <a className="text-s-accent underline" href={href({ page: "new" })}>a new calibration</a>, or start Studio with <code className="font-studio-mono">--root</code> set to a folder that holds results.</>
@@ -119,10 +119,10 @@ export function RunsPage() {
       )}
 
       {shown.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-s-line bg-s-surface">
+        <div className="overflow-x-auto rounded-lg border border-s-rule bg-s-surface">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-s-faint text-xs uppercase tracking-wide border-b border-s-line">
+              <tr className="text-left text-s-faint text-xs uppercase tracking-wide border-b border-s-rule">
                 <th className="px-4 py-2.5 font-medium">Result</th>
                 <th className="px-4 py-2.5 font-medium">Created</th>
                 <th className="px-4 py-2.5 font-medium text-right">Cameras</th>
@@ -135,7 +135,7 @@ export function RunsPage() {
               {shown.map((r) => {
                 const needs = (r.lens_failed ?? []).length;
                 return (
-                  <tr key={r.id} className="border-b border-s-line last:border-0 hover:bg-s-sunken">
+                  <tr key={r.id} className="border-b border-s-rule last:border-0 hover:bg-s-sunken">
                     <td className="px-4 py-3">
                       <a href={href({ page: "run", id: r.id })} className="font-medium text-s-accent hover:underline">
                         {r.path || r.name}

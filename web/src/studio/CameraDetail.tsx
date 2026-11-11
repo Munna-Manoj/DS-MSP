@@ -101,7 +101,7 @@ export function CameraDetail({ doc, cam, status }: { doc: RunDoc; cam: string; s
                 </thead>
                 <tbody>
                   {intr.params.map((p) => (
-                    <tr key={p.name} className="border-t border-s-line">
+                    <tr key={p.name} className="border-t border-s-rule">
                       <td className="pr-6 py-1 font-studio-mono">{p.name}</td>
                       <td className="pr-6 py-1 text-right font-studio-mono">{p.value.toPrecision(7)}</td>
                       <td className="pr-6 py-1 text-right font-studio-mono text-s-muted">{p.sigma == null ? "—" : p.sigma.toPrecision(2)}</td>

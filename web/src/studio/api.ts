@@ -109,7 +109,8 @@ export interface Acceptance {
   solver?: { final_stage?: string; final_status?: string;
     stages?: { stage: string; status: string; iterations: number; rms: number }[] } | null;
   extrinsic_uncertainty?: { units?: Record<string, string>; pairs?: Record<string, PairSigma>;
-    within_limits?: boolean | null } | null;
+    within_limits?: boolean | null;
+    limits?: { max_rotation_sigma_deg?: number | null; max_centre_sigma?: number | null } } | null;
   observability?: { n_weak: number; findings: AuditFinding[] } | null;
   lens_gate?: string;
   lens?: { limit_px: number; failed: string[]; cameras: Record<string, LensCam> } | null;
@@ -162,6 +163,20 @@ export interface CameraDiagnostics {
     rings: { from: number; to: number; n: number; median_px: number | null; p90_px: number | null }[];
     grid: { nx: number; ny: number; cells: { i: number; j: number; n: number; mx: number | null; my: number | null; biased: boolean }[] };
   } | null;
+}
+
+export interface PrecisionRow {
+  pair: string; rotation: number | null; centre: number | null; rotation_ratio: number | null;
+  centre_ratio: number | null; determined: boolean; over: boolean; worst_ratio: number | null;
+}
+
+export interface PrecisionDoc {
+  ok: boolean; reason?: string; frames?: number; from_run?: boolean;
+  limits?: { rotation: number | null; centre: number | null };
+  n_pairs?: number; n_over?: number; n_undetermined?: number; rows?: PrecisionRow[];
+  worst_rotation?: PrecisionRow | null; worst_centre?: PrecisionRow | null;
+  /** Photos of the same kind needed in total; null when within the limits or not estimable. */
+  frames_needed?: number | null; times?: number | null;
 }
 
 export interface RunDoc {
@@ -260,7 +275,7 @@ export interface BrowseDoc {
   name: string;
   parent: string | null;
   images: number;
-  dirs: { name: string; ref: string; path: string; images: number; result: boolean }[];
+  dirs: { name: string; ref: string; path: string; images: number; result: boolean; locked?: boolean }[];
   files: { name: string; path: string }[];
   /** True when this Studio can open any folder on the computer. */
   anywhere?: boolean;
@@ -274,6 +289,14 @@ export interface ScanDoc {
     height: number | null; frames: number }[];
   shared_frames: number;
   problems: string[];
+  /** Every subfolder, and whether it is proposed as a camera. */
+  folders: { name: string; images: number; proposed: boolean; reason: string;
+    width: number | null; height: number | null }[];
+  /** A folder with photos would not be used: the user must say which folder is which camera. */
+  needs_lineup: boolean;
+  notes: string[];
+  /** For a folder of links: the folder and subfolders it stands for. */
+  lineup: { root: string; cameras: { camera: string; folder: string }[] } | null;
   /** Files in the same folder that a calibration can use. */
   found?: { name: string; path: string; kind: "settings" | "lens" | "corners" }[];
 }
@@ -458,8 +481,14 @@ export const api = {
     getJSON<BrowseDoc>(ref == null ? "api/browse" : `api/browse?ref=${encodeURIComponent(ref)}`),
   /** Serve one more folder: its results are listed and new results can be saved in it. */
   addRoot: (path: string) => postJSON<{ index: number; path: string }>("api/roots/add", { path }),
-  scanPhotos: (root_path: string, cam_prefix?: string) =>
-    postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix }),
+  scanPhotos: (root_path: string, cam_prefix?: string, frame_pattern?: string) =>
+    postJSON<ScanDoc>("api/photos/scan", { root_path, cam_prefix, frame_pattern }),
+  stageLineup: (root_path: string, folders: string[]) =>
+    postJSON<{ root_path: string }>("api/photos/lineup", { root_path, folders }),
+  /** Turn lens values typed on the page into a lens file. */
+  lensValues: (cameras: Record<string, unknown>[]) => postJSON<IntrinsicsScan>("api/lens/values", { cameras }),
+  folderThumbUrl: (root: string, folder: string) =>
+    `api/photos/folder-thumb?path=${encodeURIComponent(root)}&folder=${encodeURIComponent(folder)}`,
   checkBoard: (values: Values) => postJSON<BoardCheck>("api/photos/check-board", { values }),
   findBoard: (values: Values) => postJSON<BoardGuess>("api/photos/find-board", { values }),
   /** A scaled-down photo of one camera in a photo folder that has no result yet. */
@@ -502,6 +531,8 @@ export const api = {
     `api/run/photo?id=${encodeURIComponent(id)}&cam=${cam}&frame=${frame}&w=${w}`,
   pair: (id: string, a: string | number, b: string | number) =>
     getJSON<PairDoc>(`api/run/pair?id=${encodeURIComponent(id)}&a=${a}&b=${b}`),
+  precision: (id: string, rotation: number | null, centre: number | null) =>
+    getJSON<PrecisionDoc>(`api/run/precision?id=${encodeURIComponent(id)}${rotation != null ? `&rotation=${rotation}` : ""}${centre != null ? `&centre=${centre}` : ""}`),
   task: (id: string, a: string | number, b: string | number, distance: number, pixelNoise: number) =>
     getJSON<TaskDoc>(`api/run/task?id=${encodeURIComponent(id)}&a=${a}&b=${b}&distance=${distance}&pixel_noise=${pixelNoise}`),
   fileUrl: (id: string, name: string) =>

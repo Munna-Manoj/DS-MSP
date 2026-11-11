@@ -195,6 +195,14 @@ Setting up and running a calibration (FR-UI-007, FR-UI-008; absent under `--read
   when the readings disagree, and is given whether or not the size was settled.
 - `GET /api/photos/thumb?path=&cam=&photo=&prefix=`: one photo of one camera of a photo folder
   under a root, as a JPEG at most 640 pixels wide.
+- `POST /api/photos/lineup` `{root_path, folders}`: links the subfolders `folders`, in that order,
+  as `Cam_001`, `Cam_002`, ... and returns the linked folder as `{root_path}`. The subfolders are
+  not changed. `POST /api/photos/scan` also returns `folders`, `needs_lineup`, `notes` and, for a
+  linked folder, `lineup`. `GET /api/photos/folder-thumb?path=&folder=`: the first photo of one
+  subfolder.
+- `POST /api/lens/values` `{cameras}`: writes typed lens values, one entry per camera with `model`,
+  `width`, `height` and that model's parameters, as a lens file, and returns it as
+  `GET /api/source/intrinsics` does.
 - `POST /api/photos/check-board` `{values}`: detects the configured board in up to 4 photos per
   camera. Each camera's `sample` names the tried photo with the most corners and gives their
   pixels, for drawing them on it.

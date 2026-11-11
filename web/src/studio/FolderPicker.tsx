@@ -15,6 +15,8 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [ref, setRef] = useState<string | null>(start ?? null);
+  // The folder that was open last, to go back to when the next one cannot be opened.
+  const [shown, setShown] = useState<string | null>(null);
   const [doc, setDoc] = useState<BrowseDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -35,12 +37,16 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
         setAnywhere(d.anywhere === true);
         // one served folder and nowhere else to go: open it instead of showing a list of one
         if (ref == null && d.dirs.length === 1 && !d.anywhere) setRef(d.dirs[0].ref);
-        else setDoc(d);
+        else { setDoc(d); setShown(ref); }
       },
-      (e: Error) => live && setError(e.message),
+      (e: Error) => {
+        if (!live) return;
+        if (ref != null && ref === start) setRef(null);   // the folder to open first has gone
+        else setError(e.message);
+      },
     );
     return () => { live = false; };
-  }, [ref]);
+  }, [ref, start]);
 
   const up = doc && doc.ref != null ? doc.parent : undefined;
   return (
@@ -48,14 +54,15 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
       ref={dialog}
       onClose={onClose}
       aria-label={title}
-      className="m-auto w-[min(44rem,calc(100vw-2rem))] max-h-[calc(100vh-4rem)] rounded-xl border border-s-line
+      className="m-auto w-[min(44rem,calc(100vw-2rem))] max-h-[calc(100vh-4rem)] rounded-xl border border-s-rule
         bg-s-surface text-s-text p-0 backdrop:bg-black/50"
     >
       <div className="flex flex-col max-h-[calc(100vh-4rem)]">
-        <div className="px-5 pt-4 pb-3 border-b border-s-line grid gap-1">
+        <div className="px-5 pt-4 pb-3 border-b border-s-rule grid gap-1">
           <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-[14px] text-s-muted">Showing the computer running Studio, which may not be the device you are using now.</p>
           <div className="font-studio-mono text-xs text-s-muted break-all min-h-4">
-            {doc?.path ?? (anywhere ? "Places on this computer" : "Folders this Studio was started with")}
+            {doc?.path ?? (anywhere ? "Places on that computer" : "Folders this Studio was started with")}
           </div>
           {anywhere && (
             <form className="flex gap-2 mt-1.5" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) setRef(`abs:${typed.trim()}`); }}>
@@ -67,7 +74,12 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
         </div>
 
         <div className="overflow-y-auto px-2 py-2 min-h-48">
-          {error && <div className="p-3"><ErrorBox title="Could not open this folder" detail={error} /></div>}
+          {error && (
+            <div className="p-3 grid gap-3">
+              <ErrorBox title="Could not open this folder" detail={error} />
+              <Button className="justify-self-start" onClick={() => { setError(null); if (ref === shown) setRef(null); else setRef(shown); }}>Go back</Button>
+            </div>
+          )}
           {!doc && !error && <div className="p-3"><Loading what="folder" /></div>}
           {doc && (
             <ul className="grid">
@@ -90,11 +102,11 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
               ))}
               {doc.dirs.map((d) => (
                 <li key={d.ref}>
-                  <button type="button" onClick={() => setRef(d.ref)} className={ROW}>
+                  <button type="button" disabled={d.locked} onClick={() => setRef(d.ref)} className={`${ROW} ${d.locked ? "opacity-50 cursor-not-allowed hover:bg-transparent" : ""}`}>
                     <FolderIcon />
                     <span className="font-medium break-all text-left">{d.name}</span>
                     <span className="ml-auto text-xs text-s-faint whitespace-nowrap">
-                      {d.result ? "calibration result" : d.images > 0 ? `${d.images} images` : ""}
+                      {d.locked ? "no permission" : d.result ? "calibration result" : d.images > 0 ? `${d.images} images` : ""}
                     </span>
                   </button>
                 </li>
@@ -121,7 +133,7 @@ export function FolderPicker({ mode, title, start, onPick, onClose }: {
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-s-line flex flex-wrap items-center gap-3">
+        <div className="px-5 py-3 border-t border-s-rule flex flex-wrap items-center gap-3">
           <p className="text-xs text-s-muted mr-auto max-w-sm">
             {anywhere ? "Nothing is changed in a folder you only read from."
               : <>Only folders given to <code className="font-studio-mono">ds-msp studio --root</code> are listed.</>}

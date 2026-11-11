@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type ErrorSpread } from "./api";
+import { choiceCard } from "./setup/kit";
 
 /** Seconds since mount, about 30 times a second; fixed when the user asked for less motion. */
 function usePhase(): number {
@@ -121,7 +122,7 @@ export function TargetShape({ value, fallback, boards, onChange }: {
           return (
             <button key={s.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(s.id)}
               onPointerEnter={() => setHover(s.id)} onPointerLeave={() => setHover(null)}
-              className={`text-left rounded-xl border-2 p-4 grid grid-cols-[150px_minmax(0,1fr)] gap-4 items-center cursor-pointer transition ${on ? "border-s-accent bg-s-accent-soft" : "border-s-line bg-s-surface hover:border-s-field-line"}`}>
+              className={`text-left p-4 grid grid-cols-[150px_minmax(0,1fr)] gap-4 items-center ${choiceCard(on)}`}>
               <BoardPicture mode={s.id} single={single} t={on || hover === s.id ? t : 1.1} />
               <span className="grid gap-1">
                 <span className="text-base font-semibold flex flex-wrap items-baseline gap-x-2">

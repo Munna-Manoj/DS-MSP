@@ -17,6 +17,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -26,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from . import configio
+from . import configio, lineup
 
 JOB_FILE = "studio_job.json"
 LOG_FILE = "studio_run.log"
@@ -244,6 +245,8 @@ class JobManager:
         problems += configio.path_problems(clean, None if self.anywhere else self.roots, skip=("save_path",))
         if not problems and not (clean.get("root_path") or clean.get("keypoints_path")):
             problems.append({"key": "root_path", "message": "choose the folder with the photos"})
+        elif not problems:
+            problems += lineup.run_problems(clean)
         return {"ok": not problems, "problems": problems, "warnings": [],
                 "yaml": configio.render_config(clean), "values": clean}
 
@@ -274,11 +277,17 @@ class JobManager:
         if source is not None:
             from . import capture
             clean["keypoints_path"] = str(capture.copy_detections(source, folder))
+        # a result stands on its own: typed lens values and the camera lineup travel with it
+        note = Path(str(clean.get("root_path") or "")) / lineup.LINEUP_FILE
+        if clean.get("root_path") and note.is_file():
+            shutil.copy(note, folder / lineup.LINEUP_FILE)
+        lens = clean.get("cam_params_path")
+        if lens and lineup.in_work_dir(Path(str(lens))):
+            clean["cam_params_path"] = str(shutil.copy(str(lens), folder / lineup.LENS_FILE))
         config = folder / configio.CONFIG_NAME
         configio.write_config(config, clean)
         loaded = configio.load_check(config)
         if not loaded["ok"]:
-            import shutil
             shutil.rmtree(folder)
             raise JobError(loaded["error"], [{"key": "", "message": loaded["error"]}])
         return self._enqueue(folder, ["--config", str(config)], reused_from=reuse or None)

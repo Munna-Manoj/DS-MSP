@@ -52,7 +52,7 @@ export function BoardFlatness({ doc }: { doc: RunDoc }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={`${r.o}-${r.b}`} className="border-t border-s-line">
+                <tr key={`${r.o}-${r.b}`} className="border-t border-s-rule">
                   <td className="pr-6 py-1 font-studio-mono">{r.b}</td>
                   <td className="pr-6 py-1 text-right">{num(r.sag_ptp, 3)}</td>
                   <td className="pr-6 py-1 text-right">{num(r.rms, 3)}</td>

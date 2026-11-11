@@ -90,7 +90,7 @@ export function JobPage({ id }: { id: string }) {
           {active && !confirming && <Button kind="danger" onClick={() => setConfirming(true)}>Cancel</Button>}
           {!active && (
             <a href={href({ page: "new", from: job.repeat_of ?? id })}
-              className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+              className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-rule bg-s-surface hover:bg-s-sunken">
               New calibration with these settings
             </a>
           )}
@@ -313,7 +313,7 @@ function LogView({ lines, follow }: { lines: string[]; follow: boolean }) {
   return (
     <pre ref={box} tabIndex={0} aria-label="Calibration output"
       onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}
-      className="font-studio-mono text-[11px] leading-relaxed bg-s-sunken border border-s-line rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap break-words">
+      className="font-studio-mono text-[11px] leading-relaxed bg-s-sunken border border-s-rule rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap break-words">
       {lines.join("\n")}
     </pre>
   );
@@ -323,7 +323,7 @@ function CopyLine({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex gap-2 items-stretch min-w-0">
-      <pre className="flex-1 min-w-0 font-studio-mono text-xs bg-s-sunken border border-s-line rounded-lg px-3 py-2.5 overflow-x-auto">{text}</pre>
+      <pre className="flex-1 min-w-0 font-studio-mono text-xs bg-s-sunken border border-s-rule rounded-lg px-3 py-2.5 overflow-x-auto">{text}</pre>
       <Button onClick={() => { navigator.clipboard?.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }, () => undefined); }}>
         {copied ? "Copied" : "Copy"}
       </Button>

@@ -159,11 +159,16 @@ def test_scan_and_board_check_routes(client, tmp_path):
 def test_config_check_uses_the_cli_loader(client):
     c, root = client
     ok = c.post("/api/config/check", headers=SEND, json={"values": {
-        "root_path": str(root), "number_camera": 2, "camera_models": ["kb", "kb"]}}).json()
+        "root_path": str(root), "number_camera": 2, "square_size": 0.1,
+        "camera_models": ["kb", "kb"]}}).json()
     assert ok["ok"] and "number_camera: 2" in ok["yaml"]
     # production refuses to run without uncertainty limits: the loader's own message comes back
+    cam = {"model": "radtan", "width": 640, "height": 480, "fx": 500, "fy": 500, "cx": 320, "cy": 240,
+           "k1": 0, "k2": 0, "p1": 0, "p2": 0, "k3": 0}
+    lens = c.post("/api/lens/values", headers=SEND, json={"cameras": [cam, cam]}).json()["path"]
     prod = c.post("/api/config/check", headers=SEND, json={"values": {
-        "root_path": str(root), "number_camera": 2, "profile": "production"}}).json()
+        "root_path": str(root), "number_camera": 2, "profile": "production", "square_size": 0.1,
+        "fix_intrinsic": True, "cam_params_path": lens}}).json()
     assert not prod["ok"] and "max_rotation_sigma_deg" in prod["problems"][0]["message"]
     nowhere = c.post("/api/config/check", headers=SEND, json={"values": {"number_camera": 2}}).json()
     assert nowhere["problems"] == [{"key": "root_path", "message": "choose the folder with the photos"}]

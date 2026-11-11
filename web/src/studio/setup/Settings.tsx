@@ -32,7 +32,7 @@ function Setting({ title, k, changed, onReset, why, when, problem, wide, childre
   problem?: string | null; wide?: boolean; children: ReactNode;
 }) {
   return (
-    <div className={`py-5 first:pt-1 grid gap-x-8 gap-y-3 items-start ${wide ? "" : "lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]"}`}>
+    <div className={`py-5 px-3 -mx-3 rounded-lg grid gap-x-8 gap-y-3 items-start transition hover:bg-s-accent-soft/40 focus-within:bg-s-accent-soft/50 ${wide ? "" : "lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]"}`}>
       <div className="grid gap-1.5 min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h4 className="text-[17px] font-semibold">{title}</h4>
@@ -54,7 +54,7 @@ function Setting({ title, k, changed, onReset, why, when, problem, wide, childre
 function Group({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
   return (
     <section className="grid gap-1">
-      <h3 className="text-lg font-bold tracking-tight border-b-2 border-s-text/80 pb-1.5">{title}</h3>
+      <h3 className="text-lg font-bold tracking-tight border-b border-s-rule pb-1.5">{title}</h3>
       {intro && <Explain className="pt-2">{intro}</Explain>}
       <div className="divide-y divide-s-line">{children}</div>
     </section>
@@ -72,6 +72,11 @@ const GATE_MEANS: Record<string, string> = {
   refuse: "No result is written if this check fails.",
 };
 
+/** How many of the settings on this step differ from the usual ones. */
+export function settingsChanged(values: Values): number {
+  return [...HERE].filter((k) => values[k] !== undefined && values[k] !== "").length;
+}
+
 export function Settings({ schema, values, problems, set, onBrowse, refRun, source, strict }: {
   schema: ConfigSchema; values: Values; problems: Problem[]; set: Set; onBrowse: (key: string) => void;
   refRun: { id: string; name: string } | null; source: string;
@@ -84,9 +89,6 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, sour
   const val = <T,>(k: string): T => (has(k) ? values[k] : k in usual ? usual[k] : P[k].default) as T;
   const reset = (k: string) => () => set(k, "");
   const problem = (k: string) => problems.find((p) => p.key === k)?.message ?? null;
-  const shownKeys = Object.keys(P).filter((k) => HERE.has(k));
-  const changed = shownKeys.filter(has);
-  const bad = problems.filter((p) => HERE.has(p.key)).length;
   const others = Object.keys(values).filter((k) => !ELSEWHERE.has(k) && !HERE.has(k));
 
   const gate = (k: string, title: string, why: ReactNode, extra?: ReactNode) => (
@@ -110,16 +112,7 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, sour
   );
 
   return (
-    <details className="rounded-2xl bg-s-surface border border-s-line shadow-[0_1px_2px_rgb(15_23_42/0.06),0_4px_16px_rgb(15_23_42/0.05)]" open={bad > 0 || undefined}>
-      <summary className="cursor-pointer px-5 sm:px-6 py-5 flex flex-wrap items-center gap-3 hover:bg-s-sunken rounded-2xl">
-        <span className="size-9 shrink-0 rounded-full grid place-items-center text-base font-bold bg-s-sunken text-s-muted border border-s-line" aria-hidden="true">5</span>
-        <h2 className="text-xl font-semibold tracking-tight">More settings</h2>
-        <span className="rounded-full bg-s-sunken text-s-muted text-[13px] font-medium px-2.5 py-0.5">optional</span>
-        <span className="text-[15px] text-s-muted">A normal calibration needs none of these.</span>
-        {changed.length > 0 && <span className="rounded-full bg-s-accent text-white text-[13px] font-semibold px-2.5 py-0.5">{changed.length} changed</span>}
-        {bad > 0 && <span className="rounded-full bg-s-bad text-white text-[13px] font-semibold px-2.5 py-0.5">{bad} to fix</span>}
-      </summary>
-      <div className="px-5 sm:px-6 pb-6 grid gap-9">
+    <div className="grid gap-9">
 
         <Group title="Mistakes in the photos">
           <Setting wide title="When is a found corner a mistake?" k="noise_bound" changed={has("noise_bound")} onReset={reset("noise_bound")} problem={problem("noise_bound")}
@@ -224,7 +217,7 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, sour
           <Group title="Other entries from your config file" intro={<>These came with the file you loaded. Studio writes the choices you made on this page in their place where both say the same thing; you can remove any of them.</>}>
             <ul className="flex flex-wrap gap-2 pt-3">
               {others.map((k) => (
-                <li key={k} className="inline-flex items-center gap-2 rounded-full bg-s-sunken border border-s-line pl-3.5 pr-1 min-h-10 text-[15px]">
+                <li key={k} className="inline-flex items-center gap-2 rounded-full bg-s-sunken border border-s-rule pl-3.5 pr-1 min-h-10 text-[15px]">
                   <span className="font-studio-mono text-sm">{k}: {Array.isArray(values[k]) ? `[${(values[k] as unknown[]).join(", ")}]` : String(values[k])}</span>
                   <button type="button" aria-label={`Remove ${k}`} onClick={() => set(k, "")} className="size-8 grid place-items-center rounded-full hover:bg-s-line text-s-muted cursor-pointer text-lg">×</button>
                 </li>
@@ -232,7 +225,6 @@ export function Settings({ schema, values, problems, set, onBrowse, refRun, sour
             </ul>
           </Group>
         )}
-      </div>
-    </details>
+    </div>
   );
 }

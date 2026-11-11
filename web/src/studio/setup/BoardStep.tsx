@@ -8,7 +8,7 @@ import type { Unit } from "../stage/units";
 import { Button, Callout, INPUT } from "../ui";
 import { boardColor, boardName } from "../stage/boards";
 import { TargetShape } from "../Teach";
-import { Explain, KeyTag, NumberBox, Range, Stepper, Toggle } from "./kit";
+import { Explain, KeyTag, NumberBox, Part, Range, Stepper, Toggle } from "./kit";
 
 type Set = (key: string, v: unknown) => void;
 
@@ -241,7 +241,7 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
         </Callout>
       )}
 
-      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,380px)] items-start">
+      <Part className="md:grid-cols-[minmax(0,1fr)_minmax(0,380px)] !gap-6 items-start">
         <div className="grid gap-5 content-start">
           <div className="flex flex-wrap gap-x-8 gap-y-4">
             <div className="grid gap-1.5">
@@ -274,10 +274,10 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
           </div>
         </div>
         <BoardDrawing nx={nx} ny={ny} size={num(values.square_size, 0)} unit={unit} fill={fill} />
-      </div>
+      </Part>
 
       {/* several boards ------------------------------------------------------------------- */}
-      <div className="border-t border-s-line pt-5 grid gap-4">
+      <Part>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
           <div className="min-w-0 mr-auto">
             <label htmlFor="number_board" className="text-base font-semibold">How many boards are fixed together?</label>
@@ -305,10 +305,10 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
             )}
           </>
         )}
-      </div>
+      </Part>
 
       {/* flat or not ---------------------------------------------------------------------- */}
-      <div className="border-t border-s-line pt-5 grid gap-3">
+      <Part>
         <div className="grid gap-1">
           <div className="flex flex-wrap items-baseline gap-x-3">
             <span className="text-base font-semibold">{nb > 1 ? "How flat and stiff is your target?" : "Is your board really flat?"}</span>
@@ -335,11 +335,11 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
           </label>
         )}
         {problemOf("structure_mode") && <div className="text-[15px] font-medium text-s-bad" role="alert">{problemOf("structure_mode")}</div>}
-      </div>
+      </Part>
 
       {/* check ---------------------------------------------------------------------------- */}
       {photos && (
-        <div className="border-t border-s-line pt-5 grid gap-4">
+        <Part>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <div className="min-w-0 mr-auto">
               <div className="text-base font-semibold">See it found in your photos</div>
@@ -360,11 +360,11 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
               ))}
             </div>
           )}
-        </div>
+        </Part>
       )}
 
       {/* printed differently -------------------------------------------------------------- */}
-      <div className="border-t border-s-line pt-4 grid gap-4">
+      <Part>
         <Toggle id="board-printed" on={printed} onChange={(on) => {
           setPrinted(on);
           if (!on) { set("length_marker", ""); set("length_square", ""); set("boards_index", ""); }
@@ -441,7 +441,7 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
             )}
           </div>
         )}
-      </div>
+      </Part>
     </>
   );
 }

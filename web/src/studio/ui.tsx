@@ -23,7 +23,7 @@ export function Card({ title, aside, children, className = "" }: {
   title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-s-line bg-s-surface min-w-0 ${className}`}>
+    <section className={`rounded-lg border border-s-rule bg-s-surface min-w-0 ${className}`}>
       {title && (
         <div className="flex items-baseline gap-3 px-4 pt-4">
           <h2 className="text-[15px] font-semibold">{title}</h2>
@@ -66,7 +66,7 @@ type ButtonKind = "primary" | "secondary" | "danger" | "quiet";
 
 const BUTTON: Record<ButtonKind, string> = {
   primary: "bg-s-accent text-white shadow-sm hover:brightness-110 border border-transparent",
-  secondary: "bg-s-surface text-s-text border-[1.5px] border-s-field-line/70 shadow-sm hover:bg-s-sunken hover:border-s-text/50",
+  secondary: "bg-s-surface text-s-text border-[1.5px] border-s-field-line/70 shadow-sm hover:bg-s-sunken hover:border-s-strong/50",
   danger: "bg-s-surface text-s-bad border border-s-bad/40 hover:bg-s-bad-soft",
   quiet: "text-s-accent hover:underline border border-transparent",
 };
@@ -91,8 +91,8 @@ export function Button({ kind = "secondary", busy, className = "", children, ...
 export const INPUT =
   "w-full rounded-lg border-[1.5px] border-s-field-line bg-s-field px-3.5 min-h-12 text-base text-s-text " +
   "shadow-[inset_0_1px_2px_rgb(15_23_42/0.06)] outline-none transition placeholder:text-s-faint " +
-  "hover:border-s-text/60 focus:border-s-accent focus:ring-4 focus:ring-s-accent/20 " +
-  "disabled:bg-s-sunken disabled:text-s-faint disabled:border-s-line";
+  "hover:border-s-strong/60 focus:border-s-accent focus:ring-4 focus:ring-s-accent/20 " +
+  "disabled:bg-s-sunken disabled:text-s-faint disabled:border-s-rule";
 
 /** A labelled form control with its help text and, when set, its problem. */
 export function Field({ label, help, problem, htmlFor, children, className = "" }: {

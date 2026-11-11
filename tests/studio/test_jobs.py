@@ -108,9 +108,15 @@ def test_bad_settings_create_nothing(keypoints):
         **values, "square_size": "x"}})
     assert r.status_code == 400 and r.json()["problems"] == [
         {"key": "square_size", "message": "must be a number"}]
+    cam = {"model": "radtan", "width": 640, "height": 480, "fx": 500, "fy": 500, "cx": 320, "cy": 240,
+           "k1": 0, "k2": 0, "p1": 0, "p2": 0, "k3": 0}
+    lens = c.post("/api/lens/values", headers=SEND, json={"cameras": [cam] * values["number_camera"]}).json()["path"]
+    r = c.post("/api/jobs", headers=SEND, json={"root": 0, "name": "prod", "values": {
+        **values, "profile": "production", "fix_intrinsic": True, "cam_params_path": lens}})
+    assert r.status_code == 400 and "max_rotation_sigma_deg" in r.json()["detail"]
     r = c.post("/api/jobs", headers=SEND, json={"root": 0, "name": "prod", "values": {
         **values, "profile": "production"}})
-    assert r.status_code == 400 and "max_rotation_sigma_deg" in r.json()["detail"]
+    assert r.status_code == 400 and {p["key"] for p in r.json()["problems"]} == {"fix_intrinsic", "cam_params_path"}
     r = c.post("/api/jobs", headers=SEND, json={"root": 0, "name": "../escape", "values": values})
     assert r.status_code == 400 and r.json()["problems"][0]["key"] == "name"
     r = c.post("/api/jobs", headers=SEND, json={"root": 0, "name": "capture", "values": values})

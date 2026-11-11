@@ -133,7 +133,12 @@ The numbers under **What it means** count random error only, as the pair uncerta
 Real errors are usually larger.
 ///
 
-Photos show when Studio can read them: anywhere on this computer, or, with `--only-roots` or
+**How close is this to what you need?** compares the weakest camera pair with the precision you
+asked for when you set up the run, or that you type on the page. If it falls short, Studio estimates how many
+photos of the same kind would close the gap. Treat that as rough: it assumes the new photos are
+as varied as the ones you have. Photos with new angles can need far fewer.
+
+Photos show when Studio can read them: anywhere on the computer running Studio, or, with `--only-roots` or
 `--read-only`, under a folder given with `--root`. A result written by an
 earlier version does not record which photo is which frame; Studio then matches them by file
 number and says so.

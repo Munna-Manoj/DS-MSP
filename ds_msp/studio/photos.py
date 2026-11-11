@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from ..detect.charuco import (
     _DICT, _IMG_EXT, BoardSpec, _frame_id_from_name, _make_board, _validate_frame_association,
@@ -54,7 +54,67 @@ def guess_prefix(root: Path) -> Optional[str]:
     return max(counts, key=lambda k: (counts[k], k == "Cam_")) if counts else None
 
 
+def _subfolders(root: Path, prefix: Optional[str], used: Set[str]) -> List[Dict[str, Any]]:
+    """Every visible subfolder of ``root``, in natural order: how many photos it holds and
+    whether it is proposed as a camera. With at least two cameras already named alike, a folder
+    named differently is proposed as not being one; otherwise any folder with photos is."""
+    from .lineup import natural_key
+
+    try:
+        names = sorted((p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")),
+                       key=natural_key)
+    except OSError:
+        return []
+    out: List[Dict[str, Any]] = []
+    for name in names:
+        n_images = len(_images(root / name))
+        m = _CAM_FOLDER.match(name)
+        alike = len(used) < 2 or (m is not None and m.group("prefix") == prefix)
+        reason = "" if n_images and alike else (
+            "holds no photos" if not n_images else "is named differently from the other cameras")
+        out.append({"name": name, "images": n_images, "proposed": not reason, "reason": reason,
+                    "width": None, "height": None})
+    return out
+
+
 def scan_photos(root_path: str, cam_prefix: Optional[str] = None,
+                frame_pattern: Optional[str] = None) -> Dict[str, Any]:
+    """:func:`_scan_named`, plus what the names left out. ``folders`` lists every subfolder.
+    ``needs_lineup`` says a folder with photos would not be used, so a person must say which
+    folder is which camera; a prefix given explicitly is taken as that choice, and what it
+    leaves out is only stated in ``notes``. ``lineup`` is what a folder of links stands for."""
+    import cv2
+
+    from .lineup import origin
+
+    doc = _scan_named(root_path, cam_prefix, frame_pattern)
+    doc.update(folders=[], needs_lineup=False, notes=[], lineup=None)
+    root = Path(root_path)
+    if not root.is_dir():
+        return doc
+    doc["lineup"] = origin(root)
+    used = {c["folder"] for c in doc["cameras"]}
+    doc["folders"] = _subfolders(root, doc["cam_prefix"], used)
+    spare = [f for f in doc["folders"] if f["images"] and f["name"] not in used]
+    if not spare:
+        return doc
+    names = ", ".join(f["name"] for f in spare[:4]) + (" and more" if len(spare) > 4 else "")
+    if cam_prefix and used:
+        doc["notes"].append(f"Not used, because the camera folders here start with {cam_prefix}: {names}.")
+        return doc
+    doc["needs_lineup"] = True
+    if used:
+        doc["problems"].append(f"{names} hold{'s' if len(spare) == 1 else ''} photos that would not be "
+                               f"used: say which folder is which camera.")
+    for f in doc["folders"]:
+        if f["images"]:
+            img = cv2.imread(str(_images(root / f["name"])[0]), cv2.IMREAD_GRAYSCALE)
+            if img is not None:
+                f["height"], f["width"] = int(img.shape[0]), int(img.shape[1])
+    return doc
+
+
+def _scan_named(root_path: str, cam_prefix: Optional[str] = None,
                 frame_pattern: Optional[str] = None) -> Dict[str, Any]:
     """Cameras found under ``root_path`` in the layout the calibration reads
     (``<root>/<cam_prefix>001``, ``002``, ...).
@@ -103,6 +163,9 @@ def scan_photos(root_path: str, cam_prefix: Optional[str] = None,
                 frame = _frame_id_from_name(str(f), frame_pattern)
             except ValueError as exc:
                 bad_name = bad_name or str(exc)
+                continue
+            except (re.error, IndexError) as exc:
+                bad_name = bad_name or f"the file-name pattern cannot be used: {exc}"
                 continue
             if frame in frames and bad_name is None:
                 bad_name = f"{folder.name}: two images have frame number {frame}"
@@ -225,11 +288,16 @@ def thumbnail(root_path: str, cam: int, photo: int = 0, cam_prefix: Optional[str
               max_width: int = THUMB_WIDTH) -> Optional[bytes]:
     """Photo number ``photo`` (in file-name order) of camera ``cam`` as a JPEG at most
     ``max_width`` wide, or ``None`` when there is no such readable photo."""
-    import cv2
-
     root = Path(root_path)
     prefix = cam_prefix or guess_prefix(root) or "Cam_"
-    files = _images(root / f"{prefix}{cam + 1:03d}")
+    return folder_thumbnail(root / f"{prefix}{cam + 1:03d}", photo, max_width)
+
+
+def folder_thumbnail(folder: Path, photo: int = 0, max_width: int = THUMB_WIDTH) -> Optional[bytes]:
+    """Photo number ``photo`` of a folder as a JPEG at most ``max_width`` wide, or ``None``."""
+    import cv2
+
+    files = _images(folder)
     if not 0 <= photo < len(files):
         return None
     img = cv2.imread(os.fspath(files[photo]), cv2.IMREAD_COLOR)

@@ -131,6 +131,13 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
 
     app.add_middleware(_Guard)
 
+    @app.exception_handler(PermissionError)
+    async def _no_permission(_request: Request, exc: PermissionError) -> JSONResponse:
+        """A path this account may not read is the user's to fix, not a server fault."""
+        where = f": {exc.filename}" if exc.filename else ""
+        return JSONResponse({"detail": f"Your account does not have permission to read this{where}"},
+                            status_code=403)
+
     if token:
         secret: str = token
 
@@ -305,6 +312,16 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         from .scene import pair_geometry
         return pair_geometry(_folder(id), a, b)
 
+    @app.get("/api/run/precision")
+    def get_run_precision(id: str = Query(...), rotation: Optional[float] = Query(None, gt=0),  # noqa: A002
+                          centre: Optional[float] = Query(None, gt=0)) -> Dict[str, Any]:
+        """How far this result is from the limits (the run's own, unless given), and how many
+        more photos of the same kind would close the gap."""
+        from .precision import precision_gap
+        from .runs import ACCEPTANCE_FILE, _read_json
+        acc = _read_json(_folder(id) / ACCEPTANCE_FILE) or {}
+        return precision_gap(acc.get("extrinsic_uncertainty"), rotation, centre)
+
     @app.get("/api/run/task")
     def get_run_task(id: str = Query(...), a: int = Query(..., ge=0), b: int = Query(..., ge=0),  # noqa: A002
                      distance: float = Query(..., gt=0), pixel_noise: float = Query(0.5, ge=0, le=50)
@@ -332,8 +349,8 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
         if ref is None:
             home = Path.home()
             places = [] if not anywhere else [
-                {"name": "My home folder", "ref": _ref(home), "path": str(home)},
-                {"name": "This computer", "ref": f"{_ABSOLUTE}{home.anchor}", "path": home.anchor}]
+                {"name": "Home folder", "ref": _ref(home), "path": str(home)},
+                {"name": "Whole computer", "ref": f"{_ABSOLUTE}{home.anchor}", "path": home.anchor}]
             return {"ref": None, "path": None, "name": "", "parent": None, "images": 0,
                     "files": [], "anywhere": anywhere, "places": places,
                     "dirs": [{"name": p.name or str(p), "ref": f"{k}:",
@@ -353,20 +370,32 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
             except OSError:
                 return 0
 
+        def is_result(d: Path) -> bool:
+            try:
+                return (d / "calibration_report.json").is_file()
+            except OSError:                              # a folder this account may not open
+                return False
+
         dirs, files = [], []
         try:
             entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
+        except PermissionError:
+            raise HTTPException(403, "Your account does not have permission to open this folder.") from None
         except OSError as exc:
             raise HTTPException(422, f"cannot read this folder: {exc}") from None
         for e in entries:
+            try:
+                e.name.encode("utf-8")
+            except UnicodeEncodeError:                   # a name the page could not show
+                continue
             if e.name.startswith("."):
                 continue
             if e.is_dir(follow_symlinks=False):
                 if len(dirs) < _MAX_LISTED:
                     child = folder / e.name
                     dirs.append({"name": e.name, "ref": _ref(child), "path": str(child),
-                                 "images": n_images(child),
-                                 "result": (child / "calibration_report.json").is_file()})
+                                 "images": n_images(child), "result": is_result(child),
+                                 "locked": not os.access(child, os.R_OK | os.X_OK)})
             elif e.name.lower().endswith(_LISTED_FILES) and len(files) < _MAX_LISTED:
                 files.append({"name": e.name, "path": str(folder / e.name)})
         is_root = folder in rs.paths
@@ -436,6 +465,46 @@ def create_app(roots: Sequence[str], *, token: Optional[str] = None, max_depth: 
                           body.get("frame_pattern") or None)
         doc["found"] = companions(root)
         return doc
+
+    def _work_root() -> Path:
+        if not rs.paths:
+            raise HTTPException(400, "choose where to save results first")
+        return rs.paths[0]
+
+    @app.post("/api/photos/lineup")
+    def photos_lineup(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Link the chosen subfolders, in order, under the names the calibration reads."""
+        from . import lineup
+        _manager()
+        root = _inside(str(body.get("root_path") or ""))
+        try:
+            dest = lineup.stage(root, [str(f) for f in body.get("folders") or []], _work_root())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {"root_path": str(dest)}
+
+    @app.post("/api/lens/values")
+    def lens_values(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Turn lens values typed on the setup page into a lens file, and read it back."""
+        from . import lineup
+        from .sources import scan_intrinsics
+        _manager()
+        try:
+            path = lineup.write_lens_values(list(body.get("cameras") or []), _work_root())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return scan_intrinsics(path)
+
+    @app.get("/api/photos/folder-thumb")
+    def photos_folder_thumb(path: str = Query(...), folder: str = Query(...)) -> Response:
+        """The first photo of one subfolder, before it is known to be a camera."""
+        from .photos import folder_thumbnail
+        if Path(folder).name != folder:
+            raise HTTPException(400, "not a folder directly inside this one")
+        data = folder_thumbnail(_inside(path) / folder)
+        if data is None:
+            raise HTTPException(404, "no such photo")
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=600"})
 
     @app.post("/api/photos/check-board")
     def photos_check_board(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:

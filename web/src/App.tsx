@@ -46,7 +46,7 @@ function Header({ route }: { route: Route }) {
     </a>
   );
   return (
-    <header className={`border-b ${learn ? "border-line" : "border-s-line bg-s-surface"}`}>
+    <header className={`border-b ${learn ? "border-line" : "border-s-rule bg-s-surface"}`}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center gap-4">
         <a href={href({ page: "runs" })} className="flex items-baseline gap-2 shrink-0">
           <span className={`font-bold tracking-tight ${learn ? "font-display text-lg" : "text-[17px]"}`}>
@@ -80,7 +80,7 @@ function NoServer() {
         This public page has no calibration results. Install DS-MSP with the interface and point
         it at a folder of results:
       </p>
-      <pre className="font-studio-mono text-sm bg-s-sunken border border-s-line rounded-lg p-4 overflow-x-auto">
+      <pre className="font-studio-mono text-sm bg-s-sunken border border-s-rule rounded-lg p-4 overflow-x-auto">
         {`pip install "ds-msp[ui]"\nds-msp studio --root path/to/results`}
       </pre>
       <p className="text-s-muted">

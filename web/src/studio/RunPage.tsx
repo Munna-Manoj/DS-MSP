@@ -4,6 +4,7 @@ import { api, type RunDoc } from "./api";
 import { CameraDetail } from "./CameraDetail";
 import { int, px, when } from "./format";
 import { LinksTable } from "./LinksTable";
+import { PrecisionCard } from "./PrecisionCard";
 import { cameraStatus, camIds, STATE_TONE, type CamStatus } from "./status";
 import { Actions } from "./Actions";
 import { Evidence } from "./Evidence";
@@ -45,9 +46,10 @@ export function RunPage({ id, cam }: { id: string; cam?: string }) {
       <Banner doc={doc} statuses={statuses} />
       <Actions doc={doc} runId={id} />
       <BowFinding doc={doc} />
+      <PrecisionCard doc={doc} runId={id} />
       <Stage doc={doc} runId={id} cam={selected} statuses={statuses} />
       <CameraDetail doc={doc} cam={selected} status={statuses.find((s) => s.id === selected)} />
-      <details className="rounded-lg border border-s-line bg-s-surface group">
+      <details className="rounded-lg border border-s-rule bg-s-surface group">
         <summary className="cursor-pointer px-4 py-3.5 flex flex-wrap items-baseline gap-3">
           <h2 className="text-[15px] font-semibold">All the numbers</h2>
           <span className="text-xs text-s-muted">Error charts, camera pairs, board flatness, solver stages and files</span>
@@ -81,13 +83,13 @@ function TitleRow({ doc, runId }: { doc: RunDoc; runId: string }) {
       <div className="flex flex-wrap gap-2">
         {doc.manifest && (
           <a href={href({ page: "repeat", id: runId })}
-            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-rule bg-s-surface hover:bg-s-sunken">
             Repeat exactly
           </a>
         )}
         {(doc.has_config || doc.manifest) && (
           <a href={href({ page: "new", from: runId })}
-            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-line bg-s-surface hover:bg-s-sunken">
+            className="inline-flex items-center rounded-md px-3.5 min-h-10 text-sm font-medium border border-s-rule bg-s-surface hover:bg-s-sunken">
             Change settings and run again
           </a>
         )}

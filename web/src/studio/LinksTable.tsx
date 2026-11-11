@@ -28,7 +28,7 @@ export function LinksTable({ doc }: { doc: RunDoc }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm tnum">
             <thead>
-              <tr className="text-left text-xs text-s-faint border-b border-s-line">
+              <tr className="text-left text-xs text-s-faint border-b border-s-rule">
                 <th className="py-2 pr-4 font-medium">Cameras</th>
                 <th className="py-2 pr-4 font-medium text-right">Angle uncertainty</th>
                 <th className="py-2 font-medium text-right">Position uncertainty</th>
@@ -36,7 +36,7 @@ export function LinksTable({ doc }: { doc: RunDoc }) {
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.key} className="border-b border-s-line last:border-0">
+                <tr key={p.key} className="border-b border-s-rule last:border-0">
                   <td className="py-1.5 pr-4">{camName(p.a)} and {camName(p.b)}</td>
                   <td className="py-1.5 pr-4 text-right">{p.rot == null ? "unbounded" : `at least ±${num(p.rot, 3)}°`}</td>
                   <td className="py-1.5 text-right">{p.pos == null ? "unbounded" : `at least ±${num(p.pos, 4)}`}</td>

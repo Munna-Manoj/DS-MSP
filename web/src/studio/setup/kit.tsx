@@ -6,23 +6,59 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { INPUT } from "../ui";
 
-/** One numbered step of the setup, with whether it is done. */
-export function Step({ n, title, state, aside, children }: {
-  n: number | string; title: ReactNode; state?: "done" | "todo" | "optional"; aside?: ReactNode; children: ReactNode;
+/** Where a step stands. A number is always shown; this only sets its colour and its word. */
+export type StepState = "done" | "todo" | "warn" | "fix" | "usual" | "waiting";
+
+export const STEP_WORD: Record<StepState, string> = {
+  done: "Done", todo: "To do", warn: "Check this", fix: "To fix", usual: "Usual choice", waiting: "Waiting",
+};
+const BAND: Record<StepState, string> = {
+  done: "bg-s-ok-soft border-s-ok/25", todo: "bg-s-accent-soft border-s-accent/20", warn: "bg-s-warn-soft border-s-warn/30",
+  fix: "bg-s-bad-soft border-s-bad/30", usual: "bg-s-accent-soft border-s-accent/20", waiting: "bg-s-sunken border-s-rule",
+};
+const DOT: Record<StepState, string> = {
+  done: "bg-s-ok", todo: "bg-s-accent", warn: "bg-s-warn", fix: "bg-s-bad", usual: "bg-s-accent", waiting: "bg-s-faint",
+};
+const WORD_COLOUR: Record<StepState, string> = {
+  done: "text-s-ok", todo: "text-s-accent", warn: "text-s-warn", fix: "text-s-bad", usual: "text-s-accent", waiting: "text-s-muted",
+};
+
+/** One step of the setup: a title band and its body, joined as one card, tinted by its state. */
+export function Step({ n, of, title, lead, state = "todo", word, active = true, footer, children }: {
+  n?: number; of?: number; title: ReactNode; lead?: ReactNode; state?: StepState;
+  /** Says the state in other words than usual. */
+  word?: string; active?: boolean; footer?: ReactNode; children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl bg-s-surface shadow-[0_1px_2px_rgb(15_23_42/0.06),0_4px_16px_rgb(15_23_42/0.05)] border border-s-line min-w-0">
-      <header className="flex flex-wrap items-center gap-3 px-5 sm:px-6 pt-5">
-        <span className={`size-9 shrink-0 rounded-full grid place-items-center text-base font-bold ${state === "done" ? "bg-s-ok text-white" : "bg-s-accent text-white"}`} aria-hidden="true">
-          {state === "done" ? "✓" : n}
-        </span>
-        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-        {state === "optional" && <span className="rounded-full bg-s-sunken text-s-muted text-[13px] font-medium px-2.5 py-0.5">optional</span>}
-        {aside && <div className="ml-auto text-[15px] text-s-muted">{aside}</div>}
+    <section hidden={!active} className="rounded-2xl bg-s-surface border border-s-rule shadow-[0_1px_2px_rgb(15_23_42/0.06),0_8px_24px_rgb(15_23_42/0.06)] min-w-0 overflow-hidden">
+      <header className={`flex items-center gap-4 px-5 sm:px-6 py-4 border-b ${BAND[state]}`}>
+        {n != null && <span className={`size-11 shrink-0 rounded-full grid place-items-center text-lg font-bold text-white ${DOT[state]}`} aria-hidden="true">{n}</span>}
+        <div className="min-w-0 mr-auto">
+          {n != null && <div className="text-[14px] font-medium text-s-muted">Step {n}{of ? ` of ${of}` : ""}</div>}
+          <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+          {lead && <p className="text-[15px] text-s-muted leading-snug mt-0.5">{lead}</p>}
+        </div>
+        {n != null && <span className={`text-[15px] font-semibold whitespace-nowrap ${WORD_COLOUR[state]}`}>{word ?? STEP_WORD[state]}</span>}
       </header>
-      <div className="px-5 sm:px-6 pb-6 pt-4 grid gap-5 min-w-0">{children}</div>
+      <div className="px-5 sm:px-6 py-6 grid gap-5 min-w-0">{children}</div>
+      {footer && <footer className="px-5 sm:px-6 py-4 border-t border-s-rule bg-s-sunken">{footer}</footer>}
     </section>
   );
+}
+
+/** A section inside a step: its title and its controls together, lit when in use. */
+export function Part({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-xl border border-s-rule p-4 sm:p-5 grid gap-4 min-w-0 transition hover:border-s-accent/45 hover:shadow-sm focus-within:border-s-accent focus-within:ring-4 focus-within:ring-s-accent/10 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** The look of a card that is one choice among several. */
+export function choiceCard(on: boolean): string {
+  return `rounded-xl border-2 cursor-pointer transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-s-accent/30 has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-s-accent/30 ${
+    on ? "border-s-accent bg-s-accent-soft shadow-sm" : "border-s-rule bg-s-surface hover:border-s-accent/60 hover:bg-s-accent-soft/40 hover:shadow-md hover:-translate-y-0.5"}`;
 }
 
 /** An explanation: plain text, never in a box. */
@@ -41,12 +77,12 @@ export function Stepper({ id, value, min = 1, max = 99, onChange, label }: {
     "hover:bg-s-accent-soft active:bg-s-accent active:text-white disabled:text-s-faint disabled:hover:bg-s-surface cursor-pointer disabled:cursor-not-allowed";
   return (
     <div className="inline-flex items-stretch rounded-lg border-[1.5px] border-s-field-line bg-s-field overflow-hidden shadow-[inset_0_1px_2px_rgb(15_23_42/0.06)] focus-within:border-s-accent focus-within:ring-4 focus-within:ring-s-accent/20">
-      <button type="button" className={`${btn} border-r border-s-line`} aria-label={`One fewer: ${label}`} disabled={value <= min} onClick={() => onChange(clamp(value - 1))}>−</button>
+      <button type="button" className={`${btn} border-r border-s-rule`} aria-label={`One fewer: ${label}`} disabled={value <= min} onClick={() => onChange(clamp(value - 1))}>−</button>
       <input id={id} inputMode="numeric" aria-label={label} value={text}
         className="w-16 text-center text-xl font-semibold tnum bg-transparent outline-none"
         onChange={(e) => { setText(e.target.value); const v = Number(e.target.value); if (e.target.value.trim() !== "" && Number.isFinite(v)) onChange(clamp(v)); }}
         onBlur={() => setText(String(value))} />
-      <button type="button" className={`${btn} border-l border-s-line`} aria-label={`One more: ${label}`} disabled={value >= max} onClick={() => onChange(clamp(value + 1))}>+</button>
+      <button type="button" className={`${btn} border-l border-s-rule`} aria-label={`One more: ${label}`} disabled={value >= max} onClick={() => onChange(clamp(value + 1))}>+</button>
     </div>
   );
 }

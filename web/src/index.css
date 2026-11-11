@@ -45,6 +45,11 @@
   --color-s-surface: var(--s-surface);
   --color-s-sunken: var(--s-sunken);
   --color-s-line: var(--s-line);
+  /* For borders use border-s-rule and border-s-strong, never border-s-line or border-s-text.
+     Tailwind also reads border-s-<colour> as "the inline-start border", so those two would paint
+     the left edge in the Learn palette's --color-line and --color-text. */
+  --color-s-rule: var(--s-line);
+  --color-s-strong: var(--s-text);
   --color-s-text: var(--s-text);
   --color-s-muted: var(--s-muted);
   --color-s-faint: var(--s-faint);
