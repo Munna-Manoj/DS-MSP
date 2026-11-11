@@ -1,5 +1,5 @@
 import type React from "react";
-import type { ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 
 type Tone = "ok" | "warn" | "bad" | "info" | "plain";
 
@@ -10,6 +10,13 @@ const TONE: Record<Tone, string> = {
   info: "bg-s-accent-soft text-s-accent",
   plain: "bg-s-sunken text-s-muted",
 };
+
+/** Shows `fallback` instead of a blank page when what is inside fails to draw. */
+export class Guard extends Component<{ fallback: (message: string) => ReactNode; children: ReactNode }, { message: string | null }> {
+  state = { message: null as string | null };
+  static getDerivedStateFromError(e: unknown) { return { message: e instanceof Error ? e.message : String(e) }; }
+  render() { return this.state.message != null ? this.props.fallback(this.state.message) : this.props.children; }
+}
 
 export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (

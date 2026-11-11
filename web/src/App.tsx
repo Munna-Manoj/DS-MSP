@@ -5,6 +5,7 @@ import { NewRunPage } from "./studio/NewRunPage";
 import { RepeatPage } from "./studio/RepeatPage";
 import { RunPage } from "./studio/RunPage";
 import { RunsPage } from "./studio/RunsPage";
+import { ErrorBox, Guard } from "./studio/ui";
 
 const LearnPage = lazy(() => import("./learn/LearnPage").then((m) => ({ default: m.LearnPage })));
 
@@ -15,6 +16,7 @@ export function App() {
     <div className={`min-h-full flex flex-col ${learn ? "learn-root" : "studio-root"}`}>
       <Header route={route} />
       <div className="flex-1 flex flex-col">
+       <Guard key={window.location.hash} fallback={(m) => <main className="mx-auto w-full max-w-3xl px-4 py-10"><ErrorBox title="This page could not be shown. Reload it, or go back to All results. Your calibrations are not affected." detail={m} /></main>}>
         {route.page === "learn" && (
           <Suspense fallback={<div className="p-8 text-muted">Loading…</div>}>
             <LearnPage />
@@ -25,6 +27,7 @@ export function App() {
         {route.page === "new" && (__HAS_SERVER__ ? <NewRunPage from={route.from} /> : <NoServer />)}
         {route.page === "job" && (__HAS_SERVER__ ? <JobPage id={route.id} /> : <NoServer />)}
         {route.page === "repeat" && (__HAS_SERVER__ ? <RepeatPage id={route.id} /> : <NoServer />)}
+       </Guard>
       </div>
     </div>
   );

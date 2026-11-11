@@ -15,6 +15,8 @@ import { length, UNIT_CHOICES, useUnit, type Unit } from "./units";
 
 import { readMarked, viewList, writeMarked } from "../marks";
 
+import { Guard } from "../ui";
+
 const RigStage = lazy(() => import("./RigStage"));
 
 type Mode = "photos" | "rig" | "meaning";
@@ -155,10 +157,12 @@ export function Stage({ doc, runId, cam, statuses }: {
               diagnostics={diag} photos={scene?.photos ?? "none"} />
           )}
           {mode === "rig" && (
-            <Suspense fallback={<div className="h-[360px] grid place-items-center text-sm text-slate-400">Loading the 3D view…</div>}>
-              <RigStage doc={doc} scene={scene} frame={frame} selected={camNum} from={camNum} to={other}
-                onPick={(c) => c !== camNum && setTo(c)} wobble={wobble} unit={unit} />
-            </Suspense>
+            <Guard fallback={() => <div className="h-[360px] grid place-items-center text-[15px] text-slate-300 p-6 text-center">This browser cannot draw 3D here, for example over remote desktop or without graphics drivers. The other views and every number on this page still work.</div>}>
+              <Suspense fallback={<div className="h-[360px] grid place-items-center text-sm text-slate-400">Loading the 3D view…</div>}>
+                <RigStage doc={doc} scene={scene} frame={frame} selected={camNum} from={camNum} to={other}
+                  onPick={(c) => c !== camNum && setTo(c)} wobble={wobble} unit={unit} />
+              </Suspense>
+            </Guard>
           )}
           {mode === "meaning" && (other != null && dist != null
             ? <MeaningStage runId={runId} a={cam} b={String(other)} distance={dist} pixelNoise={pixelNoise} unit={unit} onMode={setMeaningMode} />

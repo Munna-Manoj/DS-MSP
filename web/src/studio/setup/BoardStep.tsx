@@ -348,7 +348,7 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
             <Button onClick={() => onCheck()} busy={checkBusy}>{check ? "Look again" : "Look for this board"}</Button>
           </div>
           {checkError && <Callout tone="bad" title="Could not check the board">{checkError}</Callout>}
-          {check && <Callout tone={check.found === 0 ? "bad" : "ok"} title={check.message} />}
+          {check && <Callout tone={check.found === 0 ? "bad" : "ok"} title={check.message}>{check.found === 0 ? "If this is not the first board of its printed set, turn on \"My board was not printed with the usual settings\" below and set its number." : undefined}</Callout>}
           {check && check.found > 0 && (
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
               {check.cameras.map((c) => (
@@ -424,10 +424,10 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
               </div>
               <Explain>Why it matters: Studio finds the board's corners from where the markers are. With a wrong value the corners are still found, but slightly off their true place, and nothing warns about it.</Explain>
             </div>
-            {nb > 1 && (
+            {/* the printed number of each board, one board included */}
               <div className="grid gap-2">
-                <div className="flex flex-wrap items-baseline gap-x-3"><span className="text-base font-semibold">Which printed board is which?</span><KeyTag name="boards_index" /></div>
-                <Explain>Boards from one generated set are numbered 0, 1, 2 and so on, and their markers do not repeat. Change these only if your target uses other boards of the set, for example boards 3, 4 and 7.</Explain>
+                <div className="flex flex-wrap items-baseline gap-x-3"><span className="text-base font-semibold">{nb > 1 ? "Which printed board is which?" : "Which printed board is this?"}</span><KeyTag name="boards_index" /></div>
+                <Explain>Boards from one generated set are numbered 0, 1, 2 and so on, and their markers do not repeat. Change {nb > 1 ? "these" : "this"} only if your target uses {nb > 1 ? "other boards of the set, for example boards 3, 4 and 7" : "another board of the set, for example board 13"}.</Explain>
                 <div className="flex flex-wrap gap-3">
                   {Array.from({ length: nb }, (_, k) => (
                     <div key={k} className="grid gap-1">
@@ -438,7 +438,6 @@ export function BoardStep({ values, set, defaults, photos, payload, check, onChe
                   ))}
                 </div>
               </div>
-            )}
           </div>
         )}
       </Part>
