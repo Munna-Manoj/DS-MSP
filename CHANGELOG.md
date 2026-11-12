@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.28.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.27.0...v0.28.0) (2026-11-11)
+
+
+### Features
+
+* **export:** write LDC meshes and Isaac LUTs for every camera, during calibration or from a camera file ([ab63f1a](https://github.com/Munna-Manoj/DS-MSP/commit/ab63f1a3efe676821d33fd75a69aa33eb971dd88))
+* **studio:** export LDC meshes and Isaac LUTs for every camera, and see them at work ([8bbf863](https://github.com/Munna-Manoj/DS-MSP/commit/8bbf86353ab42473d22eb4332db4a0ac26eed761))
+* **studio:** export LDC meshes and Isaac LUTs, and see each camera's mesh and LUT at work ([aab57cf](https://github.com/Munna-Manoj/DS-MSP/commit/aab57cf918ca8b5c4c178a45ece4286eabfa8d07))
+
+
+### Documentation
+
+* describe LDC and Isaac LUT export, the folder layout and its measured error ([bfcc9e2](https://github.com/Munna-Manoj/DS-MSP/commit/bfcc9e28a904bde14548949acab11d493500f2e5))
+
 ## [0.27.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.26.1...v0.27.0) (2026-11-11)
 
 
