@@ -35,18 +35,43 @@ def test_written_mesh_reads_back_exactly_and_twice_is_byte_identical(tmp_path):
     mesh, record = read_ldc_mesh(first.record)
     assert np.array_equal(mesh, result["mesh_lut"])
     assert (record["mesh_height"], record["mesh_width"]) == result["mesh_lut"].shape[:2]
-    assert record["checked_on_board"] is False
+    assert record["format_version"] == 2 and "tiovxldc" in record["layout_checked_on"]
+    assert record["tiovxldc"] == {"lut-file": "cam0_ldc_mesh.bin", "ldc-ds-factor": 4,
+                                  "ldc-table-width": 1280, "ldc-table-height": 800}
     assert first.mesh.read_bytes() == second.mesh.read_bytes()
     assert first.record.read_bytes() == second.record.read_bytes()
 
 
-def test_mesh_bytes_are_little_endian_h_then_v_row_by_row(tmp_path):
+def test_mesh_bytes_follow_the_ti_driver_layout(tmp_path):
+    """(v, h) per 32-bit word, rows padded to 16 nodes: the layout checked on a TDA4VM board."""
     result = _mesh()
     files = write_ldc_mesh(result, tmp_path, "cam0")
-    raw = np.frombuffer(files.mesh.read_bytes(), dtype="<i2")
     m = result["mesh_lut"]
-    assert raw[0] == m[0, 0, 0] and raw[1] == m[0, 0, 1] and raw[2] == m[0, 1, 0]
-    assert raw[2 * m.shape[1]] == m[1, 0, 0]
+    raw = np.frombuffer(files.mesh.read_bytes(), dtype="<i2").reshape(51, 96, 2)
+    assert np.array_equal(raw[:, :81, 0], m[..., 1]) and np.array_equal(raw[:, :81, 1], m[..., 0])
+    assert not raw[:, 81:].any()
+    words = np.frombuffer(files.mesh.read_bytes(), dtype="<u4").reshape(51, 96)
+    assert np.array_equal((words[:, :81] >> 16).astype(np.uint16).view(np.int16), m[..., 0])
+
+
+def test_table_size_matches_ti_sample_and_odd_sizes_keep_the_driver_nodes(tmp_path):
+    # TI's imx390_ldc_lut_1920x1080.bin (ds factor 2) is 537664 bytes: 496 x 271 words.
+    files = write_ldc_mesh(_mesh(factor=2, size=(1920, 1080)), tmp_path / "ti", "cam0")
+    assert files.mesh.stat().st_size == 537664
+    result = _mesh(size=(1224, 1000))
+    files = write_ldc_mesh(result, tmp_path / "odd", "cam0")
+    mesh, record = read_ldc_mesh(files.record)
+    assert (record["mesh_height"], record["mesh_width"], record["row_stride_nodes"]) == (63, 77, 80)
+    assert np.array_equal(mesh, result["mesh_lut"][:63, :77])
+    assert files.mesh.stat().st_size == 63 * 80 * 4
+
+
+def test_a_format_1_record_is_refused(tmp_path):
+    files = write_ldc_mesh(_mesh(), tmp_path, "cam0")
+    record = json.loads(files.record.read_text())
+    files.record.write_text(json.dumps({**record, "format_version": 1}))
+    with pytest.raises(ValueError, match=r"0\.28\.0.*misreads.*Export the mesh again"):
+        read_ldc_mesh(files.record)
 
 
 def test_existing_files_are_not_replaced_without_permission(tmp_path):

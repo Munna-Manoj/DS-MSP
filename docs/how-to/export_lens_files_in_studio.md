@@ -132,9 +132,45 @@ Measured on the 184 calibrated cameras of the seven MC-Calib sequences and six r
 The worst values come from standard (RadTan) lenses at the edge of the image. On the fisheye
 types (DS, EUCM, KB, UCM) the worst error at the usual settings was 0.29 px.
 
-/// warning | Not yet checked on a TI board
-The byte layout of the mesh file is written into its record (`layout`), and the record says
-`"checked_on_board": false`. Check one mesh on your board before relying on it.
+## Use a mesh on the board
+
+The mesh file is the table TI's LDC module reads, so the `tiovxldc` GStreamer element loads it
+directly. Its record lists the settings under `tiovxldc`:
+
+```json
+"tiovxldc": {"lut-file": "camera_0_ldc_mesh.bin", "ldc-ds-factor": 4,
+             "ldc-table-width": 1216, "ldc-table-height": 1024}
+```
+
+Give the element the same output size as `ldc-table-width` and `ldc-table-height`:
+
+```bash
+gst-launch-1.0 filesrc location=in.nv12 blocksize=1880064 \
+  ! rawvideoparse width=1224 height=1024 format=nv12 framerate=1/1 \
+  ! tiovxldc lut-file=camera_0_ldc_mesh.bin ldc-ds-factor=4 \
+      ldc-table-width=1216 ldc-table-height=1024 sensor-name=SENSOR_SONY_IMX390_UB953_D3 \
+  ! video/x-raw,format=NV12,width=1216,height=1024 ! filesink location=out.nv12
+```
+
+`sensor-name` is required by the element but is not used with `lut-file`.
+
+Checked on a TI TDA4VM SK board (Linux 6.12.17-ti, Arago 2025.01). A KB fisheye camera from the
+Stereo Fisheye sequence, halved to 1224 x 1024, had one of its photos corrected by the board's
+LDC hardware. The result was compared with DS-MSP's model of the same correction:
+
+| Output size | Board against DS-MSP's model |
+|---|---|
+| 1216 x 1024 | median difference 0 grey levels, PSNR 55.3 dB, shifts at most 0.21 px |
+| 1216 x 1000 | PSNR 51.9 dB on a 64-row band through the middle |
+| 1224 x 1000 | PSNR 48.2 dB, once rows are read 1232 bytes apart (see below) |
+
+For comparison, the board's own output against itself shifted by 0.5 px gives 36 dB, so the
+mesh carries no half-pixel offset.
+
+/// note | Output widths that are not a multiple of 16
+The board pads each output row to a multiple of 16 bytes. `filesink` writes those rows as they
+are, so a 1224-wide output file has rows 1232 bytes apart. Read it with that stride, or choose an
+output width that is a multiple of 16.
 ///
 
 ## Check a mesh by correcting real photos

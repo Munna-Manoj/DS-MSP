@@ -390,13 +390,33 @@ class TI_LDC_PointUndistorter:
 
 
 #: Version of the files :func:`write_ldc_mesh` writes; bump on any layout change.
-LDC_FILE_FORMAT = 1
+#: Version 1 (0.28.0) wrote (h, v) order and no row padding, which a board misreads; it is refused.
+LDC_FILE_FORMAT = 2
 
-#: How :func:`write_ldc_mesh` lays out the mesh bytes. Not yet checked on a board.
+#: How :func:`write_ldc_mesh` lays out the mesh bytes: TI's ``readImage`` into the
+#: ``VX_DF_IMAGE_U32`` mesh image of ``tiovx_ldc_module`` (``tiovxldc lut-file=``).
 LDC_MESH_LAYOUT = (
-    "int16 little-endian, (h, v) interleaved per node, nodes row by row from the "
-    "top-left, no header and no row padding; values are Q3 (pixels x 8)"
+    "one 32-bit word per node, as two int16 little-endian: vertical then horizontal "
+    "displacement (v, h), Q3 (pixels x 8), input minus output position; "
+    "(output_height >> downsample_factor) + 1 rows of nodes from the top-left, each row "
+    "((output_width >> downsample_factor) + 1) nodes padded with zeros to a multiple of 16; "
+    "no header"
 )
+
+#: Where the layout was checked: a mesh in this layout, run through the LDC hardware,
+#: matched DS-MSP's model of the board to 0.21 px; the (h, v) order was off by up to 25 px.
+LDC_LAYOUT_CHECKED_ON = (
+    "TI TDA4VM SK, Linux 6.12.17-ti (Arago 2025.01), GStreamer tiovxldc lut-file, 2026-11-12"
+)
+
+
+def _ti_table_shape(
+    output_width: int, output_height: int, downsample_factor: int
+) -> Tuple[int, int, int]:
+    """Nodes per row, rows, and padded row stride of the table the TI driver reads."""
+    cols = (int(output_width) >> int(downsample_factor)) + 1
+    rows = (int(output_height) >> int(downsample_factor)) + 1
+    return cols, rows, (cols + 15) & ~15
 
 
 def mesh_accuracy(
@@ -559,20 +579,35 @@ def write_ldc_mesh(
         raise FileExistsError(
             f"{existing[0]} already exists; choose another folder or name, or allow overwrite"
         )
-    out.mkdir(parents=True, exist_ok=True)
-    mesh = np.ascontiguousarray(np.asarray(result["mesh_lut"], dtype="<i2"))
-    mesh_path.write_bytes(mesh.tobytes())
-
     cfg = result["config"]
+    width, height = int(cfg["output_width"]), int(cfg["output_height"])
+    factor = int(cfg["downsample_factor"])
+    cols, rows, stride = _ti_table_shape(width, height, factor)
+    mesh = np.asarray(result["mesh_lut"])
+    if mesh.shape[0] < rows or mesh.shape[1] < cols:
+        raise ValueError(f"mesh {mesh.shape[:2]} is smaller than the board's {rows}x{cols} table")
+    table = np.zeros((rows, stride, 2), dtype="<i2")
+    table[:, :cols, 0] = mesh[:rows, :cols, 1]  # v first: TI's word order
+    table[:, :cols, 1] = mesh[:rows, :cols, 0]
+    out.mkdir(parents=True, exist_ok=True)
+    mesh_path.write_bytes(table.tobytes())
+
     record = {
         "format": "ds-msp ti-ldc mesh",
         "format_version": LDC_FILE_FORMAT,
         "mesh_file": mesh_path.name,
         "mesh_sha256": _sha256(mesh_path),
         "layout": LDC_MESH_LAYOUT,
-        "checked_on_board": False,
-        "mesh_width": int(mesh.shape[1]),
-        "mesh_height": int(mesh.shape[0]),
+        "layout_checked_on": LDC_LAYOUT_CHECKED_ON,
+        "mesh_width": cols,
+        "mesh_height": rows,
+        "row_stride_nodes": stride,
+        "tiovxldc": {
+            "lut-file": mesh_path.name,
+            "ldc-ds-factor": factor,
+            "ldc-table-width": width,
+            "ldc-table-height": height,
+        },
         "output_width": int(cfg["output_width"]),
         "output_height": int(cfg["output_height"]),
         "downsample_factor": int(cfg["downsample_factor"]),
@@ -592,25 +627,30 @@ def write_ldc_mesh(
 def read_ldc_mesh(record_path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     """Read a mesh written by :func:`write_ldc_mesh`, checking its size and checksum.
 
-    Returns the ``(mesh_height, mesh_width, 2)`` ``int16`` mesh and the record.
+    Returns the ``(mesh_height, mesh_width, 2)`` ``int16`` mesh, in the ``(h, v)`` order of
+    ``mesh_lut`` (row padding removed), and the record.
     """
     record_path = Path(record_path).expanduser()
     record = json.loads(record_path.read_text())
     if record.get("format") != "ds-msp ti-ldc mesh":
         raise ValueError(f"{record_path} is not a DS-MSP LDC mesh record")
-    if int(record.get("format_version", 0)) > LDC_FILE_FORMAT:
+    version = int(record.get("format_version", 0))
+    if version != LDC_FILE_FORMAT:
+        why = " (DS-MSP 0.28.0), whose byte layout a TI board misreads" if version == 1 else ""
         raise ValueError(
-            f"{record_path} uses format {record['format_version']}; this DS-MSP reads up to "
-            f"{LDC_FILE_FORMAT}"
+            f"{record_path} uses mesh format {version}{why}; this DS-MSP reads format "
+            f"{LDC_FILE_FORMAT} only. Export the mesh again."
         )
     mesh_path = record_path.parent / record["mesh_file"]
     if _sha256(mesh_path) != record["mesh_sha256"]:
         raise ValueError(f"{mesh_path} does not match the checksum in {record_path.name}")
     h, w = int(record["mesh_height"]), int(record["mesh_width"])
+    stride = int(record["row_stride_nodes"])
     raw = np.frombuffer(mesh_path.read_bytes(), dtype="<i2")
-    if raw.size != h * w * 2:
-        raise ValueError(f"{mesh_path} holds {raw.size} values; the record says {h * w * 2}")
-    return raw.reshape(h, w, 2).astype(np.int16), record
+    if raw.size != h * stride * 2:
+        raise ValueError(f"{mesh_path} holds {raw.size} values; the record says {h * stride * 2}")
+    table = raw.reshape(h, stride, 2)[:, :w]
+    return np.ascontiguousarray(table[..., ::-1]).astype(np.int16), record
 
 
 @dataclass(frozen=True)

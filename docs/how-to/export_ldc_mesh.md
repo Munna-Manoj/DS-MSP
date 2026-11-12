@@ -63,7 +63,7 @@ call above.
 
 | Key | Type / shape | What it is |
 | :-- | :-- | :-- |
-| `mesh_lut` | `(69, 121, 2)` `int16` | Q3 fixed-point `(h, v)` displacements — the array you flash to the LDC. |
+| `mesh_lut` | `(69, 121, 2)` `int16` | Q3 fixed-point `(h, v)` displacements, one node per `2**downsample_factor` output pixels. Write it with `write_ldc_mesh` for the board (see below). |
 | `mesh_lut_float` | `(69, 121, 2)` `float64` | The same displacements before quantization (for verification on the host). |
 | `K_new` | `(3, 3)` `float64` | Rectified pinhole intrinsics of the undistorted output image. |
 | `valid_mask` | `(69, 121)` `bool` | `False` at nodes the model cannot project (outside its field of view); those nodes hold zero displacement and a warning is issued. |
@@ -117,6 +117,14 @@ A much wider FOV produces larger displacements, which can push Q3 values past th
 range (`-32768..32767`, i.e. about `±4096 px`). The generator clips such values instead of
 letting them wrap, issues a warning, and sets `config["q3_overflow"] = True`. A clipped mesh
 is wrong at the periphery — raise `balance` to crop it before flashing.
+///
+
+/// warning | Do not write `mesh_lut` to a file yourself
+The board reads a different layout from the array: `(v, h)` per node, each row padded to a
+multiple of 16 nodes, and `(height >> downsample_factor) + 1` rows (the array can hold one more
+row or column). `ds_msp.ldc.write_ldc_mesh(res, folder, stem)` writes that file, and its record
+lists the `tiovxldc` settings to load it with. See
+[Export LDC meshes and Isaac Sim LUTs](export_lens_files_in_studio.md#use-a-mesh-on-the-board).
 ///
 
 ## Trade mesh size against accuracy with `downsample_factor`

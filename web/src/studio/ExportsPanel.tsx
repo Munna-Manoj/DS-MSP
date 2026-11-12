@@ -62,7 +62,7 @@ export function ExportsPanel({ summary, id, photos = false }: { summary: ExportS
             <Note>
               The error is how far the stored mesh sends each corrected pixel from where the lens values say it belongs, in pixels
               of the camera image: the typical value, then the worst. The share is how much of the corrected image shows the scene;
-              the rest is black. Not yet checked on a TI board.
+              the rest is black. Each record lists the tiovxldc settings that load its mesh on the board.
             </Note>
             <div className="overflow-x-auto">
               <table className="w-full text-[15px]">

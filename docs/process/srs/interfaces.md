@@ -104,11 +104,16 @@ fields are diagnostic and do not replace physical acceptance or uncertainty gate
 `write_ldc_mesh(result, folder, stem)` writes two files; `read_ldc_mesh(record)` reads them back
 and refuses a mesh whose checksum or size does not match its record.
 
-- `<stem>_ldc_mesh.bin`: the Q3 mesh as `int16` little-endian, `(h, v)` interleaved per node,
-  nodes row by row from the top-left, no header and no row padding.
-- `<stem>_ldc.json`: `format` (`ds-msp ti-ldc mesh`), `format_version` (1), `mesh_file`,
-  `mesh_sha256`, `layout` (the sentence above), `checked_on_board` (false), `mesh_width`,
-  `mesh_height`, `output_width`, `output_height`, `downsample_factor`, `node_spacing_px`,
+- `<stem>_ldc_mesh.bin`: the table TI's `tiovx_ldc_module` reads with `readImage`. One 32-bit
+  word per node, two `int16` little-endian Q3 values, vertical then horizontal `(v, h)`, input
+  minus output position. `(output_height >> downsample_factor) + 1` rows from the top-left, each
+  of `(output_width >> downsample_factor) + 1` nodes padded with zeros to a multiple of 16. No
+  header. `read_ldc_mesh` returns it as `(h, v)` without the padding, like `mesh_lut`.
+- `<stem>_ldc.json`: `format` (`ds-msp ti-ldc mesh`), `format_version` (2; 1 is refused),
+  `mesh_file`, `mesh_sha256`, `layout` (the sentence above), `layout_checked_on` (the board and
+  software the layout was checked on), `mesh_width` and `mesh_height` (nodes in the table),
+  `row_stride_nodes`, `tiovxldc` (`lut-file`, `ldc-ds-factor`, `ldc-table-width`,
+  `ldc-table-height`), `output_width`, `output_height`, `downsample_factor`, `node_spacing_px`,
   `balance`, `K_new`, `camera_model`, `n_invalid_nodes`, `q3_overflow`, `accuracy` and `source`.
 - `accuracy` comes from `mesh_accuracy`: `median_px`, `p99_px`, `max_px` (distance in input
   pixels between where the stored mesh and the camera model send each output pixel),

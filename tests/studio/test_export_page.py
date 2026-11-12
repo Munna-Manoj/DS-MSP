@@ -83,7 +83,7 @@ def test_an_export_job_runs_the_command_and_matches_the_terminal(setup):
     got = c.get("/api/run/exports", params={"id": job["id"]}).json()["exports"]
     assert got == doc["exports"]
     f = c.get("/api/run/export-file", params={"id": job["id"], "path": "ldc/camera_0_ldc.json"})
-    assert f.status_code == 200 and json.loads(f.content)["format_version"] == 1
+    assert f.status_code == 200 and json.loads(f.content)["format_version"] == 2
     assert c.get("/api/run/export-file", params={"id": job["id"],
                                                  "path": "../lenses/calibrated_cameras_data.yml"}
                  ).status_code == 404

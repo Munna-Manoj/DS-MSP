@@ -1,6 +1,6 @@
 # ADR-0036 — LDC meshes and Isaac LUTs are written by one command, in one folder layout
 
-- **Status:** Accepted (recorded 2026-11-11)
+- **Status:** Accepted (recorded 2026-11-11; mesh layout amended 2026-11-12 after a check on a TI board)
 - **Relates to:** ARC-INTEROP, ARC-UI, ADR-0035, FR-IO-005, FR-INTEROP-002 to FR-INTEROP-005, FR-UI-025
 
 ## Context
@@ -16,9 +16,11 @@ have, from DS-MSP or from another tool.
 1. **One reader for every camera file** (`ds_msp.io.camera_file`): MC-Calib and DS-MSP rig YAML,
    Kalibr and DS-MSP camchains with any number of cameras, COLMAP, nerfstudio, DS-MSP model files
    and LUT manifests. It lists every camera, and one it cannot read is listed with its reason.
-2. **A mesh is a file with a record.** The binary holds the Q3 mesh. The JSON record holds the
-   settings, the camera, a checksum, the byte layout in words, `checked_on_board: false`, and the
-   measured error. Reading checks the checksum and the size.
+2. **A mesh is a file with a record.** The binary holds the Q3 mesh in the layout TI's
+   `tiovx_ldc_module` reads (`tiovxldc lut-file=`): `(v, h)` per 32-bit node, rows padded to 16
+   nodes. The JSON record holds the settings, the camera, a checksum, the byte layout in words,
+   the `tiovxldc` settings to load it with, and the measured error. Reading checks the checksum
+   and the size.
 3. **The error is measured, not estimated.** For each output pixel, the record compares where
    the stored, quantised mesh sends it with where the camera model does. A mesh with clipped Q3
    values is marked unusable wherever it is shown.
@@ -45,5 +47,8 @@ have, from DS-MSP or from another tool.
   run from a terminal.
 - A rig run with exports writes the same calibration files as the run without them, and its
   exports equal `ds-msp export` on its result, byte for byte.
-- The mesh byte layout is not yet checked on a TI board.
+- On a TI TDA4VM board (`tiovxldc`), an exported KB fisheye mesh corrected a real photo to
+  within 0.21 px of DS-MSP's model of the board (PSNR 55 dB; the same image shifted by 0.5 px
+  gives 36 dB). The layout released in 0.28.0, `(h, v)` with unpadded rows, was off by up to
+  25 px on the board; its records (format 1) are now refused with a request to export again.
 - `ds-msp lut` without `--camera` now exports every camera of a file, not only `cam0`.
