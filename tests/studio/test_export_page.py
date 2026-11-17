@@ -62,6 +62,7 @@ def test_the_check_previews_each_mesh_without_writing(setup):
     before = sorted(p.name for p in root.rglob("*"))
     doc = c.post("/api/export/check", json={"spec": spec}, headers=SEND).json()
     assert doc["cameras"][0]["ldc"]["max_px"] < 1.0
+    assert doc["cameras"][0]["ldc"]["folded_cells"] == 0
     assert sorted(p.name for p in root.rglob("*")) == before
     for bad in ({"ldc": {"balance": 3}}, {"ldc": None, "lut": None}, {"cameras": ["camera_7"]},
                 {"cameras": []}):

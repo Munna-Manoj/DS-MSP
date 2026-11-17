@@ -135,42 +135,80 @@ types (DS, EUCM, KB, UCM) the worst error at the usual settings was 0.29 px.
 ## Use a mesh on the board
 
 The mesh file is the table TI's LDC module reads, so the `tiovxldc` GStreamer element loads it
-directly. Its record lists the settings under `tiovxldc`:
+directly. Its record lists every setting to load it with, under `tiovxldc`:
 
 ```json
 "tiovxldc": {"lut-file": "camera_0_ldc_mesh.bin", "ldc-ds-factor": 4,
-             "ldc-table-width": 1216, "ldc-table-height": 1024}
+             "ldc-table-width": 960, "ldc-table-height": 544,
+             "out-block-width": 64, "out-block-height": 64, "pixel-pad": 1}
 ```
 
-Give the element the same output size as `ldc-table-width` and `ldc-table-height`:
+Pass all of them to the element, and give it the output size the mesh was made for:
 
 ```bash
-gst-launch-1.0 filesrc location=in.nv12 blocksize=1880064 \
-  ! rawvideoparse width=1224 height=1024 format=nv12 framerate=1/1 \
+gst-launch-1.0 filesrc location=in.nv12 blocksize=777600 \
+  ! rawvideoparse width=960 height=540 format=nv12 framerate=1/1 \
   ! tiovxldc lut-file=camera_0_ldc_mesh.bin ldc-ds-factor=4 \
-      ldc-table-width=1216 ldc-table-height=1024 sensor-name=SENSOR_SONY_IMX390_UB953_D3 \
-  ! video/x-raw,format=NV12,width=1216,height=1024 ! filesink location=out.nv12
+      ldc-table-width=960 ldc-table-height=544 \
+      out-block-width=64 out-block-height=64 pixel-pad=1 \
+      sensor-name=SENSOR_SONY_IMX390_UB953_D3 \
+  ! video/x-raw,format=NV12,width=960,height=540 ! filesink location=out.nv12
 ```
 
 `sensor-name` is required by the element but is not used with `lut-file`.
 
-Checked on a TI TDA4VM SK board (Linux 6.12.17-ti, Arago 2025.01). A KB fisheye camera from the
-Stereo Fisheye sequence, halved to 1224 x 1024, had one of its photos corrected by the board's
-LDC hardware. The result was compared with DS-MSP's model of the same correction:
+DS-MSP sets these for each mesh, so any output size works. Three limits of the board decide them.
 
-| Output size | Board against DS-MSP's model |
+- **The table can be larger than the output.** It is the output size rounded up to whole mesh
+  cells: 544 rows for a 540-row output at 16 px nodes. Below its last row of nodes, the board
+  uses zero displacement.
+- **Each block's input must fit the LDC's memory.** The LDC corrects the image in output blocks.
+  Where a lens stretches the image, a 64 x 64 block can read too many input pixels; the board
+  then writes that block wrong, with no error.
+- **DS-MSP picks the largest block that fits**, with a 16 % margin below the limit measured on
+  the board.
+- **The block width must divide the output row.** Rows start every output width rounded up to
+  16 bytes, and the LDC writes whole blocks, so a wider block spills into the next row. A
+  944-wide output gets 16-wide blocks.
+- **A folded mesh is reported.** A RadTan model fitted to the middle of a fisheye and used
+  beyond it is not one-to-one there. The corrected image repeats or scrambles the picture, the
+  export warns, and Studio marks the mesh "Check this".
+
+### What was checked on a board
+
+The board was a TI TDA4VM SK (Linux 6.12.17-ti, Arago 2025.01). Two lenses were used, both
+halved to 960 pixels wide: a KB fisheye from a rendered 25-camera rig, and a Double Sphere
+fisheye from a rendered robot head.
+
+Each lens was converted into the other camera types with `ds_msp.adapt.convert` (RadTan fitted
+over the central 120°), so every type corrects the same photo.
+
+The board corrected the photo through each mesh, loaded with its record's settings. Its output
+was compared over the whole image with DS-MSP's model of the same correction:
+
+| Meshes | Board against DS-MSP's model |
 |---|---|
-| 1216 x 1024 | median difference 0 grey levels, PSNR 55.3 dB, shifts at most 0.21 px |
-| 1216 x 1000 | PSNR 51.9 dB on a 64-row band through the middle |
-| 1224 x 1000 | PSNR 48.2 dB, once rows are read 1232 bytes apart (see below) |
+| KB, DS, EUCM, UCM and RadTan, 960 x 768 and 960 x 540 | median difference 0 grey levels, PSNR 44.0 to 56.4 dB, no pixel off by more than 30 grey levels, shifts at most 0.46 px |
+| Output sizes 952 x 760, 952 x 540, 944 x 540, 936 x 748, 928 x 768, 912 x 768, 1216 x 1024 | PSNR 44.1 to 56.4 dB, no pixel off by more than 30 grey levels, bottom rows and right columns included |
+| Node spacing 4, 8 and 16 px | PSNR 53.0 to 53.4 dB |
 
-For comparison, the board's own output against itself shifted by 0.5 px gives 36 dB, so the
-mesh carries no half-pixel offset.
+Before these changes, on the same board:
 
-/// note | Output widths that are not a multiple of 16
-The board pads each output row to a multiple of 16 bytes. `filesink` writes those rows as they
-are, so a 1224-wide output file has rows 1232 bytes apart. Read it with that stride, or choose an
-output width that is a multiple of 16.
+- **540-row output:** the bottom 11 rows were off by 13 to 33 grey levels on average.
+- **944, 936, 928 and 912 wide:** 0.7 to 2.0 % of pixels were off by more than 30 grey levels
+  near the left edge.
+- **The DS mesh of the KB lens at 960 x 768:** two 64 x 64 blocks in the middle needed more
+  input than the LDC holds, and came out wrong (PSNR 33.6 dB).
+
+The block limit was measured with meshes that magnify the input evenly. Input boxes of up to
+19,505 pixels per block came out right, and from 19,667 pixels wrong.
+
+The shape of the box did not matter: 258 x 76 was right, 140 x 140 wrong. DS-MSP keeps each
+block within 16,384 pixels.
+
+/// note | Output files of widths that are not a multiple of 16
+The board starts each output row at a multiple of 16 bytes, and `filesink` writes the rows as
+they are. A 952-wide output file has rows 960 bytes apart: read it with that stride.
 ///
 
 ## Check a mesh by correcting real photos

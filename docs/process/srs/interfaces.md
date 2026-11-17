@@ -106,15 +106,24 @@ and refuses a mesh whose checksum or size does not match its record.
 
 - `<stem>_ldc_mesh.bin`: the table TI's `tiovx_ldc_module` reads with `readImage`. One 32-bit
   word per node, two `int16` little-endian Q3 values, vertical then horizontal `(v, h)`, input
-  minus output position. `(output_height >> downsample_factor) + 1` rows from the top-left, each
-  of `(output_width >> downsample_factor) + 1` nodes padded with zeros to a multiple of 16. No
+  minus output position. The table covers the output rounded up to whole cells (the table
+  width and height are the output size rounded up to a multiple of `2**downsample_factor`):
+  `(table_height >> downsample_factor) + 1` rows from the top-left, each of
+  `(table_width >> downsample_factor) + 1` nodes padded with zeros to a multiple of 16. No
   header. `read_ldc_mesh` returns it as `(h, v)` without the padding, like `mesh_lut`.
 - `<stem>_ldc.json`: `format` (`ds-msp ti-ldc mesh`), `format_version` (2; 1 is refused),
   `mesh_file`, `mesh_sha256`, `layout` (the sentence above), `layout_checked_on` (the board and
   software the layout was checked on), `mesh_width` and `mesh_height` (nodes in the table),
   `row_stride_nodes`, `tiovxldc` (`lut-file`, `ldc-ds-factor`, `ldc-table-width`,
-  `ldc-table-height`), `output_width`, `output_height`, `downsample_factor`, `node_spacing_px`,
+  `ldc-table-height`, `out-block-width`, `out-block-height`, `pixel-pad`), `board_check`,
+  `board_notes`, `output_width`, `output_height`, `downsample_factor`, `node_spacing_px`,
   `balance`, `K_new`, `camera_model`, `n_invalid_nodes`, `q3_overflow`, `accuracy` and `source`.
+- `board_check` comes from `ldc_board_check`: `out_block_width` and `out_block_height` (the
+  largest LDC output block whose input box fits `block_input_budget_px`, among the sizes the
+  board can use for this output width and node spacing; `null` when none fits, and the record's
+  `tiovxldc` then holds the smallest block), `max_block_input_px`, `block_input_budget_px`,
+  `pixel_pad` and `folded_cells` (mesh cells where the camera model is not one-to-one).
+  `board_notes` holds the warnings for either problem.
 - `accuracy` comes from `mesh_accuracy`: `median_px`, `p99_px`, `max_px` (distance in input
   pixels between where the stored mesh and the camera model send each output pixel),
   `measured_fraction`, `in_view_fraction`, `stride` and `worst_output_px`.

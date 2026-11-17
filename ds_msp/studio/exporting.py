@@ -182,7 +182,7 @@ def check(spec: Mapping[str, Any], inside: Callable[[str], Path],
     number the export writes into its record, not the same number.
     """
     from ..io.camera_file import load_calibration
-    from ..ldc import TI_LDC_MeshGenerator, mesh_accuracy
+    from ..ldc import TI_LDC_MeshGenerator, count_folded_cells, mesh_accuracy
 
     listed = list_source(spec.get("source") or {}, inside, result_folder)
     names = chosen(spec, listed)
@@ -210,6 +210,8 @@ def check(spec: Mapping[str, Any], inside: Callable[[str], Path],
                 "output_size": [int(out_w), int(out_h)], "mesh_size": [int(mesh_w), int(mesh_h)],
                 "q3_overflow": bool(result["config"]["q3_overflow"]),
                 "n_invalid_nodes": int(result["config"]["n_invalid_nodes"]),
+                "folded_cells": count_folded_cells(result["mesh_lut"], result["valid_mask"],
+                                                   ldc["downsample_factor"], size),
                 "median_px": acc["median_px"], "p99_px": acc["p99_px"], "max_px": acc["max_px"],
                 "in_view_fraction": acc["in_view_fraction"],
             }

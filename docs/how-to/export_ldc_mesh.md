@@ -121,9 +121,10 @@ is wrong at the periphery — raise `balance` to crop it before flashing.
 
 /// warning | Do not write `mesh_lut` to a file yourself
 The board reads a different layout from the array: `(v, h)` per node, each row padded to a
-multiple of 16 nodes, and `(height >> downsample_factor) + 1` rows (the array can hold one more
-row or column). `ds_msp.ldc.write_ldc_mesh(res, folder, stem)` writes that file, and its record
-lists the `tiovxldc` settings to load it with. See
+multiple of 16 nodes. `ds_msp.ldc.write_ldc_mesh(res, folder, stem, input_size=(w, h))` writes
+that file. Its record lists every `tiovxldc` setting to load it with, including the table size
+(the output rounded up to whole cells) and the output block size that keeps the board's LDC
+within its memory. See
 [Export LDC meshes and Isaac Sim LUTs](export_lens_files_in_studio.md#use-a-mesh-on-the-board).
 ///
 
