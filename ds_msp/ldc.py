@@ -58,9 +58,9 @@ def _describe_camera(camera: Any) -> Dict[str, Any]:
     """Self-describing record of the source camera for the flashed config."""
     to_dict = getattr(camera, "to_dict", None)
     if callable(to_dict):
-        record = dict(to_dict())
-        name = record.pop("model", None) or getattr(camera, "name", type(camera).__name__)
-        return {"name": str(name), "params": {k: float(v) for k, v in record.items()}}
+        fields = dict(to_dict())
+        name = fields.pop("model", None) or getattr(camera, "name", type(camera).__name__)
+        return {"name": str(name), "params": {k: float(v) for k, v in fields.items()}}
     # Legacy duck-typed camera (no contract serialization): record what it exposes.
     record: Dict[str, Any] = {"name": type(camera).__name__}
     K = getattr(camera, "K", None)
@@ -390,13 +390,231 @@ class TI_LDC_PointUndistorter:
 
 
 #: Version of the files :func:`write_ldc_mesh` writes; bump on any layout change.
-LDC_FILE_FORMAT = 1
+#: Version 1 (0.28.0) wrote (h, v) order and no row padding, which a board misreads; it is refused.
+LDC_FILE_FORMAT = 2
 
-#: How :func:`write_ldc_mesh` lays out the mesh bytes. Not yet checked on a board.
+#: How :func:`write_ldc_mesh` lays out the mesh bytes: TI's ``readImage`` into the
+#: ``VX_DF_IMAGE_U32`` mesh image of ``tiovx_ldc_module`` (``tiovxldc lut-file=``).
 LDC_MESH_LAYOUT = (
-    "int16 little-endian, (h, v) interleaved per node, nodes row by row from the "
-    "top-left, no header and no row padding; values are Q3 (pixels x 8)"
+    "one 32-bit word per node, as two int16 little-endian: vertical then horizontal "
+    "displacement (v, h), Q3 (pixels x 8), input minus output position; the table covers "
+    "the output rounded up to whole cells (table_width, table_height = output size rounded "
+    "up to a multiple of 2**downsample_factor): (table_height >> downsample_factor) + 1 rows "
+    "of nodes from the top-left, each row ((table_width >> downsample_factor) + 1) nodes "
+    "padded with zeros to a multiple of 16; no header"
 )
+
+#: Where the layout was checked: meshes in this layout, run through the LDC hardware,
+#: matched DS-MSP's model of the board to 0.36 px or better for KB, DS, EUCM, UCM and
+#: RadTan cameras; the (h, v) order was off by up to 25 px.
+LDC_LAYOUT_CHECKED_ON = (
+    "TI TDA4VM SK, Linux 6.12.17-ti (Arago 2025.01), GStreamer tiovxldc lut-file, "
+    "2026-11-12 and 2026-11-17"
+)
+
+#: Most input pixels one LDC output block may read (its input bounding box, with the
+#: bilinear neighbour), at ``pixel-pad`` 1. Measured on the board above with uniform
+#: magnification meshes: boxes up to 19,505 px came out right and boxes from 19,667 px
+#: came out wrong, whatever their shape. The budget keeps a 16 % margin below that.
+LDC_BLOCK_INPUT_BUDGET_PX = 16384
+
+#: ``pixel-pad`` the budget was measured at; written into the record.
+LDC_PIXEL_PAD = 1
+
+#: Output block sizes tried, largest first (``tiovxldc`` default 64 x 64). The hardware
+#: needs a width that is a multiple of 8 and an even height.
+LDC_BLOCK_SIZES = ((64, 64), (64, 32), (32, 64), (32, 32), (32, 16), (16, 32), (16, 16),
+                   (16, 8), (8, 16), (8, 8), (8, 4), (8, 2))
+
+#: Bytes of mesh one output block may use: TI's VHWA driver (``csl_ldc.c``) refuses a block
+#: whose ``(width >> ds) * (height >> ds) * 4`` exceeds 5 KB.
+LDC_MESH_BLOCK_BYTES = 5 * 1024
+
+
+#: Output rows on the board start every ``output_width`` rounded up to this many bytes
+#: (``tiovxldc`` NV12 buffers; a 1224-wide output has rows 1232 bytes apart).
+LDC_OUTPUT_ROW_ALIGN = 16
+
+
+def _block_allowed(block: Tuple[int, int], downsample_factor: int, output_width: int) -> bool:
+    """Whether the board can use this output block size.
+
+    The driver refuses a block whose mesh part exceeds :data:`LDC_MESH_BLOCK_BYTES`. And the
+    LDC writes whole blocks: when the output row pitch is not a multiple of the block width,
+    the last block of each row spills into the start of the next row (seen on the board at
+    widths 912, 928, 936 and 944 with 64-wide blocks, and gone with 16-wide blocks).
+    """
+    bw, bh = block
+    ds = int(downsample_factor)
+    pitch = -(-int(output_width) // LDC_OUTPUT_ROW_ALIGN) * LDC_OUTPUT_ROW_ALIGN
+    return (bw >> ds) * (bh >> ds) * 4 <= LDC_MESH_BLOCK_BYTES and pitch % bw == 0
+
+
+def _ti_table_size(output_width: int, output_height: int, downsample_factor: int
+                   ) -> Tuple[int, int]:
+    """The output size rounded up to whole mesh cells: the board's ``ldc-table-width/height``.
+
+    The driver builds ``(table >> ds) + 1`` nodes per axis. A table no larger than the output
+    leaves the last part-cell without a node beyond it, and the board then uses zero
+    displacement there (seen on the board: the bottom rows of a 540-row output were wrong).
+    """
+    step = 1 << int(downsample_factor)
+    return (-(-int(output_width) // step) * step, -(-int(output_height) // step) * step)
+
+
+def _ti_table_shape(
+    output_width: int, output_height: int, downsample_factor: int
+) -> Tuple[int, int, int]:
+    """Nodes per row, rows, and padded row stride of the table the TI driver reads."""
+    table_w, table_h = _ti_table_size(output_width, output_height, downsample_factor)
+    cols = (table_w >> int(downsample_factor)) + 1
+    rows = (table_h >> int(downsample_factor)) + 1
+    return cols, rows, (cols + 15) & ~15
+
+
+def _board_sources(mesh_q3: np.ndarray, downsample_factor: int,
+                   output_size: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+    """Where the board reads the input for every output pixel: the pixel plus the stored Q3
+    displacement, interpolated bilinearly between nodes."""
+    width, height = int(output_size[0]), int(output_size[1])
+    step = 2 ** int(downsample_factor)
+    mesh = np.asarray(mesh_q3, dtype=np.float64) / Q3_SCALE
+    gu, gv = np.meshgrid(np.arange(width, dtype=np.float64), np.arange(height, dtype=np.float64))
+    mx, my = gu / step, gv / step
+    x0 = np.minimum(np.floor(mx).astype(np.int64), mesh.shape[1] - 2)
+    y0 = np.minimum(np.floor(my).astype(np.int64), mesh.shape[0] - 2)
+    fx, fy = (mx - x0)[..., None], (my - y0)[..., None]
+    delta = ((1 - fx) * (1 - fy) * mesh[y0, x0] + fx * (1 - fy) * mesh[y0, x0 + 1]
+             + (1 - fx) * fy * mesh[y0 + 1, x0] + fx * fy * mesh[y0 + 1, x0 + 1])
+    return gu + delta[..., 0], gv + delta[..., 1]
+
+
+def _largest_block_input(src_u: np.ndarray, src_v: np.ndarray, block: Tuple[int, int],
+                         input_size: Optional[Tuple[int, int]]) -> int:
+    """Largest input bounding box (pixels, with the bilinear neighbour) of any output block.
+
+    With ``input_size``, sources are clipped to the input frame first and blocks that read
+    nothing inside it are skipped: the hardware does not fetch outside the frame.
+    """
+    bw, bh = block
+    height, width = src_u.shape
+    ph, pw = -(-height // bh) * bh, -(-width // bw) * bw
+    u = np.pad(src_u, ((0, ph - height), (0, pw - width)), mode="edge")
+    v = np.pad(src_v, ((0, ph - height), (0, pw - width)), mode="edge")
+    seen = np.ones_like(u, dtype=bool)
+    if input_size is not None:
+        iw, ih = int(input_size[0]), int(input_size[1])
+        seen = (u > -1) & (u < iw) & (v > -1) & (v < ih)
+        u, v = np.clip(u, 0, iw - 1), np.clip(v, 0, ih - 1)
+
+    def blocks(a: np.ndarray) -> np.ndarray:
+        return a.reshape(ph // bh, bh, pw // bw, bw).transpose(0, 2, 1, 3).reshape(
+            ph // bh, pw // bw, -1)
+
+    ub, vb, sb = blocks(u), blocks(v), blocks(seen)
+    box_w = np.floor(ub.max(-1)) - np.floor(ub.min(-1)) + 2
+    box_h = np.floor(vb.max(-1)) - np.floor(vb.min(-1)) + 2
+    area = np.where(sb.any(-1), box_w * box_h, 0)
+    return int(area.max())
+
+
+def count_folded_cells(mesh_q3: np.ndarray, valid: Optional[np.ndarray], downsample_factor: int,
+                  input_size: Optional[Tuple[int, int]]) -> int:
+    """Mesh cells whose four source points are not in the order of their output corners.
+
+    There the mapping is not one-to-one: the output repeats or scrambles the input, on the
+    board and in any software that uses the same mesh. Cells with an invalid node, or whose
+    sources all lie outside the input frame, are not counted.
+    """
+    step = float(2 ** int(downsample_factor))
+    mesh = np.asarray(mesh_q3, dtype=np.float64) / Q3_SCALE
+    rows, cols = mesh.shape[:2]
+    nu, nv = np.meshgrid(np.arange(cols) * step, np.arange(rows) * step)
+    x, y = nu + mesh[..., 0], nv + mesh[..., 1]
+
+    def cross(ax: np.ndarray, ay: np.ndarray, bx: np.ndarray, by: np.ndarray) -> np.ndarray:
+        return ax * by - ay * bx
+
+    # The two triangles of each cell, from the top-left and the bottom-right corner.
+    tl = cross(x[:-1, 1:] - x[:-1, :-1], y[:-1, 1:] - y[:-1, :-1],
+               x[1:, :-1] - x[:-1, :-1], y[1:, :-1] - y[:-1, :-1])
+    br = cross(x[1:, :-1] - x[1:, 1:], y[1:, :-1] - y[1:, 1:],
+               x[:-1, 1:] - x[1:, 1:], y[:-1, 1:] - y[1:, 1:])
+    folded = (tl <= 0) | (br <= 0)
+    if valid is not None:
+        ok = np.asarray(valid, dtype=bool)
+        folded &= ok[:-1, :-1] & ok[:-1, 1:] & ok[1:, :-1] & ok[1:, 1:]
+    if input_size is not None:
+        iw, ih = int(input_size[0]), int(input_size[1])
+        inside = (x >= 0) & (x <= iw - 1) & (y >= 0) & (y <= ih - 1)
+        folded &= inside[:-1, :-1] | inside[:-1, 1:] | inside[1:, :-1] | inside[1:, 1:]
+    return int(folded.sum())
+
+
+def ldc_board_check(
+    result: Dict, input_size: Optional[Tuple[int, int]] = None
+) -> Dict[str, Any]:
+    """Check a mesh against the LDC hardware's limits and choose its output block size.
+
+    Each output block of the LDC reads one bounding box of input pixels, and that box must
+    fit the hardware's block memory (:data:`LDC_BLOCK_INPUT_BUDGET_PX`). Where it does not,
+    the board writes wrong pixels for the whole block, with no error from ``tiovxldc``.
+    Smaller blocks read smaller boxes, so the largest block size in
+    :data:`LDC_BLOCK_SIZES` that fits is chosen, among those the board can use for this
+    node spacing and output width (:func:`_block_allowed`). Folded mesh cells are counted
+    too.
+
+    Parameters
+    ----------
+    result : dict
+        The output of :meth:`TI_LDC_MeshGenerator.generate_mesh_and_intrinsics`.
+    input_size : (width, height), optional
+        The camera's own image size. Without it, sources outside the image are counted.
+
+    Returns
+    -------
+    dict
+        ``out_block_width``/``out_block_height`` (``None`` when no size fits),
+        ``max_block_input_px`` for the chosen (or smallest) size,
+        ``block_input_budget_px``, ``pixel_pad``, ``folded_cells`` and ``notes``, the
+        warnings to show the user.
+    """
+    cfg = result["config"]
+    factor = int(cfg["downsample_factor"])
+    size = (int(cfg["output_width"]), int(cfg["output_height"]))
+    src_u, src_v = _board_sources(result["mesh_lut"], factor, size)
+    chosen: Optional[Tuple[int, int]] = None
+    largest = 0
+    for block in (b for b in LDC_BLOCK_SIZES if _block_allowed(b, factor, size[0])):
+        largest = _largest_block_input(src_u, src_v, block, input_size)
+        if largest <= LDC_BLOCK_INPUT_BUDGET_PX:
+            chosen = block
+            break
+    folded = count_folded_cells(result["mesh_lut"], result.get("valid_mask"), factor, input_size)
+    notes = []
+    if chosen is None:
+        notes.append(
+            f"Even {LDC_BLOCK_SIZES[-1][0]} x {LDC_BLOCK_SIZES[-1][1]} LDC output blocks read "
+            f"{largest} input pixels, more than the {LDC_BLOCK_INPUT_BUDGET_PX} the board's "
+            "block memory holds; the board will write wrong pixels there. Raise `balance` or "
+            "lower the output resolution."
+        )
+    if folded:
+        notes.append(
+            f"{folded} mesh cells fold: the camera model is not one-to-one there (for example "
+            "a model used beyond the field of view it was fitted for), so the corrected image "
+            "repeats or scrambles the input in those cells. Use a camera model that fits the "
+            "whole lens, or raise `balance` to keep less of the view."
+        )
+    return {
+        "out_block_width": chosen[0] if chosen else None,
+        "out_block_height": chosen[1] if chosen else None,
+        "max_block_input_px": largest,
+        "block_input_budget_px": LDC_BLOCK_INPUT_BUDGET_PX,
+        "pixel_pad": LDC_PIXEL_PAD,
+        "folded_cells": folded,
+        "notes": notes,
+    }
 
 
 def mesh_accuracy(
@@ -534,6 +752,7 @@ def write_ldc_mesh(
     *,
     accuracy: Optional[Dict[str, Any]] = None,
     source: Optional[Dict[str, Any]] = None,
+    input_size: Optional[Tuple[int, int]] = None,
     overwrite: bool = False,
 ) -> LdcFiles:
     """Write a mesh as ``<stem>_ldc_mesh.bin`` plus a JSON record ``<stem>_ldc.json``.
@@ -541,8 +760,17 @@ def write_ldc_mesh(
     The binary holds the Q3 mesh in the layout :data:`LDC_MESH_LAYOUT` describes.
     The record holds everything needed to use or check it: mesh and output sizes,
     node spacing, ``K_new``, the camera, invalid nodes, Q3 overflow, the measured
-    accuracy, where the camera came from, and the binary's SHA-256. Writing the
-    same mesh twice gives byte-identical files.
+    accuracy, where the camera came from, the board check (:func:`ldc_board_check`,
+    with ``input_size`` the camera's image size) and the binary's SHA-256. Its
+    ``tiovxldc`` entry lists every setting that loads the mesh on the board, with the
+    output block size the board check chose. Writing the same mesh twice gives
+    byte-identical files.
+
+    Warns
+    -----
+    UserWarning
+        For each problem the board check finds: blocks that overflow the LDC block
+        memory even at the smallest size, or folded mesh cells.
 
     Raises
     ------
@@ -559,20 +787,45 @@ def write_ldc_mesh(
         raise FileExistsError(
             f"{existing[0]} already exists; choose another folder or name, or allow overwrite"
         )
-    out.mkdir(parents=True, exist_ok=True)
-    mesh = np.ascontiguousarray(np.asarray(result["mesh_lut"], dtype="<i2"))
-    mesh_path.write_bytes(mesh.tobytes())
-
     cfg = result["config"]
+    width, height = int(cfg["output_width"]), int(cfg["output_height"])
+    factor = int(cfg["downsample_factor"])
+    table_w, table_h = _ti_table_size(width, height, factor)
+    cols, rows, stride = _ti_table_shape(width, height, factor)
+    mesh = np.asarray(result["mesh_lut"])
+    if mesh.shape[0] < rows or mesh.shape[1] < cols:
+        raise ValueError(f"mesh {mesh.shape[:2]} is smaller than the board's {rows}x{cols} table")
+    table = np.zeros((rows, stride, 2), dtype="<i2")
+    table[:, :cols, 0] = mesh[:rows, :cols, 1]  # v first: TI's word order
+    table[:, :cols, 1] = mesh[:rows, :cols, 0]
+    board = ldc_board_check(result, input_size)
+    for note in board["notes"]:
+        warnings.warn(note, stacklevel=2)
+    out.mkdir(parents=True, exist_ok=True)
+    mesh_path.write_bytes(table.tobytes())
+
     record = {
         "format": "ds-msp ti-ldc mesh",
         "format_version": LDC_FILE_FORMAT,
         "mesh_file": mesh_path.name,
         "mesh_sha256": _sha256(mesh_path),
         "layout": LDC_MESH_LAYOUT,
-        "checked_on_board": False,
-        "mesh_width": int(mesh.shape[1]),
-        "mesh_height": int(mesh.shape[0]),
+        "layout_checked_on": LDC_LAYOUT_CHECKED_ON,
+        "mesh_width": cols,
+        "mesh_height": rows,
+        "row_stride_nodes": stride,
+        "tiovxldc": {
+            "lut-file": mesh_path.name,
+            "ldc-ds-factor": factor,
+            "ldc-table-width": table_w,
+            "ldc-table-height": table_h,
+            # The smallest block when none fits: the fewest wrong pixels the board can give.
+            "out-block-width": board["out_block_width"] or LDC_BLOCK_SIZES[-1][0],
+            "out-block-height": board["out_block_height"] or LDC_BLOCK_SIZES[-1][1],
+            "pixel-pad": board["pixel_pad"],
+        },
+        "board_check": {k: v for k, v in board.items() if k != "notes"},
+        "board_notes": list(board["notes"]),
         "output_width": int(cfg["output_width"]),
         "output_height": int(cfg["output_height"]),
         "downsample_factor": int(cfg["downsample_factor"]),
@@ -592,25 +845,30 @@ def write_ldc_mesh(
 def read_ldc_mesh(record_path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     """Read a mesh written by :func:`write_ldc_mesh`, checking its size and checksum.
 
-    Returns the ``(mesh_height, mesh_width, 2)`` ``int16`` mesh and the record.
+    Returns the ``(mesh_height, mesh_width, 2)`` ``int16`` mesh, in the ``(h, v)`` order of
+    ``mesh_lut`` (row padding removed), and the record.
     """
     record_path = Path(record_path).expanduser()
     record = json.loads(record_path.read_text())
     if record.get("format") != "ds-msp ti-ldc mesh":
         raise ValueError(f"{record_path} is not a DS-MSP LDC mesh record")
-    if int(record.get("format_version", 0)) > LDC_FILE_FORMAT:
+    version = int(record.get("format_version", 0))
+    if version != LDC_FILE_FORMAT:
+        why = " (DS-MSP 0.28.0), whose byte layout a TI board misreads" if version == 1 else ""
         raise ValueError(
-            f"{record_path} uses format {record['format_version']}; this DS-MSP reads up to "
-            f"{LDC_FILE_FORMAT}"
+            f"{record_path} uses mesh format {version}{why}; this DS-MSP reads format "
+            f"{LDC_FILE_FORMAT} only. Export the mesh again."
         )
     mesh_path = record_path.parent / record["mesh_file"]
     if _sha256(mesh_path) != record["mesh_sha256"]:
         raise ValueError(f"{mesh_path} does not match the checksum in {record_path.name}")
     h, w = int(record["mesh_height"]), int(record["mesh_width"])
+    stride = int(record["row_stride_nodes"])
     raw = np.frombuffer(mesh_path.read_bytes(), dtype="<i2")
-    if raw.size != h * w * 2:
-        raise ValueError(f"{mesh_path} holds {raw.size} values; the record says {h * w * 2}")
-    return raw.reshape(h, w, 2).astype(np.int16), record
+    if raw.size != h * stride * 2:
+        raise ValueError(f"{mesh_path} holds {raw.size} values; the record says {h * stride * 2}")
+    table = raw.reshape(h, stride, 2)[:, :w]
+    return np.ascontiguousarray(table[..., ::-1]).astype(np.int16), record
 
 
 @dataclass(frozen=True)
@@ -621,6 +879,7 @@ class LdcExport:
     accuracy: Dict[str, Any]
     config: Dict[str, Any]
     notes: Tuple[str, ...]
+    board: Optional[Dict[str, Any]] = None
 
 
 def export_ldc(
@@ -654,10 +913,12 @@ def export_ldc(
         result = TI_LDC_MeshGenerator(camera).generate_mesh_and_intrinsics(
             int(out_w), int(out_h), int(downsample_factor), float(balance)
         )
-    accuracy = mesh_accuracy(camera, result, input_size=input_size)
-    record_source = dict(source or {})
-    record_source.update(input_width=int(input_size[0]), input_height=int(input_size[1]))
-    files = write_ldc_mesh(
-        result, output_dir, stem, accuracy=accuracy, source=record_source, overwrite=overwrite
-    )
-    return LdcExport(files, accuracy, result["config"], tuple(str(w.message) for w in caught))
+        accuracy = mesh_accuracy(camera, result, input_size=input_size)
+        record_source = dict(source or {})
+        record_source.update(input_width=int(input_size[0]), input_height=int(input_size[1]))
+        files = write_ldc_mesh(
+            result, output_dir, stem, accuracy=accuracy, source=record_source,
+            input_size=(int(input_size[0]), int(input_size[1])), overwrite=overwrite,
+        )
+    board = json.loads(files.record.read_text())["board_check"]
+    return LdcExport(files, accuracy, result["config"], tuple(str(w.message) for w in caught), board)

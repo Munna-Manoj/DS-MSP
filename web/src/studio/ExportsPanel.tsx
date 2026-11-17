@@ -7,12 +7,17 @@ import { LensViewer } from "./LensViewer";
 import { num } from "./format";
 import { Badge, Card, Note } from "./ui";
 
-/** What a measured mesh means, in words. Only a cut-off mesh is called wrong: that is a fact
- * about the file, not a threshold. */
-export function ldcVerdict(r: { q3_overflow?: boolean; n_invalid_nodes?: number; max_px?: number | null }):
+/** What a measured mesh means, in words. A mesh is called wrong only for facts about the file
+ * or the board, not for a threshold: shifts cut off, or blocks too large for the board. */
+export function ldcVerdict(r: { q3_overflow?: boolean; n_invalid_nodes?: number; max_px?: number | null;
+                                folded_cells?: number; board_fits?: boolean }):
   { tone: "ok" | "warn" | "bad"; word: string; text: string } {
   if (r.q3_overflow)
     return { tone: "bad", word: "Do not use", text: "Some shifts were too large for the file and were cut off, so the edges are corrected wrongly. Keep less of the view, or make the corrected image smaller." };
+  if (r.board_fits === false)
+    return { tone: "bad", word: "Do not use", text: "Parts of the image stretch so much that the board's LDC cannot hold the pixels it needs, even in its smallest blocks, and writes wrong pixels there. Keep less of the view, or make the corrected image smaller." };
+  if ((r.folded_cells ?? 0) > 0)
+    return { tone: "warn", word: "Check this", text: `In ${r.folded_cells} grid cells the lens model folds back on itself, so the corrected image repeats or scrambles the picture there. This happens when a lens type is used beyond the view it was fitted for: choose a lens type that fits the whole lens, or keep less of the view.` };
   if ((r.n_invalid_nodes ?? 0) > 0)
     return { tone: "warn", word: "Check the edges", text: `${r.n_invalid_nodes} grid points lie outside what this lens sees; those parts of the image stay black. Keeping less of the view removes them.` };
   return { tone: "ok", word: "Usable", text: r.max_px != null && r.max_px > 1 ? "Closer grid points would lower the worst error." : "" };
@@ -62,7 +67,7 @@ export function ExportsPanel({ summary, id, photos = false }: { summary: ExportS
             <Note>
               The error is how far the stored mesh sends each corrected pixel from where the lens values say it belongs, in pixels
               of the camera image: the typical value, then the worst. The share is how much of the corrected image shows the scene;
-              the rest is black. Not yet checked on a TI board.
+              the rest is black. Each record lists the tiovxldc settings that load its mesh on the board.
             </Note>
             <div className="overflow-x-auto">
               <table className="w-full text-[15px]">

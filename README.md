@@ -345,7 +345,9 @@ ds-msp export --input results/calibrated_cameras_data.yml --ldc --isaac-lut --ou
 
 Each mesh gets a record with its measured error: at the usual settings, a median of 0.05 px and
 at most 3.1 px over 184 calibrated cameras. Studio does the same from its **Export** page, or
-during a calibration. Not yet checked on a TI board.
+during a calibration. The mesh file loads directly into TI's `tiovxldc` (`lut-file=`); on a
+TDA4VM board, meshes of five camera types matched DS-MSP's model of the correction to within
+0.46 px.
 → [Export LDC meshes and Isaac Sim LUTs](https://github.com/Munna-Manoj/DS-MSP/blob/main/docs/how-to/export_lens_files_in_studio.md)
 
 In Python:

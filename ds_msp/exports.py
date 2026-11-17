@@ -85,6 +85,10 @@ def write_exports(
                                         int(done.config["output_height"])],
                            q3_overflow=bool(done.config["q3_overflow"]),
                            n_invalid_nodes=int(done.config["n_invalid_nodes"]),
+                           folded_cells=int((done.board or {}).get("folded_cells", 0)),
+                           board_fits=(done.board or {}).get("out_block_width") is not None,
+                           out_block=[(done.board or {}).get("out_block_width"),
+                                      (done.board or {}).get("out_block_height")],
                            median_px=acc["median_px"], p99_px=acc["p99_px"],
                            max_px=acc["max_px"], in_view_fraction=acc["in_view_fraction"],
                            notes=list(done.notes))

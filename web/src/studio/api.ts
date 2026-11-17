@@ -379,6 +379,10 @@ export interface JobDoc extends JobBrief {
 export interface LdcRow {
   camera: string; record?: string; mesh?: string; problem?: string;
   output_size?: [number, number]; q3_overflow?: boolean; n_invalid_nodes?: number;
+  /** Mesh cells where the camera model is not one-to-one: the image repeats or scrambles there. */
+  folded_cells?: number;
+  /** False when no LDC output block size keeps each block's input within the board's memory. */
+  board_fits?: boolean; out_block?: [number | null, number | null];
   median_px?: number | null; p99_px?: number | null; max_px?: number | null;
   in_view_fraction?: number | null; notes?: string[];
 }
