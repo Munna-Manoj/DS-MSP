@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.28.1](https://github.com/Munna-Manoj/DS-MSP/compare/v0.28.0...v0.28.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ldc:** size the table and output blocks for the TI board ([c3b9b7b](https://github.com/Munna-Manoj/DS-MSP/commit/c3b9b7b5565a576ab6df8dcf3c194a186b38079f))
+* **ldc:** write the mesh in the layout the TI LDC driver reads ([fe6b982](https://github.com/Munna-Manoj/DS-MSP/commit/fe6b98235effc114b8735cd8493ed8758df69ace))
+* **ldc:** write the mesh, table and block sizes the TI LDC driver needs ([e18ca84](https://github.com/Munna-Manoj/DS-MSP/commit/e18ca84ffbb80fd86b4b11a32bb9bff6c60befc6))
+
 ## [0.28.0](https://github.com/Munna-Manoj/DS-MSP/compare/v0.27.0...v0.28.0) (2026-11-11)
 
 
